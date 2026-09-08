@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/MediaWorkbench.Core/MediaWorkbench.Core.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <Using Include="Xunit" />
+    <None Include="../../src/MediaWorkbench.App/**/*.cs;../../src/MediaWorkbench.App/**/*.xaml"
+          Exclude="../../src/MediaWorkbench.App/bin/**;../../src/MediaWorkbench.App/obj/**"
+          Link="UiSource/%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

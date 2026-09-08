@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MediaWorkbench.Core/MediaWorkbench.Core.csproj" />
+    <Project Path="src/MediaWorkbench.App/MediaWorkbench.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MediaWorkbench.Tests/MediaWorkbench.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,37 @@
+# Architecture
+
+## Project boundaries
+
+- `MediaWorkbench.Core` (.NET 10): media models, recursive scanner, SQLite catalog, atomic settings, tool discovery, process execution, disk cache and FFmpeg-based extraction. No WPF or VLC dependency.
+- `MediaWorkbench.App` (.NET 10 / WPF / x64): MVVM state, native LibVLCSharp playback, gallery/filmstrip UI, settings, keyboard shortcuts and a bounded serial export queue.
+- `MediaWorkbench.Tests`: xUnit tests of core behavior and generated-media integrations. The verification script separately checks WPF construction and native dependencies using `--smoke-test`.
+
+## Frame correctness
+
+FFprobe streams decoded-frame metadata in presentation order. Each frame receives a zero-based ordinal and an actual timestamp normalized by the container start time. The application does not infer frame identity from nominal FPS or VLC's millisecond position. VLC is used for normal playback; pausing/stepping switches to a separately decoded still image.
+
+FFmpeg's `select` filter extracts by decoded ordinal. The precision preview retains its PNG bytes, ordinal and source selection; single-frame exports copy those captured bytes even if the user browses away while the job is queued. Bulk extraction uses `-fps_mode passthrough` to avoid constant-frame-rate duplication and validates the output count. Inclusive in/out markers become an exclusive end boundary at the next actual frame timestamp for audio.
+
+The first implementation deliberately decodes from the beginning for uncached frame requests. Do not replace this with a plain timestamp seek without proving equivalence on B-frames, variable frame rates, nonzero start times, and long GOPs.
+
+## Safety and portability
+
+- Launch FFmpeg/FFprobe directly with `ProcessStartInfo.ArgumentList`, never through a command shell. Bound captured stderr, redirect both streams, and terminate the child process tree on cancellation.
+- Reserve output files with `FileMode.CreateNew`; numeric suffixes prevent overwrite races. FFmpeg may overwrite only the application's newly reserved placeholder. Remove incomplete single-file exports; retain partial frame sequences with an incomplete manifest.
+- Store catalog identity as `(library root, relative path)`. Favorites export only relative paths. Validate every import path before applying any changes; imports merge onto files already indexed under the selected root.
+- NuGet versions are pinned and lockfiles checked in. Native VLC comes from the pinned Windows runtime package. FFmpeg stays external; tool versions are printed during verification and codecs are exercised by integration tests.
+- Personal state stays under LocalAppData, not the Git checkout. Export settings are captured when queuing jobs; changing settings cannot redirect an already queued export.
+
+## Test strategy
+
+The workspace extension uses JSON `StagingCollection` manifests with validated absolute paths, deduplication and atomic saves. Collections do not own media. `TagStore` stores path/tag/source relationships in SQLite, with explicit metadata confirmation at the UI boundary. Favorites resolve across alternate roots so collection browsing does not fork favorite state.
+
+Native WPF imaging loads common photos and metadata without subprocesses. Full previews are detached from worker-thread decoders before cropping/copying. EXIF orientation is applied before selecting pixel rectangles. `CropSurface` maps pointer coordinates through the letterboxed image bounds; only the clipboard bitmap is cropped. PNG/video exports keep their original full-image semantics.
+
+The filmstrip uses pixel-based recycling virtualization, per-container cancellation and a 96-entry thumbnail LRU. Two thumbnail workers decode to a maximum 220-pixel edge. Unloaded/recycled elements release bitmap references. `BatchCollection` raises one reset per discovered batch to avoid repeatedly sorting thousands of per-item additions. Sorting uses a numeric-run comparator without integer conversion/overflow. Full selected-image decoding and thumbnail generation are separated.
+
+The hidden desktop checks additionally verify contextual visibility, consistent button height, exact crop pixels, EXIF rotation, metadata tag confirmation, staging/deduplication/removal/missing files, shared-tag lookup, 5,000-item container virtualization, native thumbnails without FFmpeg, and cache bounds. They render example layouts into ignored artifacts without displaying windows or changing the user's clipboard.
+
+Unit tests verify persisted favorites across store recreation, rescan preservation, root relocation, unsafe path rejection, settings validation and file reservation under concurrency. Integration fixtures generate H.264/B-frame, variable-rate and multichannel media. Independent RGB hashes check frame identity; known audio frequencies check channel isolation. The hidden desktop smoke check constructs XAML, SQLite and LibVLC, and starts both media tools.
+
+Manual validation is still needed for display/DPI behavior, GPU/video playback, very large libraries, codec-dependent color rendering, audio devices, and long-running exports. A successful smoke check is not a substitute for interactive end-to-end testing.

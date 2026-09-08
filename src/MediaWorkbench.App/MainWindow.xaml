@@ -1,0 +1,235 @@
+<Window x:Class="MediaWorkbench.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:MediaWorkbench.App"
+        xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
+        Style="{StaticResource DarkWindowStyle}" ThemeMode="Dark"
+        Title="Media Workbench" Width="1500" Height="940" MinWidth="1080" MinHeight="700"
+        WindowStartupLocation="CenterScreen" PreviewKeyDown="OnPreviewKeyDown" Closed="OnClosed">
+    <Window.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource ActionButton}" />
+        <Style TargetType="TextBox" BasedOn="{StaticResource InputTextBox}" />
+        <Style TargetType="ComboBox" BasedOn="{StaticResource InputComboBox}" />
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="#C6D1E3" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Template"><Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="TabBorder" Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="TabBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" /><Setter Property="Foreground" Value="#FFFFFF" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value></Setter>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+    <Grid Background="{StaticResource CanvasBrush}" Margin="12,8">
+        <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="44" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="26" /></Grid.RowDefinitions>
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Open folder" Command="{Binding OpenFolderCommand}" Style="{StaticResource AccentButton}" />
+                <Button Content="Rescan" Command="{Binding RescanCommand}" />
+                <Button Content="Open exports &#x2197;" Command="{Binding OpenExportsCommand}" />
+                <Button Content="Settings" Command="{Binding ShowSettingsCommand}" Margin="0" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Sources" Command="{Binding ToggleSourcesCommand}" ToolTip="Show/hide folders, collections and tag search" />
+                <TextBlock Text="MEDIA / WORKBENCH" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0" />
+            </StackPanel>
+        </DockPanel>
+        <Grid Grid.Row="1" Margin="0,4,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="144" /><ColumnDefinition Width="174" /><ColumnDefinition Width="116" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}" ToolTip="Search file name or subfolder" AutomationProperties.Name="Search media" Margin="0,0,8,0" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding MediaFilters}" SelectedItem="{Binding MediaFilter}" Margin="0,0,8,0" AutomationProperties.Name="Media type filter" />
+            <ComboBox Grid.Column="2" ItemsSource="{Binding SortOptions}" SelectedItem="{Binding SortMethod}" Margin="0,0,8,0" AutomationProperties.Name="Sort media" />
+            <CheckBox Grid.Column="3" Content="Favorites only" IsChecked="{Binding FavoritesOnly}" VerticalAlignment="Center" Margin="4,0" />
+            <TextBlock Grid.Column="4" Text="{Binding VisibleCount}" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="8,0" />
+        </Grid>
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="324" MinWidth="304" MaxWidth="460" /></Grid.ColumnDefinitions>
+            <Border Width="206" Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="12" Margin="0,0,8,0" Visibility="{Binding ShowSources, Converter={StaticResource BoolVisibility}}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <TextBlock Text="CURRENT SOURCE" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
+                        <TextBlock Text="{Binding SourceName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" ToolTip="{Binding SourceSummary}" />
+                        <TextBlock Text="{Binding SourceSummary}" Style="{StaticResource Hint}" MaxHeight="48" Margin="0,4,0,0" ToolTip="{Binding SourceSummary}" />
+                        <Button Content="Cancel scan" Command="{Binding CancelScanCommand}" Visibility="{Binding IsScanning, Converter={StaticResource BoolVisibility}}" Margin="0,8,0,0" />
+                        <TextBlock Text="STAGING COLLECTIONS" Style="{StaticResource SectionTitle}" Margin="0,20,0,8" />
+                        <TextBox Text="{Binding CollectionName}" AutomationProperties.Name="New collection name" Margin="0,0,0,8" />
+                        <Button Content="Create collection" Command="{Binding CreateCollectionCommand}" Margin="0,0,0,8" />
+                        <ComboBox ItemsSource="{Binding Collections}" SelectedItem="{Binding SelectedCollection}" DisplayMemberPath="Name" AutomationProperties.Name="Staging collection" Margin="0,0,0,8" />
+                        <UniformGrid Columns="2" Margin="0,0,0,8"><Button Content="Open" Command="{Binding OpenCollectionCommand}" /><Button Content="Stage all" Command="{Binding StageFilteredCommand}" Margin="0" ToolTip="Add every currently filtered file to the selected collection" /></UniformGrid>
+                        <Button Content="Remove current item" Command="{Binding RemoveFromCollectionCommand}" Visibility="{Binding IsCollectionView, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,8" />
+                        <TextBlock Text="References only. Your files stay in their original folders." Style="{StaticResource Hint}" />
+                        <UniformGrid Columns="2" Margin="0,8,0,0"><Button Content="Load JSON" Command="{Binding LoadCollectionJsonCommand}" /><Button Content="Save JSON" Command="{Binding ExportCollectionJsonCommand}" Margin="0" /></UniformGrid>
+                        <TextBlock Text="TAGS ACROSS YOUR PC" Style="{StaticResource SectionTitle}" Margin="0,20,0,8" />
+                        <TextBox Text="{Binding TagFilter, UpdateSourceTrigger=PropertyChanged, Delay=200}" AutomationProperties.Name="Filter by tag" ToolTip="Type a tag to filter this source" Margin="0,0,0,8" />
+                        <ComboBox ItemsSource="{Binding KnownTags}" SelectedItem="{Binding SelectedKnownTag}" AutomationProperties.Name="Known tags" Margin="0,0,0,8" />
+                        <Button Content="Search all tagged files" Command="{Binding BrowseTaggedCommand}" Margin="0,0,0,8" />
+                        <Button Content="Clear filters" Command="{Binding ClearFiltersCommand}" Margin="0,0,0,8" />
+                        <TextBlock Text="Searches files you have tagged, including other folders and drives." Style="{StaticResource Hint}" />
+                        <Expander Header="Favorites transfer" Foreground="#EDF1F7" Margin="0,20,0,0">
+                            <StackPanel Margin="0,8,0,0"><Button Content="Export favorites&#x2026;" Command="{Binding ExportFavoritesCommand}" Margin="0,0,0,8" /><Button Content="Import favorites&#x2026;" Command="{Binding ImportFavoritesCommand}" Margin="0" /></StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid Margin="2,0,2,8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding SelectionLabel}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedAsset.Asset.FullPath}" />
+                        <TextBlock Text="{Binding MediaSummary}" Style="{StaticResource Hint}" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
+                        <Button Content="&#x2605; Favorite" Command="{Binding ToggleFavoriteCommand}" ToolTip="Toggle favorite (F)" />
+                        <Button Content="Stage" Command="{Binding StageSelectedCommand}" ToolTip="Add this file to the selected staging collection (S)" Margin="0" />
+                    </StackPanel>
+                </Grid>
+                <Border Grid.Row="1" Background="#080C12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                    <Grid>
+                        <local:CropSurface x:Name="PreviewSurface" Source="{Binding PreviewImage}" Selection="{Binding CropSelection}" IsCropping="{Binding IsCropping}" />
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="380" Margin="24" IsHitTestVisible="False">
+                            <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding PreviewImage}" Value="{x:Null}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                            <TextBlock Text="Find. Stage. Reuse." FontSize="26" TextAlignment="Center" Foreground="{StaticResource AccentBrush}" />
+                            <TextBlock Text="Open a folder or collection, then select media from the filmstrip. Its tools and metadata appear here." TextWrapping="Wrap" TextAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" />
+                        </StackPanel>
+                        <vlc:VideoView MediaPlayer="{Binding Player}" Visibility="{Binding ShowPlayback, Converter={StaticResource BoolVisibility}}" />
+                        <ProgressBar Height="3" VerticalAlignment="Bottom" IsIndeterminate="True" Visibility="{Binding IsFrameLoading, Converter={StaticResource BoolVisibility}}" />
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                    <StackPanel x:Name="VideoTimeline" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}">
+                        <DockPanel><TextBlock Text="{Binding FrameLabel}" Style="{StaticResource Hint}" /><TextBlock Text="In/out markers in Export tab" Style="{StaticResource Hint}" HorizontalAlignment="Right" /></DockPanel>
+                        <Slider Minimum="0" Maximum="{Binding MaximumFrame}" Value="{Binding CurrentFrame}" IsSnapToTickEnabled="True" TickFrequency="1" IsEnabled="{Binding HasFrames}" Margin="0,6,0,8" AutomationProperties.Name="Exact frame position" />
+                    </StackPanel>
+                    <WrapPanel Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
+                        <Button x:Name="PlaybackButton" Content="&#x25B6; / &#x2161; Play" Command="{Binding TogglePlaybackCommand}" IsEnabled="{Binding CanPlay}" Margin="0,0,6,6">
+                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding IsPhoto}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                        </Button>
+                        <Button Content="&#x25C0; Frame" Command="{Binding PreviousFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" Margin="0,0,6,6" />
+                        <Button Content="Frame &#x25B6;" Command="{Binding NextFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" Margin="0,0,6,6" />
+                        <Button Content="{Binding CopyLabel}" Command="{Binding CopyPreviewCommand}" IsEnabled="{Binding CanCopy}" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}" Style="{StaticResource AccentButton}" ToolTip="Copy full-resolution pixels (Ctrl+C)" Margin="0,0,6,6" />
+                        <Button x:Name="CropButton" Command="{Binding ToggleCropCommand}" IsEnabled="{Binding CanCopy}" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}" Margin="0,0,6,6">
+                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Content" Value="Crop" /><Style.Triggers><DataTrigger Binding="{Binding IsCropping}" Value="True"><Setter Property="Content" Value="Cropping on" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                        </Button>
+                        <Button Content="Reset crop" Command="{Binding ResetCropCommand}" Visibility="{Binding HasCrop, Converter={StaticResource BoolVisibility}}" Margin="0,0,6,6" />
+                        <Button Content="{Binding ExportLabel}" Command="{Binding ExportFrameCommand}" IsEnabled="{Binding CanExportFrame}" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}" ToolTip="Export the uncropped full frame (E)" Margin="0,0,0,6" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding CropLabel}" Style="{StaticResource Hint}" Visibility="{Binding IsCropping, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,4" />
+                </StackPanel>
+            </Grid>
+            <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Center" Background="{StaticResource BorderBrush}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" />
+            <Border Grid.Column="3" Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="8,0,8,8">
+                <TabControl SelectedIndex="{Binding InspectorTab}" Background="Transparent" BorderThickness="0" Padding="0,8,0,0">
+                    <TabItem Header="Details">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                <DockPanel><TextBlock Text="{Binding SelectedKindLabel}" Style="{StaticResource SectionTitle}" Margin="0,4,0,8" /><Button Content="Reveal file" Command="{Binding RevealFileCommand}" HorizontalAlignment="Right" Margin="0" IsEnabled="{Binding HasSelection}" /></DockPanel>
+                                <TextBlock Text="Check metadata values to turn into tags. Nothing is added until you confirm." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                            </StackPanel>
+                            <Button DockPanel.Dock="Bottom" Content="Confirm selected metadata tags" Command="{Binding ConfirmMetadataTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,8,0,0" />
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding Metadata}"><ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsSelected}" IsEnabled="{Binding CanTag}" Margin="0,0,8,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding Name}" />
+                                            <StackPanel><TextBlock Text="{Binding Name}" Style="{StaticResource Hint}" /><TextBlock Text="{Binding Value}" TextWrapping="Wrap" Margin="0,3,0,0" ToolTip="{Binding Value}" /></StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </TabItem>
+                    <TabItem Header="Tags">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel>
+                            <TextBlock Text="ORGANIZE THIS FILE" Style="{StaticResource SectionTitle}" />
+                            <TextBox Text="{Binding TagText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Comma separated tags" ToolTip="Comma-separated tags" Margin="0,0,0,8" />
+                            <Button Content="Add tags" Command="{Binding AddTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,0,0,8" />
+                            <TextBlock Text="Tags are local labels, never written into your media. Use the Details tab to choose and confirm metadata tags." Style="{StaticResource Hint}" Margin="0,0,0,12" />
+                            <ItemsControl ItemsSource="{Binding SelectedTags}"><ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Background="#252D3D" CornerRadius="5" Padding="8,4" Margin="0,0,0,6"><DockPanel><Button DockPanel.Dock="Right" Content="Remove" Command="{Binding DataContext.RemoveTagCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Margin="8,0,0,0" /><TextBlock Text="{Binding}" TextWrapping="Wrap" VerticalAlignment="Center" /></DockPanel></Border>
+                            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                            <Button Content="Find files with shared tags" Command="{Binding FindRelatedCommand}" IsEnabled="{Binding HasSelection}" Margin="0,12,0,8" />
+                            <Button Content="Export tag relationships (JSON)" Command="{Binding ExportTagGraphCommand}" Margin="0,0,0,8" />
+                            <TextBlock Text="Related files use shared tags, not visual AI similarity. Export path/tag/source relationships for future graphing." Style="{StaticResource Hint}" />
+                        </StackPanel></ScrollViewer>
+                    </TabItem>
+                    <TabItem Header="Export">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel>
+                            <StackPanel x:Name="VideoExportPanel" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}">
+                                <TextBlock Text="VIDEO SELECTION" Style="{StaticResource SectionTitle}" />
+                                <UniformGrid Columns="2" Margin="0,0,0,8"><Button Content="Mark in (I)" Command="{Binding MarkInCommand}" IsEnabled="{Binding HasFrames}" /><Button Content="Mark out (O)" Command="{Binding MarkOutCommand}" IsEnabled="{Binding HasFrames}" Margin="0" /></UniformGrid>
+                                <UniformGrid Columns="2" Margin="0,0,0,8"><TextBox Text="{Binding InFrame}" AutomationProperties.Name="In frame inclusive" Margin="0,0,6,0" /><TextBox Text="{Binding OutFrame}" AutomationProperties.Name="Out frame inclusive" Margin="0" /></UniformGrid>
+                                <TextBlock Text="{Binding RangeLabel}" Style="{StaticResource Hint}" Margin="0,0,0,8" />
+                                <Button Content="Trim selection to MP4" Command="{Binding TrimVideoCommand}" IsEnabled="{Binding HasFrames}" Margin="0,0,0,8" />
+                                <UniformGrid Columns="2" Margin="0,0,0,8"><Button Content="Selected frames" Command="{Binding ExportSelectedFramesCommand}" IsEnabled="{Binding HasFrames}" /><Button Content="ALL frames" Command="{Binding ExportAllFramesCommand}" IsEnabled="{Binding HasFrames}" Margin="0" /></UniformGrid>
+                            </StackPanel>
+                            <StackPanel x:Name="AudioExportPanel" Visibility="{Binding HasAudio, Converter={StaticResource BoolVisibility}}">
+                                <TextBlock Text="AUDIO SELECTION" Style="{StaticResource SectionTitle}" />
+                                <ComboBox ItemsSource="{Binding AudioTracks}" SelectedItem="{Binding SelectedAudioTrack}" DisplayMemberPath="Label" AutomationProperties.Name="Audio track" Margin="0,0,0,8" />
+                                <ComboBox ItemsSource="{Binding AudioChannels}" SelectedIndex="{Binding SelectedChannelIndex}" AutomationProperties.Name="Audio channel" Margin="0,0,0,8" />
+                                <UniformGrid Columns="2"><StackPanel Margin="0,0,6,0"><TextBlock Text="Start seconds" Style="{StaticResource Hint}" /><TextBox Text="{Binding AudioStart, StringFormat=0.######}" AutomationProperties.Name="Audio start seconds" /></StackPanel><StackPanel><TextBlock Text="End (exclusive)" Style="{StaticResource Hint}" /><TextBox Text="{Binding AudioEnd, StringFormat=0.######}" AutomationProperties.Name="Audio end seconds" /></StackPanel></UniformGrid>
+                                <Button Content="Export audio to WAV" Command="{Binding ExportAudioCommand}" Margin="0,8,0,8" />
+                            </StackPanel>
+                            <TextBlock Text="Use Copy image / Crop beneath the preview for clipboard-only edits. Export PNG saves the original full image, not the crop." Style="{StaticResource Hint}" Visibility="{Binding IsPhoto, Converter={StaticResource BoolVisibility}}" Margin="0,8,0,8" />
+                            <TextBlock Text="EXPORT QUEUE" Style="{StaticResource SectionTitle}" />
+                            <ItemsControl ItemsSource="{Binding Jobs}"><ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Background="#101722" CornerRadius="6" Padding="8" Margin="0,0,0,8"><StackPanel>
+                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" /><ProgressBar Value="{Binding Progress}" Height="4" Margin="0,8" />
+                                    <TextBlock Text="{Binding Status}" Style="{StaticResource Hint}" MaxHeight="60" ToolTip="{Binding Status}" /><TextBlock Text="{Binding OutputPath}" TextTrimming="CharacterEllipsis" FontSize="10" ToolTip="{Binding OutputPath}" />
+                                    <Button Content="Cancel" Command="{Binding DataContext.CancelJobCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                                </StackPanel></Border>
+                            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        </StackPanel></ScrollViewer>
+                    </TabItem>
+                    <TabItem Header="Settings">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel>
+                            <TextBlock Text="DEFAULT EXPORT DESTINATION" Style="{StaticResource SectionTitle}" />
+                            <TextBox Text="{Binding ExportDirectory}" AutomationProperties.Name="Default export folder" ToolTip="{Binding ExportDirectory}" Margin="0,0,0,8" />
+                            <Button Content="Browse folder" Command="{Binding BrowseExportDirectoryCommand}" Margin="0,0,0,16" />
+                            <TextBlock Text="FFmpeg bin folder (blank = PATH)" Style="{StaticResource Hint}" /><TextBox Text="{Binding FfmpegDirectory}" AutomationProperties.Name="FFmpeg bin folder" Margin="0,4,0,12" />
+                            <TextBlock Text="Disk cache limit (64-8192 MB)" Style="{StaticResource Hint}" /><TextBox Text="{Binding CacheMegabytes}" AutomationProperties.Name="Cache limit in megabytes" Margin="0,4,0,12" />
+                            <Button Content="Check tools and save" Command="{Binding SaveSettingsCommand}" Margin="0,0,0,12" />
+                            <TextBlock Text="Copy and crop never save media. Export commands use this folder with automatic filenames. Settings and collection JSON live in LocalAppData/MediaWorkbench." Style="{StaticResource Hint}" />
+                        </StackPanel></ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Border>
+        </Grid>
+        <Border Grid.Row="3" Background="{StaticResource PanelBrush}" CornerRadius="8" Padding="8" Margin="0,8,0,0">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><TextBlock Text="Thumbnail size" Style="{StaticResource Hint}" VerticalAlignment="Center" /><Slider Width="100" Minimum="56" Maximum="128" Value="{Binding ThumbnailHeight}" Margin="8,0,0,0" AutomationProperties.Name="Thumbnail size" /></StackPanel>
+                    <StackPanel Orientation="Horizontal"><Button Content="&#x25C0;" Command="{Binding PreviousAssetCommand}" Width="32" Padding="0" ToolTip="Previous file (Left for images; Page Up for all media)" /><Button Content="&#x25B6;" Command="{Binding NextAssetCommand}" Width="32" Padding="0" ToolTip="Next file (Right for images; Page Down for all media)" /><TextBlock Text="{Binding SourceName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="500" Margin="6,0" /></StackPanel>
+                </DockPanel>
+                <ListBox x:Name="Filmstrip" Height="{Binding FilmstripHeight}" ItemsSource="{Binding LibraryView}" SelectedItem="{Binding SelectedAsset}"
+                         ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel" VirtualizingPanel.CacheLength="1,1" VirtualizingPanel.CacheLengthUnit="Page"
+                         PreviewMouseWheel="FilmstripMouseWheel" SelectionChanged="FilmstripSelectionChanged" AutomationProperties.Name="Media filmstrip">
+                    <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource MediaListItem}"><Setter Property="Margin" Value="0,0,4,0" /><Setter Property="Padding" Value="3" /></Style></ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate><DataTemplate>
+                        <StackPanel Width="{Binding DataContext.ThumbnailWidth, RelativeSource={RelativeSource AncestorType=Window}}" ToolTip="{Binding Details}">
+                            <Grid Height="{Binding DataContext.ThumbnailHeight, RelativeSource={RelativeSource AncestorType=Window}}" Background="#0B1018">
+                                <TextBlock Text="{Binding Placeholder}" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" Loaded="ThumbnailLoaded" Unloaded="ThumbnailUnloaded" DataContextChanged="ThumbnailContextChanged" />
+                                <Border Background="#D0101722" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="3" Padding="4,0"><TextBlock Text="{Binding FavoriteLabel}" Foreground="{StaticResource AccentBrush}" FontSize="15" /></Border>
+                            </Grid>
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+        <TextBlock Grid.Row="4" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Status}" AutomationProperties.LiveSetting="Polite" />
+    </Grid>
+</Window>
