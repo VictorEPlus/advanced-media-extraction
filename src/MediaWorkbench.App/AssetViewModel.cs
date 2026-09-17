@@ -9,8 +9,8 @@ public sealed partial class AssetViewModel(MediaAsset asset, bool favorite) : Ob
     public MediaAsset Asset { get; } = asset;
     public string Name => Asset.Name;
     public string Details => $"{Asset.Kind} - {Asset.RelativePath}";
-    public string FavoriteLabel => IsFavorite ? "\u2605" : "\u2606";
-    public string Placeholder => Asset.Kind == MediaKind.Audio ? "\u266B" : Asset.Kind == MediaKind.Video ? "\u25B6" : "\u25A7";
+    public string FavoriteLabel => IsFavorite ? "★" : "☆";
+    public string Placeholder => Asset.Kind == MediaKind.Audio ? "♫" : Asset.Kind == MediaKind.Video ? "▶" : "▧";
     public bool ThumbnailRequested { get; set; }
 
     public string TagSummary => string.Join(", ", Tags);
@@ -30,6 +30,8 @@ public sealed partial class ExportJobViewModel(string title, CancellationToken l
 {
     public string Title { get; } = title;
     public CancellationTokenSource Cancellation { get; } = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+    public bool IsActive => !IsFinished;
+    public bool HasOutput => !string.IsNullOrEmpty(OutputPath);
 
     [ObservableProperty]
     private string status = "Queued";
@@ -38,8 +40,10 @@ public sealed partial class ExportJobViewModel(string title, CancellationToken l
     private double progress;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsActive))]
     private bool isFinished;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOutput))]
     private string? outputPath;
 }

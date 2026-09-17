@@ -18,6 +18,43 @@ public sealed class SettingsAndRangeTests
     }
 
     [Fact]
+    public void RecentLibrariesAreBoundedDeduplicatedAndPersisted()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new SettingsStore(temporary.FilePath("settings.json"));
+        var settings = new AppSettings { ExportDirectory = temporary.FilePath("exports") };
+        for (var index = 0; index < AppSettings.RecentLibraryLimit + 3; index++)
+            settings = settings.WithRecentLibrary(temporary.FilePath($"library{index}"));
+        settings = settings.WithRecentLibrary(temporary.FilePath("library5") + Path.DirectorySeparatorChar);
+        Assert.Equal(AppSettings.RecentLibraryLimit, settings.RecentLibraries.Length);
+        Assert.Equal(temporary.FilePath("library5"), settings.RecentLibraries[0]);
+        Assert.Equal(temporary.FilePath("library5"), settings.LastLibrary);
+        Assert.Single(settings.RecentLibraries, path => path.EndsWith("library5", StringComparison.Ordinal));
+        store.Save(settings);
+        Assert.Equal(settings, store.Load());
+        Assert.Throws<InvalidDataException>(() => store.Save(settings with { RecentLibraries = ["relative"] }));
+    }
+
+    [Fact]
+    public void ExportHistoryRoundTripsNewestFirstAndSurvivesCorruption()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new JobHistoryStore(temporary.FilePath("history.json"));
+        Assert.Empty(store.Load());
+        var records = Enumerable.Range(0, JobHistoryStore.Capacity + 5)
+            .Select(index => new ExportJobRecord($"Job {index}", index % 2 == 0 ? "Complete" : "Failed: x", temporary.FilePath($"out{index}.png"), DateTimeOffset.UnixEpoch.AddMinutes(index)))
+            .ToArray();
+        store.Save(records);
+        var loaded = store.Load();
+        Assert.Equal(JobHistoryStore.Capacity, loaded.Count);
+        Assert.Equal("Job 204", loaded[0].Title);
+        Assert.True(loaded[0].Succeeded);
+        Assert.False(loaded[1].Succeeded);
+        File.WriteAllText(temporary.FilePath("history.json"), "{ not json");
+        Assert.Empty(store.Load());
+    }
+
+    [Fact]
     public void CorruptSettingsAreNotSilentlyOverwritten()
     {
         using var temporary = new TemporaryDirectory();

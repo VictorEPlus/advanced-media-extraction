@@ -16,6 +16,8 @@ public sealed class CropSurface : FrameworkElement
     public bool IsCropping { get => (bool)GetValue(IsCroppingProperty); set => SetValue(IsCroppingProperty, value); }
     private Point? dragStart;
 
+    public CropSurface() => Focusable = true;
+
     protected override void OnRender(DrawingContext context)
     {
         context.DrawRectangle(new SolidColorBrush(Color.FromRgb(8, 12, 18)), null, new Rect(RenderSize));
@@ -35,6 +37,8 @@ public sealed class CropSurface : FrameworkElement
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs args)
     {
+        // Clicking the preview gives it keyboard focus so Left/Right step frames instead of changing the filmstrip file.
+        Focus();
         if (!IsCropping || Source is null) return;
         dragStart = args.GetPosition(this);
         CaptureMouse();

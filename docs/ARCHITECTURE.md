@@ -12,7 +12,9 @@ FFprobe streams decoded-frame metadata in presentation order. Each frame receive
 
 FFmpeg's `select` filter extracts by decoded ordinal. The precision preview retains its PNG bytes, ordinal and source selection; single-frame exports copy those captured bytes even if the user browses away while the job is queued. Bulk extraction uses `-fps_mode passthrough` to avoid constant-frame-rate duplication and validates the output count. Inclusive in/out markers become an exclusive end boundary at the next actual frame timestamp for audio.
 
-The first implementation deliberately decodes from the beginning for uncached frame requests. Do not replace this with a plain timestamp seek without proving equivalence on B-frames, variable frame rates, nonzero start times, and long GOPs.
+Uncached frame requests deliberately decode from the beginning of the file. Do not replace this with a plain timestamp seek without proving equivalence on B-frames, variable frame rates, nonzero start times, and long GOPs. Two accelerations keep that guarantee: a cache miss decodes a window (`WindowBefore` ordinals before and `WindowAfter` after the request) in one `select=between` pass and files each output under its own ordinal key, and the frame index is persisted per file identity (`path|size|mtime`) as `*.index.json` in the cache so a video is scanned once.
+
+The view model separates the requested frame (`CurrentFrame`, what the timeline shows) from the displayed frame (`DisplayedFrame`, the ordinal whose PNG bytes are on screen). Exports always use the displayed ordinal and bytes. While a decode is pending the previous still stays visible, dimmed, with an overlay naming both ordinals; indexing runs in the background after the probe so metadata and frame 0 appear first, and any request made before the index finishes is reconciled when it lands.
 
 ## Safety and portability
 
@@ -20,7 +22,9 @@ The first implementation deliberately decodes from the beginning for uncached fr
 - Reserve output files with `FileMode.CreateNew`; numeric suffixes prevent overwrite races. FFmpeg may overwrite only the application's newly reserved placeholder. Remove incomplete single-file exports; retain partial frame sequences with an incomplete manifest.
 - Store catalog identity as `(library root, relative path)`. Favorites export only relative paths. Validate every import path before applying any changes; imports merge onto files already indexed under the selected root.
 - NuGet versions are pinned and lockfiles checked in. Native VLC comes from the pinned Windows runtime package. FFmpeg stays external; tool versions are printed during verification and codecs are exercised by integration tests.
-- Personal state stays under LocalAppData, not the Git checkout. Export settings are captured when queuing jobs; changing settings cannot redirect an already queued export.
+- Personal state stays under LocalAppData, not the Git checkout. Export settings are captured when queuing jobs; changing settings cannot redirect an already queued export. Finished jobs are appended to `export-history.json` (newest first, bounded); jobs still running at shutdown are recorded as interrupted.
+- Feedback has three channels: the status line for routine context, transient success/info notifications and sticky error notifications over the preview, and the Export tab badge. Queueing never switches tabs.
+- The filmstrip's selection is one-way: the view model drives the highlight, and a null pushed by the ListBox after a collection reset or a filter refresh is ignored, so the inspected asset is never torn down by scanning or searching.
 
 ## Test strategy
 

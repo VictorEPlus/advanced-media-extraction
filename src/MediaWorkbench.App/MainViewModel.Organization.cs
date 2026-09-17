@@ -19,6 +19,8 @@ public sealed partial class MainViewModel
     private readonly SemaphoreSlim photoDecodeGate = new(1);
     private string? activeCollectionPath;
     private bool virtualSource;
+    private bool hasSource;
+    private int visibleCount;
     public ObservableCollection<MetadataRow> Metadata { get; } = [];
     public ObservableCollection<string> SelectedTags { get; } = [];
     public ObservableCollection<string> KnownTags { get; } = [];
@@ -36,14 +38,34 @@ public sealed partial class MainViewModel
     public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.AspectRatio(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
     public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString().ToUpperInvariant() ?? "NO SELECTION";
     public string SourceSummary => virtualSource ? SourceName : LibraryRoot;
-    public string VisibleCount => $"{LibraryView.Cast<object>().Count():N0} / {Assets.Count:N0}";
+    public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files";
     public bool IsCollectionView => activeCollectionPath is not null;
     public double ThumbnailWidth => ThumbnailHeight * 1.6;
     public double FilmstripHeight => ThumbnailHeight + 48;
+    /// <summary>The inspected file is still selected but no longer passes the filters. It is kept rather than torn down.</summary>
+    public bool IsSelectionHidden => SelectedAsset is { } selected && !FilterAsset(selected);
+    public bool HasActiveFilters => !string.IsNullOrWhiteSpace(SearchText) || MediaFilter != "All media" || FavoritesOnly || !string.IsNullOrWhiteSpace(TagFilter);
+    public string StageFilteredLabel => $"Stage {visibleCount:N0} filtered";
+    public bool HasSource => hasSource;
+    public string EmptyTitle => !hasSource ? "Open a folder to begin"
+        : HasSelection ? (IsAudio ? "Audio file selected" : "Loading preview…")
+        : IsScanning && Assets.Count == 0 ? "Scanning…"
+        : Assets.Count == 0 ? "No supported media here"
+        : visibleCount == 0 ? "Nothing matches the current filters"
+        : "Select a file from the filmstrip";
+    public string EmptyText => !hasSource ? "Browse local photos, videos and audio, or drop a folder onto this window. Originals are never modified; every edit is a separate export."
+        : HasSelection ? (IsAudio ? "Play it with Space, or pick a track, channel and time range in the Export tab." : "Decoding the first still image.")
+        : IsScanning && Assets.Count == 0 ? "Media files appear in the filmstrip as folders are read."
+        : Assets.Count == 0 ? "Supported extensions include common photo, video and audio formats. Use Rescan after adding files."
+        : visibleCount == 0 ? "Clear the search, media type, favorites or tag filters to see files again."
+        : "Its tools and metadata appear here. Press F to favorite, S to stage, E to export.";
+    public bool ShowEmptyOpenFolder => !hasSource;
+    public bool ShowEmptyClearFilters => hasSource && !HasSelection && Assets.Count > 0 && visibleCount == 0;
 
     [ObservableProperty] private string sortMethod = "Name (natural)";
     [ObservableProperty] private string sourceName = "Open a folder to begin";
     [ObservableProperty] private bool showSources = true;
+    [ObservableProperty] private bool showInspector = true;
     [ObservableProperty] private int inspectorTab;
     [ObservableProperty] private double thumbnailHeight = 84;
     [ObservableProperty] private string tagText = "";
@@ -54,6 +76,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] private PixelCrop? cropSelection;
     [ObservableProperty] private bool isCropping;
     [ObservableProperty] private string mediaSummary = "";
+    [ObservableProperty] private bool isMetadataTagMode;
 
     private void InitializeOrganization()
     {
@@ -63,6 +86,7 @@ public sealed partial class MainViewModel
         SortMethod = SortOptions.Contains(settings.SortMethod) ? settings.SortMethod : SortOptions[0];
         ThumbnailHeight = settings.ThumbnailHeight;
         ShowSources = settings.ShowSources;
+        ShowInspector = settings.ShowInspector;
         ApplySort();
     }
 
@@ -73,18 +97,36 @@ public sealed partial class MainViewModel
     partial void OnCropSelectionChanged(PixelCrop? value) { OnPropertyChanged(nameof(CopyLabel)); OnPropertyChanged(nameof(CropLabel)); OnPropertyChanged(nameof(HasCrop)); }
     partial void OnIsCroppingChanged(bool value) { if (value && ShowPlayback) { PauseAtPlaybackPosition(); _ = SeekFrameAsync(); } }
     partial void OnSelectedKnownTagChanged(string? value) { if (value is not null) TagFilter = value; }
+    partial void OnIsScanningChanged(bool value) => NotifyEmptyState();
 
     private void RefreshView()
     {
         LibraryView.Refresh();
-        if (SelectedAsset is not null && !LibraryView.Contains(SelectedAsset)) SelectedAsset = null;
+        UpdateVisibleCount();
+        OnPropertyChanged(nameof(IsSelectionHidden));
+        OnPropertyChanged(nameof(HasActiveFilters));
+        // The filmstrip highlight follows the view; the inspected asset itself is never cleared by a filter.
+        OnPropertyChanged(nameof(SelectedAsset));
+        NotifyEmptyState();
+    }
+
+    private void UpdateVisibleCount()
+    {
+        visibleCount = LibraryView is ListCollectionView view ? view.Count : LibraryView.Cast<object>().Count();
         OnPropertyChanged(nameof(VisibleCount));
+        OnPropertyChanged(nameof(StageFilteredLabel));
+    }
+
+    private void NotifyEmptyState()
+    {
+        foreach (var property in new[] { nameof(EmptyTitle), nameof(EmptyText), nameof(ShowEmptyOpenFolder), nameof(ShowEmptyClearFilters), nameof(HasSource), nameof(ShowEmptyState) })
+            OnPropertyChanged(property);
     }
 
     private void ApplySort()
     {
         if (LibraryView is ListCollectionView view) view.CustomSort = new AssetComparer(SortMethod);
-        OnPropertyChanged(nameof(VisibleCount));
+        UpdateVisibleCount();
     }
 
     private sealed class AssetComparer(string method) : IComparer
@@ -141,6 +183,14 @@ public sealed partial class MainViewModel
     });
 
     [RelayCommand]
+    private void ToggleMetadataTagMode()
+    {
+        IsMetadataTagMode = !IsMetadataTagMode;
+        if (!IsMetadataTagMode)
+            foreach (var row in Metadata) row.IsSelected = false;
+    }
+
+    [RelayCommand]
     private void ConfirmMetadataTags() => Guard(() =>
     {
         if (SelectedAsset is null) return;
@@ -148,9 +198,11 @@ public sealed partial class MainViewModel
         if (selected.Length == 0) throw new InvalidOperationException("Check the metadata values you want, then confirm.");
         tagStore.Add(SelectedAsset.Asset.FullPath, selected, "confirmed metadata");
         foreach (var row in Metadata) row.IsSelected = false;
+        IsMetadataTagMode = false;
         ReloadTags();
         RefreshView();
         Status = $"Added {selected.Length} confirmed metadata tags. Nothing is tagged automatically.";
+        Notify(NotificationKind.Success, $"Added {selected.Length} metadata tags to {SelectedAsset.Name}.");
     });
 
     [RelayCommand]
@@ -184,6 +236,8 @@ public sealed partial class MainViewModel
         File.WriteAllText(output.Path, tagStore.ExportJson());
         output.Complete();
         Status = $"Tag relationships exported: {output.Path}. Includes absolute file paths.";
+        var path = output.Path;
+        Notify(NotificationKind.Success, "Tag relationships exported. The file includes absolute paths.", "Open output", () => RevealPath(path));
     });
 
     private void RefreshCollections()
@@ -244,6 +298,14 @@ public sealed partial class MainViewModel
     }
 
     [RelayCommand]
+    private async Task OpenCollectionItemAsync(CollectionItem? item)
+    {
+        if (item is null) return;
+        SelectedCollection = item;
+        await OpenCollectionAsync();
+    }
+
+    [RelayCommand]
     private async Task RemoveFromCollectionAsync()
     {
         try
@@ -281,6 +343,8 @@ public sealed partial class MainViewModel
         collectionStore.Save(output.Path, collectionStore.Load(item.FilePath));
         output.Complete();
         Status = "Saved collection JSON: " + output.Path;
+        var path = output.Path;
+        Notify(NotificationKind.Success, $"Saved collection JSON for {item.Name}.", "Open output", () => RevealPath(path));
     });
 
     private async Task LoadVirtualAsync(string[] paths, string name)
@@ -292,8 +356,11 @@ public sealed partial class MainViewModel
         SelectedAsset = null;
         Assets.Clear();
         virtualSource = true;
+        hasSource = true;
         SourceName = name;
         OnPropertyChanged(nameof(IsCollectionView));
+        UpdateVisibleCount();
+        NotifyEmptyState();
         var missing = 0;
         try
         {
@@ -315,6 +382,8 @@ public sealed partial class MainViewModel
                 if (batch.Count > 0) await AddVirtualBatchAsync(batch.ToArray(), cancellation.Token);
             }, cancellation.Token);
             Status = $"{Assets.Count:N0} available items / {missing:N0} missing or unsupported references. Collection paths are preserved.";
+            if (missing > 0)
+                Notify(NotificationKind.Info, $"{missing:N0} referenced files are missing or unsupported. Their references were kept.");
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { ReportError(exception); }
@@ -334,7 +403,7 @@ public sealed partial class MainViewModel
         {
             token.ThrowIfCancellationRequested();
             Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.FullPath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []) }));
-            OnPropertyChanged(nameof(VisibleCount));
+            AfterBatchAdded();
         }, System.Windows.Threading.DispatcherPriority.Background, token);
     }
 
@@ -351,7 +420,13 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void ToggleSources() => ShowSources = !ShowSources;
     [RelayCommand]
-    private void ShowSettings() => InspectorTab = InspectorTab == 3 ? 0 : 3;
+    private void ToggleInspector() => ShowInspector = !ShowInspector;
+    [RelayCommand]
+    private void ShowSettings()
+    {
+        if (!ShowInspector) { ShowInspector = true; InspectorTab = 3; return; }
+        InspectorTab = InspectorTab == 3 ? 0 : 3;
+    }
     [RelayCommand]
     private void PreviousAsset() => MoveAsset(-1);
     [RelayCommand]
@@ -360,7 +435,8 @@ public sealed partial class MainViewModel
     private void MoveAsset(int delta)
     {
         if (LibraryView is not ListCollectionView view || view.Count == 0) return;
-        SelectedAsset = (AssetViewModel)view.GetItemAt(Math.Clamp(view.IndexOf(SelectedAsset) + delta, 0, view.Count - 1));
+        var index = SelectedAsset is null ? -1 : view.IndexOf(SelectedAsset);
+        SelectedAsset = (AssetViewModel)view.GetItemAt(Math.Clamp(index + delta, 0, view.Count - 1));
     }
 
     [RelayCommand]
@@ -373,6 +449,7 @@ public sealed partial class MainViewModel
         if (!CanCopy) throw new InvalidOperationException("Wait for a still preview before copying. Pause video to copy its current frame.");
         Clipboard.SetImage(BuildClipboardImage());
         Status = HasCrop ? "Cropped pixels copied to clipboard. No media file saved or changed." : "Image pixels copied to clipboard. No media file saved or changed.";
+        Notify(NotificationKind.Success, HasCrop ? $"Copied {CropSelection!.Width} x {CropSelection.Height} px to the clipboard." : "Copied the full image to the clipboard.");
     });
 
     internal BitmapSource BuildClipboardImage()
@@ -407,6 +484,8 @@ public sealed partial class MainViewModel
             Metadata.Add(new MetadataRow("Duration", $"{info.Duration:0.###} s"));
             Metadata.Add(new MetadataRow("Audio tracks", info.AudioTracks.Count.ToString()));
             if (IsAudio) MediaSummary = $"{info.Duration:0.###} s / {info.AudioTracks.Count} tracks / {asset.Length / 1048576.0:N1} MB";
+            else if (PreviewImage is null && values.TryGetValue("width", out var width) && values.TryGetValue("height", out var height))
+                MediaSummary = $"{width} x {height} / {info.Duration:0.###} s / {asset.Length / 1048576.0:N1} MB";
         }
         var names = new Dictionary<string, string>
         {
@@ -430,5 +509,5 @@ public sealed partial class MainViewModel
         }
     }
 
-    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources };
+    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector };
 }

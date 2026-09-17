@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -10,12 +11,68 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel viewModel;
     private readonly Dictionary<Image, (AssetViewModel Item, CancellationTokenSource Cancellation)> thumbnailRequests = new();
+    private GridLength inspectorWidth = new(324);
 
     public MainWindow(MainViewModel viewModel)
     {
         this.viewModel = viewModel;
         InitializeComponent();
         DataContext = viewModel;
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ApplyInspectorVisibility();
+        SyncFilmstripSelection();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        switch (args.PropertyName)
+        {
+            case nameof(MainViewModel.SelectedAsset): SyncFilmstripSelection(); break;
+            case nameof(MainViewModel.ShowInspector): ApplyInspectorVisibility(); break;
+        }
+    }
+
+    /// <summary>
+    /// The filmstrip highlight follows the view model, never the other way round for clears: a collection reset or a
+    /// filter that hides the selected item must not tear down the preview, so a null from the ListBox is ignored.
+    /// </summary>
+    private void SyncFilmstripSelection()
+    {
+        var selected = viewModel.SelectedAsset;
+        var target = selected is not null && viewModel.IsVisible(selected) ? selected : null;
+        if (!ReferenceEquals(Filmstrip.SelectedItem, target))
+            Filmstrip.SelectedItem = target;
+    }
+
+    private void FilmstripSelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (Filmstrip.SelectedItem is not AssetViewModel item)
+            return;
+        if (!ReferenceEquals(viewModel.SelectedAsset, item))
+            viewModel.SelectedAsset = item;
+        Filmstrip.ScrollIntoView(item);
+    }
+
+    private void ApplyInspectorVisibility()
+    {
+        if (viewModel.ShowInspector)
+        {
+            InspectorPanel.Visibility = Visibility.Visible;
+            InspectorSplitter.Visibility = Visibility.Visible;
+            InspectorColumn.MinWidth = 304;
+            InspectorColumn.MaxWidth = 460;
+            InspectorColumn.Width = inspectorWidth;
+        }
+        else
+        {
+            if (InspectorColumn.ActualWidth > 0)
+                inspectorWidth = new GridLength(InspectorColumn.ActualWidth);
+            InspectorPanel.Visibility = Visibility.Collapsed;
+            InspectorSplitter.Visibility = Visibility.Collapsed;
+            InspectorColumn.MinWidth = 0;
+            InspectorColumn.MaxWidth = double.PositiveInfinity;
+            InspectorColumn.Width = new GridLength(0);
+        }
     }
 
     private async void ThumbnailLoaded(object sender, RoutedEventArgs args)
@@ -53,7 +110,8 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs args)
     {
-        if (Keyboard.FocusedElement is TextBoxBase or PasswordBox or ComboBox)
+        var focused = Keyboard.FocusedElement as DependencyObject;
+        if (focused is TextBoxBase or PasswordBox or ComboBox)
             return;
         if (Keyboard.Modifiers == ModifierKeys.Control && args.Key == Key.C)
         {
@@ -62,12 +120,19 @@ public partial class MainWindow : Window
             return;
         }
         if (Keyboard.Modifiers != ModifierKeys.None) return;
+        // Arrow keys mean "next file" in the filmstrip and "next frame" in the preview; controls with their own arrow handling keep it.
+        if (args.Key is Key.Left or Key.Right && focused is Slider or TabItem or FrameTimeline)
+            return;
+        var filmstripFocused = focused is Visual visual && (ReferenceEquals(visual, Filmstrip) || Filmstrip.IsAncestorOf(visual));
+        var stepFrames = viewModel.IsVideo && !filmstripFocused;
         var command = args.Key switch
         {
             Key.F => viewModel.ToggleFavoriteCommand,
             Key.E => viewModel.ExportFrameCommand,
-            Key.Left => viewModel.IsVideo ? viewModel.PreviousFrameCommand : viewModel.PreviousAssetCommand,
-            Key.Right => viewModel.IsVideo ? viewModel.NextFrameCommand : viewModel.NextAssetCommand,
+            Key.Left => stepFrames ? viewModel.PreviousFrameCommand : viewModel.PreviousAssetCommand,
+            Key.Right => stepFrames ? viewModel.NextFrameCommand : viewModel.NextAssetCommand,
+            Key.OemComma when viewModel.IsVideo => viewModel.PreviousFrameCommand,
+            Key.OemPeriod when viewModel.IsVideo => viewModel.NextFrameCommand,
             Key.PageUp => viewModel.PreviousAssetCommand,
             Key.PageDown => viewModel.NextAssetCommand,
             Key.S => viewModel.StageSelectedCommand,
@@ -84,18 +149,26 @@ public partial class MainWindow : Window
         args.Handled = true;
     }
 
+    private void OnDrop(object sender, DragEventArgs args)
+    {
+        if (args.Data.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } paths)
+            return;
+        args.Handled = true;
+        _ = viewModel.OpenPathAsync(paths[0]);
+    }
+
+    private void OnDragOver(object sender, DragEventArgs args)
+    {
+        args.Effects = args.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Link : DragDropEffects.None;
+        args.Handled = true;
+    }
+
     private void FilmstripMouseWheel(object sender, MouseWheelEventArgs args)
     {
         if (FindScrollViewer(Filmstrip) is not { } scroll)
             return;
         scroll.ScrollToHorizontalOffset(scroll.HorizontalOffset - args.Delta * 1.5);
         args.Handled = true;
-    }
-
-    private void FilmstripSelectionChanged(object sender, SelectionChangedEventArgs args)
-    {
-        if (Filmstrip.SelectedItem is { } selected)
-            Filmstrip.ScrollIntoView(selected);
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -113,6 +186,7 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs args)
     {
+        viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         foreach (var image in thumbnailRequests.Keys.ToArray()) ReleaseThumbnail(image);
         viewModel.Dispose();
     }

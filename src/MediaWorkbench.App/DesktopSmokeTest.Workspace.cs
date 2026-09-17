@@ -52,7 +52,7 @@ internal static partial class DesktopSmokeTest
         var store = new CollectionStore();
         Require(store.Load(collectionPath).Paths.Length == 1, "Staging should deduplicate file references.");
         model.SelectedAsset = video;
-        await WaitUntilAsync(() => !model.IsFrameLoading, token);
+        await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         Require(model.IsVideo && model.HasFrames && !model.IsPhoto && model.CanCopy, "Video actions were not restored.");
         Require(model.Metadata.Any(row => row.Name == "Video codec"), "Video metadata should expose its codec.");
         model.TagText = "sunset";
@@ -60,8 +60,9 @@ internal static partial class DesktopSmokeTest
         model.CropSelection = new PixelCrop(0, 0, 100, 50);
         Require(model.BuildClipboardImage().PixelWidth == 100, "A paused video frame should support clipboard cropping.");
         model.CurrentFrame = 1;
-        await WaitUntilAsync(() => !model.IsFrameLoading, token);
-        Require(!model.HasCrop, "Stepping frames should reset the transient crop.");
+        await WaitUntilAsync(() => !model.IsPreviewBusy, token);
+        Require(model.HasCrop && model.CropSelection == new PixelCrop(0, 0, 100, 50) && model.DisplayedFrame == 1, "Stepping frames should keep a crop that still fits the same video.");
+        model.ResetCropCommand.Execute(null);
         model.InspectorTab = 2;
         Render(window, Path.Combine(dataDirectory, "workspace-video.png"));
         Require(window.VideoTimeline.Visibility == Visibility.Visible && window.PlaybackButton.Visibility == Visibility.Visible, "Video timeline and playback controls should be visible.");
@@ -71,7 +72,7 @@ internal static partial class DesktopSmokeTest
         await model.OpenCollectionCommand.ExecuteAsync(null);
         Require(model.Assets.Count == 2 && model.Assets.All(item => item.IsFavorite), "Collection browsing lost media or cross-root favorites.");
         model.SelectedAsset = model.Assets.Single(item => item.Asset.Kind == MediaKind.Photo);
-        await WaitUntilAsync(() => !model.IsFrameLoading, token);
+        await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         Require(model.SelectedTags.Contains("review"), "Tags should follow a file into a collection.");
         await model.RemoveFromCollectionCommand.ExecuteAsync(null);
         Require(model.Assets.Count == 1 && File.Exists(photo.Asset.FullPath), "Removing a staged item must not delete its media.");
@@ -82,7 +83,7 @@ internal static partial class DesktopSmokeTest
         Require(store.Load(collectionPath).Paths.Length == 2, "Loading a collection must not remove missing references.");
         await model.OpenLibraryAsync(mediaDirectory);
         model.SelectedAsset = model.Assets.Single(item => item.Asset.Kind == MediaKind.Photo);
-        await WaitUntilAsync(() => !model.IsFrameLoading, token);
+        await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         model.InspectorTab = 1;
         Render(window, Path.Combine(dataDirectory, "workspace-tags.png"));
         model.InspectorTab = 3;

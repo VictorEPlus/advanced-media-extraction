@@ -22,14 +22,24 @@
 - [x] Transient pixel-accurate crop/copy for images and paused video frames; EXIF-aware previews.
 - [x] Bounded thumbnail LRU, cancellation, native image decoding, batched indexing and 5,000-item virtualization regression.
 
+## Responsiveness and feedback
+
+- [x] Requested-versus-displayed frame state; the previous still stays visible while the next frame decodes.
+- [x] Background frame indexing after the probe, persisted per file identity; window decode on cache misses.
+- [x] Frame timeline with playhead, in/out handles, shaded range, hover readout and play in→out.
+- [x] Notifications, Export tab badge, no tab hijack, persistent export history with Open output.
+- [x] Selection survives filters and scan batches; crop survives frame steps; visible export destination and counted export labels with large-batch confirmation.
+- [x] Recent folders, drag-and-drop of folders/files, inspector collapse, focus-aware arrow keys and comma/period stepping.
+- [x] Sources panel reorganised around folders, collections and tagged files; Details tab leads with a summary and makes metadata tagging an explicit mode.
+
 ## Next milestones
 
 - [ ] Interactive usability testing with representative user footage and large libraries.
 - [ ] Zoomable video-thumbnail timeline distinct from the folder filmstrip.
 - [ ] Audio waveform and mouse-based range selection/auditioning.
-- [ ] Adjacent-frame prefetch, keyframe-aware seek acceleration and persistent frame indexes.
+- [ ] Keyframe-aware seek acceleration certified against the from-start decode; long-lived sequential decoder.
 - [ ] Fast stream-copy cuts clearly distinguished from frame-accurate re-encodes.
-- [ ] Arbitrary multi-selection, additional batch operations and saved reusable ranges.
+- [ ] Arbitrary multi-selection, batch favorite/stage, session undo for favorites/tags/collections, and saved reusable ranges.
 - [ ] Paged catalog views, filesystem watching, tag remapping after file moves, and a graph UI.
 - [ ] HDR/color-management behavior, RAW workflow and additional export formats.
 - [ ] Installer, signed releases and distribution/license review.

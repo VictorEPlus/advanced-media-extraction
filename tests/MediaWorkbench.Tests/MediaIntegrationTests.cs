@@ -39,6 +39,46 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task WindowDecodeFillsNeighbouringFramesWithOrdinalIdenticalPixels()
+    {
+        using var cache = new TemporaryDirectory();
+        var engine = new MediaEngine(fixture.Tools, cache.FilePath("cache"));
+        var asset = fixture.Asset(fixture.VideoPath);
+        var bytes = await engine.GetFrameAsync(asset, 7, 12);
+        Assert.Equal(bytes, await fixture.Engine.GetFrameAsync(asset, 7));
+        var cached = Directory.GetFiles(cache.FilePath("cache"), "*.png");
+        Assert.Equal(12 - Math.Max(0, 7 - MediaEngine.WindowBefore), cached.Length);
+        Assert.Empty(Directory.GetDirectories(cache.FilePath("cache")));
+        using var output = new TemporaryDirectory();
+        foreach (var index in new[] { 2, 6, 8, 11 })
+        {
+            var path = await MediaEngine.SaveFrameAsync(asset, index, await engine.GetFrameAsync(asset, index, 12), output.Path);
+            Assert.Equal(await RgbHashAsync(fixture.VideoPath, index), await RgbHashAsync(path, 0));
+        }
+        Assert.Equal(cached.Length, Directory.GetFiles(cache.FilePath("cache"), "*.png").Length);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => engine.GetFrameAsync(asset, 12, 12));
+    }
+
+    [Fact]
+    public async Task FrameIndexIsPersistedPerFileIdentityAndReusedOnlyWhenValid()
+    {
+        using var cache = new TemporaryDirectory();
+        var engine = new MediaEngine(fixture.Tools, cache.FilePath("cache"));
+        var asset = fixture.Asset(fixture.VideoPath);
+        var info = await engine.ProbeAsync(asset.FullPath);
+        var first = await engine.IndexFramesAsync(asset, info);
+        var indexFile = Assert.Single(Directory.GetFiles(cache.FilePath("cache"), "*.index.json"));
+        var second = await engine.IndexFramesAsync(asset, info);
+        Assert.Equal(first, second);
+        File.WriteAllText(indexFile, "[]");
+        var third = await engine.IndexFramesAsync(asset, info);
+        Assert.Equal(first, third);
+        Assert.NotEqual("[]", await File.ReadAllTextAsync(indexFile));
+        await engine.IndexFramesAsync(asset with { ModifiedTicks = asset.ModifiedTicks + 1 }, info);
+        Assert.Equal(2, Directory.GetFiles(cache.FilePath("cache"), "*.index.json").Length);
+    }
+
+    [Fact]
     public async Task FrameExportUsesIdenticalPreviewBytesAndUniqueNames()
     {
         using var output = new TemporaryDirectory();
