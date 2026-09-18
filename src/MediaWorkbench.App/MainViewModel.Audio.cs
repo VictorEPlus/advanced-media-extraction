@@ -30,7 +30,7 @@ public sealed partial class MainViewModel
     /// <summary>The waveform sits under the frame timeline for a video with sound and fills the preview for an audio file.</summary>
     public bool ShowVideoWaveform => IsVideo && HasAudio;
     public bool ShowAudioStage => IsAudio;
-    public bool ShowVideoSurface => (ShowPlayback || holdingVideoSurface) && !IsAudio;
+    public bool ShowVideoSurface => (ShowPlayback && !concealVideoSurface || holdingVideoSurface) && !IsAudio;
     public bool CanSnipAudio => HasAudio && mediaInfo is not null && AudioEnd > AudioStart;
     public bool CanPlayRange => CanPlay && (HasFrames || IsAudio && AudioEnd > AudioStart);
     public string PlayRangeLabel => IsAudio ? "Play selection" : "Play marked range";
@@ -231,92 +231,5 @@ public sealed partial class MainViewModel
     {
         foreach (var property in new[] { nameof(ShowIndexing), nameof(IndexFraction), nameof(IndexDotsLead), nameof(IndexDotsLit), nameof(IndexDotsTail), nameof(IndexingText), nameof(FrameTotalText) })
             OnPropertyChanged(property);
-    }
-}
-
-// Small pictures along the selected video for the timeline's hover preview.
-public sealed partial class MainViewModel
-{
-    private CancellationTokenSource? stripCancellation;
-
-    /// <summary>Ascending by frame; empty until the pictures have been made, which happens in the background after indexing.</summary>
-    [ObservableProperty] private IReadOnlyList<TimelineThumbnail> timelineThumbnails = [];
-
-    private void ResetPreviewStrip()
-    {
-        stripCancellation?.Cancel();
-        stripCancellation = null;
-        TimelineThumbnails = [];
-    }
-
-    private async Task LoadPreviewStripAsync(AssetViewModel item, MediaInfo info, IReadOnlyList<VideoFrame> indexed, MediaEngine selectedEngine)
-    {
-        stripCancellation?.Cancel();
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        stripCancellation = cancellation;
-        try
-        {
-            var pictures = await Task.Run(async () =>
-            {
-                var strip = await selectedEngine.GetPreviewStripAsync(item.Asset, info, indexed, cancellation.Token);
-                var decoded = new List<TimelineThumbnail>(strip.Thumbnails.Count);
-                foreach (var thumbnail in strip.Thumbnails)
-                {
-                    cancellation.Token.ThrowIfCancellationRequested();
-                    decoded.Add(new TimelineThumbnail(thumbnail.Frame, DecodeImage(thumbnail.Jpeg)));
-                }
-                return decoded;
-            }, cancellation.Token);
-            if (loadedAsset == item && !cancellation.IsCancellationRequested)
-                TimelineThumbnails = pictures;
-        }
-        catch (OperationCanceledException) { }
-        // The hover preview is a convenience: a video it cannot be made for still steps, plays and exports.
-        catch (Exception exception) when (exception is InvalidOperationException or IOException or NotSupportedException or ArgumentException) { }
-        finally
-        {
-            if (stripCancellation == cancellation)
-                stripCancellation = null;
-        }
-    }
-}
-
-// Pausing: the paused video picture stays up until the exact still of that moment is ready.
-public sealed partial class MainViewModel
-{
-    /// <summary>The longest the paused video picture is kept waiting for its still; after that the still area shows whatever it has, with its usual "decoding" note.</summary>
-    private static readonly TimeSpan VideoSurfaceHoldLimit = TimeSpan.FromMilliseconds(1500);
-
-    private void HoldVideoSurface()
-    {
-        if (!IsVideo || holdingVideoSurface)
-            return;
-        holdingVideoSurface = true;
-        var version = ++holdVersion;
-        NotifyVideoSurface();
-        _ = ReleaseLaterAsync(version);
-    }
-
-    private void ReleaseVideoSurface()
-    {
-        if (!holdingVideoSurface)
-            return;
-        holdingVideoSurface = false;
-        holdVersion++;
-        NotifyVideoSurface();
-    }
-
-    private async Task ReleaseLaterAsync(int version)
-    {
-        try { await Task.Delay(VideoSurfaceHoldLimit, lifetime.Token); }
-        catch (OperationCanceledException) { return; }
-        if (version == holdVersion)
-            ReleaseVideoSurface();
-    }
-
-    private void NotifyVideoSurface()
-    {
-        OnPropertyChanged(nameof(ShowVideoSurface));
-        OnPropertyChanged(nameof(ShowInstantLayer));
     }
 }

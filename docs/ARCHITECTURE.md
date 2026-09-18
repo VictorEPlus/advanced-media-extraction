@@ -2,7 +2,7 @@
 
 ## Project boundaries
 
-- `MediaWorkbench.Core` (.NET 10): media models, recursive scanner, folder tree, SQLite catalog, atomic settings, tool discovery, process execution (text and binary output), disk cache, FFmpeg-based extraction, waveform reduction, timeline preview strips, frame-rate measurement, and the crop and rotation maths. No WPF or VLC dependency.
+- `MediaWorkbench.Core` (.NET 10): media models, recursive scanner, folder tree, SQLite catalog, atomic settings, tool discovery, process execution (text and binary output), disk cache, FFmpeg-based extraction, waveform reduction, frame-rate measurement, and the crop and rotation maths. No WPF or VLC dependency.
 - `MediaWorkbench.App` (.NET 10 / WPF / x64): MVVM state, native LibVLCSharp playback, gallery/filmstrip UI, settings, keyboard shortcuts and a bounded serial export queue. The view model is one class split by concern into partial files (`MainViewModel.cs`, `.Organization`, `.Library`, `.Audio`, `.Follow`, `.VideoCrop`); the window likewise (`MainWindow.xaml.cs`, `.Tour`, `.Filmstrip`). Custom-drawn controls: `FrameTimeline`, `WaveformView`, `CropSurface`, `FolderChart`.
 - `MediaWorkbench.Tests`: xUnit tests of core behavior and generated-media integrations. The verification script separately runs the app with `--smoke-test`, which builds the real window without showing it and drives the view model and controls through scripted scenarios (`DesktopSmokeTest*.cs`), saving renders under `artifacts/smoke-*`. A hidden window cannot play video, receive real mouse input or open popups, so those paths have test hooks where possible and the acceptance checklist where not.
 
@@ -24,13 +24,17 @@ The view model separates the requested frame (`CurrentFrame`, what the timeline 
 
 `FrameRateInfo` reports the header rate immediately and the rate measured from the frame index once it lands. Because container timestamps are rounded (often to 1 ms), evenly spaced frames that agree with the header to within half a percent report the exact header rate (29.97, not 29.969); a gap that differs from the average by more than 20 % (and 1.5 ms) marks the video as variable frame rate.
 
-## Timeline hover preview
-
-`MediaEngine.GetPreviewStripAsync` makes about 120 small JPEGs along a video, packed into one cached `*.strip.bin` per file identity. It is built after the frame index lands and never blocks stepping. Two passes keep it cheap and honest. The first decodes **key frames only** (`-skip_frame nokey`), thinned by time, which takes seconds even for an hour of video; `showinfo` logs each picture's timestamp and it is kept only if that timestamp equals an indexed frame's (same tolerance as the verified seek), so every picture knows its ordinal. If that yields fewer than 40 pictures and the video has at most 9,000 frames, a second pass decodes from the start and keeps every Nth frame, where the ordinal is exact by counting. An integration test requires both passes to produce byte-identical pictures for the same ordinals. `FrameTimeline` shows the nearest picture in a popup and captions the frame it really shows. These pictures are a browsing aid only: the preview, clipboard and exports never use them.
-
 ## Playback hand-over
 
-VLC plays; stills are decoded separately, so every pause and resume is a hand-over between two surfaces. Three rules keep it from flickering. Resuming a file that is already open and paused moves the player to the place and unpauses it; the media is only opened again for another file or after it has ended. A fresh open carries `:start-time`, so the first picture is already the right one; a corrective seek happens only if the first reported time shows the option was ignored. On pause (and when a frame is requested during playback) `ShowPlayback` goes false at once, so all logic behaves as before, but the VLC surface is held on screen (`holdingVideoSurface`) until the exact still of the target frame is displayed, the decode fails, or 1.5 s pass; the still from before playback is never flashed.
+VLC plays; stills are decoded separately, so every pause and resume is a hand-over between two surfaces, and the still must be the very frame the player stopped on.
+
+**Where the player is.** LibVLC reports its time only about every 250 ms, so reading it at the moment of a pause can be several frames stale. `EstimatedPlayerTimeMs` carries the last report forward by the time elapsed since it arrived, at the playing rate, capped at 600 ms. That is good to a frame or two.
+
+**Which frame it is.** For the Pause command the estimate is then settled by the picture itself (`RefinePausedFrameAsync`): the paused player is asked for a 320 px snapshot, the frames from three before to four after the estimate are fetched (one window decode, normally already cached) and `FrameMatcher` compares small grey copies with their mean brightness removed, because the player and the decoder do not render levels identically. The closest wins; when several are equally close (a still scene) the estimate stands, which is then indistinguishable. Any failure or a timeout keeps the estimate. Other callers of `PauseAtPlaybackPosition` (frame stepping, markers, crop) do not refine, because they move to a frame of their own next.
+
+**What is on screen meanwhile.** `ShowPlayback` goes false at once, so all logic behaves as paused, but the VLC surface is held (`holdingVideoSurface`) until the refined still is displayed, a decode fails, or 2.5 s pass. The still that replaces it is the same frame, so nothing jumps.
+
+**Resuming.** Playing on from the frame the player is paused on (`pausedAtFrame`) just unpauses: no reopen, no seek. Playing from another frame seeks the paused player and keeps its surface concealed, with the still in view, until it reports a time again, so the old paused picture is never flashed. The media is only opened again for another file or after it has ended; a fresh open carries `:start-time`, rounded up to the millisecond so it cannot land just before the frame, and a corrective seek happens only if the first reported time shows the option was ignored.
 
 ## Zoom and focus view
 

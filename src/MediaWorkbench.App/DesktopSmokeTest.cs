@@ -42,6 +42,7 @@ internal static partial class DesktopSmokeTest
         Require(viewModel.CanExportFrame && viewModel.DisplayedFrame == 3 && !viewModel.IsPreviewStale, "Exact frame preview failed: " + viewModel.Status);
         Require(viewModel.PreviewImage is not null, "The previous frame must stay visible while the next one decodes.");
         await CheckVideoSoundAsync(viewModel, window, dataDirectory, timeout.Token);
+        await CheckPauseMatchingAsync(viewModel, dataDirectory, tools, timeout.Token);
         Require(Directory.GetFiles(Path.Combine(dataDirectory, "cache"), "*.png").Length >= 6, "A cache miss should decode a window of neighbouring frames in one pass.");
         Require(Directory.GetFiles(Path.Combine(dataDirectory, "cache"), "*.index.json").Length == 1, "The frame index should be persisted for the file identity.");
         viewModel.SearchText = "no such file";

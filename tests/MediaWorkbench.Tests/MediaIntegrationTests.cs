@@ -107,41 +107,6 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
     }
 
     [Fact]
-    public async Task PreviewStripPicturesKnowTheirFrameOnBothPaths()
-    {
-        var asset = fixture.Asset(fixture.LongPath);
-        // Key frames only (as used for long videos): ordinals come from matching timestamps, here with a 5 s container offset.
-        using var keyCache = new TemporaryDirectory();
-        var keyEngine = new MediaEngine(fixture.Tools, keyCache.FilePath("cache")) { StripFullPassLimit = 0 };
-        var info = await keyEngine.ProbeAsync(asset.FullPath);
-        var frames = await keyEngine.IndexFramesAsync(asset, info);
-        var keys = await keyEngine.GetPreviewStripAsync(asset, info, frames);
-        Assert.Equal(Enumerable.Range(0, 10).Select(index => index * 30), keys.Thumbnails.Select(thumbnail => thumbnail.Frame));
-
-        // Short video with few key frames: every third frame, ordinals by counting from the start.
-        using var fullCache = new TemporaryDirectory();
-        var fullEngine = new MediaEngine(fixture.Tools, fullCache.FilePath("cache"));
-        var full = await fullEngine.GetPreviewStripAsync(asset, info, frames);
-        Assert.Equal(Enumerable.Range(0, 100).Select(index => index * 3), full.Thumbnails.Select(thumbnail => thumbnail.Frame));
-        Assert.All(full.Thumbnails, thumbnail => Assert.True(thumbnail.Jpeg.Length > 100 && thumbnail.Jpeg[0] == 0xFF && thumbnail.Jpeg[1] == 0xD8));
-
-        // Every frame of the test pattern is different, so the two paths only agree if both name the right ordinal.
-        foreach (var frame in new[] { 30, 150, 270 })
-            Assert.Equal(full.Thumbnails.Single(thumbnail => thumbnail.Frame == frame).Jpeg, keys.Thumbnails.Single(thumbnail => thumbnail.Frame == frame).Jpeg);
-        Assert.NotEqual(full.Thumbnails[10].Jpeg, full.Thumbnails[11].Jpeg);
-
-        Assert.Single(Directory.GetFiles(fullCache.FilePath("cache"), "*.strip.bin"));
-        Assert.Empty(Directory.GetDirectories(fullCache.FilePath("cache")));
-        var cached = await fullEngine.GetPreviewStripAsync(asset, info, frames);
-        Assert.Equal(full.Thumbnails.Count, cached.Thumbnails.Count);
-        Assert.Equal(40, full.NearestIndex(121));
-        Assert.Equal(41, full.NearestIndex(122));
-        Assert.Equal(99, full.NearestIndex(100000));
-        Assert.Null(PreviewStrip.FromBytes(full.ToBytes()[..^3]));
-        Assert.Equal(100, PreviewStrip.FromBytes(full.ToBytes())!.Thumbnails.Count);
-    }
-
-    [Fact]
     public async Task BlackBordersAreDetectedAndTheWholeVideoIsCroppedAndTurned()
     {
         using var output = new TemporaryDirectory();

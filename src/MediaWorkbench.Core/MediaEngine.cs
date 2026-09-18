@@ -21,7 +21,6 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     private readonly SemaphoreSlim cacheGate = new(2);
     private readonly SemaphoreSlim thumbnailGate = new(2);
     private readonly SemaphoreSlim waveformGate = new(1);
-    private readonly SemaphoreSlim stripGate = new(1);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> seekUnsafe = new();
     private readonly object trimLock = new();
 
@@ -322,123 +321,6 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         finally { waveformGate.Release(); }
     }
 
-    /// <summary>Pictures aimed for along a video, and the most frames a full decode pass may read to get them.</summary>
-    public const int StripTarget = 120;
-    public int StripFullPassLimit { get; init; } = 9000;
-
-    /// <summary>
-    /// Small pictures along the video for the timeline's hover preview, cached per file identity. The first pass decodes key frames only,
-    /// which takes seconds even for long files; a picture is kept only if its timestamp matches an indexed frame, so it knows its ordinal.
-    /// A short video with few key frames gets a second pass that decodes every frame and keeps every Nth, where ordinals are exact by counting.
-    /// </summary>
-    public async Task<PreviewStrip> GetPreviewStripAsync(MediaAsset asset, MediaInfo info, IReadOnlyList<VideoFrame> frames, CancellationToken cancellationToken = default)
-    {
-        if (frames.Count == 0)
-            return new PreviewStrip([]);
-        var path = Path.Combine(cacheDirectory, CacheKey(asset.Identity + "|strip-v1") + ".strip.bin");
-        await stripGate.WaitAsync(cancellationToken);
-        var folder = Path.Combine(cacheDirectory, "strip-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            if (File.Exists(path))
-            {
-                try
-                {
-                    if (PreviewStrip.FromBytes(await File.ReadAllBytesAsync(path, cancellationToken)) is { } cached)
-                    {
-                        File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
-                        return cached;
-                    }
-                }
-                catch (IOException) { }
-            }
-            Directory.CreateDirectory(folder);
-            var pattern = Path.Combine(folder.Replace("%", "%%", StringComparison.Ordinal), "t_%06d.jpg");
-            const string scale = "scale=176:176:force_original_aspect_ratio=decrease:force_divisible_by=2";
-            var thumbnails = new List<PreviewThumbnail>();
-            var logged = new Dictionary<int, double>();
-            var spacing = MediaNumber.Format(Math.Max(0, info.Duration) / (StripTarget * 1.5));
-            try
-            {
-                await runner.RunAsync(tools.Ffmpeg,
-                    ["-v", "info", "-hide_banner", "-nostats", "-nostdin", "-y", "-copyts", "-skip_frame", "nokey", "-i", asset.FullPath, "-map", "0:v:0", "-an",
-                     "-vf", $"select=isnan(prev_selected_t)+gte(t-prev_selected_t\\,{spacing}),showinfo=checksum=0,{scale}", "-fps_mode", "passthrough", "-q:v", "6", pattern],
-                    errorOutput: line =>
-                    {
-                        var match = ShowInfoLine.Match(line);
-                        if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var ordinal)
-                            && double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var time))
-                            logged.TryAdd(ordinal, time);
-                    },
-                    cancellationToken: cancellationToken);
-                foreach (var (number, time) in logged.OrderBy(pair => pair.Key))
-                {
-                    var file = Path.Combine(folder, $"t_{number + 1:000000}.jpg");
-                    if (OrdinalAtTime(frames, time - info.StartTime) is { } frame && File.Exists(file) && new FileInfo(file).Length > 0
-                        && (thumbnails.Count == 0 || thumbnails[^1].Frame < frame))
-                        thumbnails.Add(new PreviewThumbnail(frame, await File.ReadAllBytesAsync(file, cancellationToken)));
-                }
-            }
-            catch (InvalidOperationException) { thumbnails.Clear(); }
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (thumbnails.Count < Math.Min(40, frames.Count) && frames.Count <= StripFullPassLimit)
-            {
-                foreach (var file in Directory.EnumerateFiles(folder)) File.Delete(file);
-                var step = Math.Max(1, (int)Math.Ceiling(frames.Count / (double)StripTarget));
-                await runner.RunAsync(tools.Ffmpeg,
-                    ["-v", "error", "-nostdin", "-y", "-threads", "2", "-i", asset.FullPath, "-map", "0:v:0", "-an",
-                     "-vf", $"select=not(mod(n\\,{step})),{scale}", "-fps_mode", "passthrough", "-q:v", "6", pattern],
-                    cancellationToken: cancellationToken);
-                var counted = new List<PreviewThumbnail>();
-                for (var number = 1; (number - 1) * step < frames.Count; number++)
-                {
-                    var file = Path.Combine(folder, $"t_{number:000000}.jpg");
-                    if (!File.Exists(file) || new FileInfo(file).Length == 0) break;
-                    counted.Add(new PreviewThumbnail((number - 1) * step, await File.ReadAllBytesAsync(file, cancellationToken)));
-                }
-                if (counted.Count > thumbnails.Count)
-                    thumbnails = counted;
-            }
-            var strip = new PreviewStrip(thumbnails);
-            if (thumbnails.Count > 0)
-            {
-                var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                try
-                {
-                    await File.WriteAllBytesAsync(temporary, strip.ToBytes(), cancellationToken);
-                    lock (trimLock) { File.Move(temporary, path, true); TrimCache(path); }
-                }
-                catch (IOException) { }
-                finally
-                {
-                    if (File.Exists(temporary))
-                        File.Delete(temporary);
-                }
-            }
-            return strip;
-        }
-        finally
-        {
-            try { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            stripGate.Release();
-        }
-    }
-
-    /// <summary>The indexed frame whose timestamp equals <paramref name="seconds"/> (within a quarter of the local frame gap, at most 2 ms), or null.</summary>
-    private static int? OrdinalAtTime(IReadOnlyList<VideoFrame> frames, double seconds)
-    {
-        var index = PreviewStrip.NearestIndex(frames.Count, position => frames[position].Time, seconds);
-        if (index < 0) return null;
-        var gap = double.MaxValue;
-        if (index > 0) gap = Math.Min(gap, frames[index].Time - frames[index - 1].Time);
-        if (index + 1 < frames.Count) gap = Math.Min(gap, frames[index + 1].Time - frames[index].Time);
-        var tolerance = gap is > 0 and < double.MaxValue ? Math.Min(0.002, gap / 4) : 0.002;
-        return Math.Abs(frames[index].Time - seconds) <= tolerance ? index : null;
-    }
-
     public async Task<string> ExportFrameAsync(MediaAsset asset, int frameIndex, string directory, CancellationToken cancellationToken = default)
     {
         var bytes = await GetFrameAsync(asset, frameIndex, cancellationToken);
@@ -644,7 +526,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     {
         var files = new DirectoryInfo(cacheDirectory).EnumerateFiles()
             .Where(file => !file.Name.Contains(".tmp", StringComparison.Ordinal)
-                && (file.Name.EndsWith(".png", StringComparison.Ordinal) || file.Name.EndsWith(".index.json", StringComparison.Ordinal) || file.Name.EndsWith(".wave.bin", StringComparison.Ordinal) || file.Name.EndsWith(".strip.bin", StringComparison.Ordinal)))
+                && (file.Name.EndsWith(".png", StringComparison.Ordinal) || file.Name.EndsWith(".index.json", StringComparison.Ordinal) || file.Name.EndsWith(".wave.bin", StringComparison.Ordinal) || file.Name.EndsWith(".strip.bin", StringComparison.Ordinal))) // .strip.bin: left by an earlier version; still trimmed so they age out
             .OrderBy(file => file.LastWriteTimeUtc).ToArray();
         var size = files.Sum(file => file.Length);
         foreach (var file in files)

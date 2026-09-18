@@ -31,36 +31,9 @@ internal static partial class DesktopSmokeTest
         Require(Shown(window.SelectionHeader) && header.X > tabs.X + window.MainTabs.ActualWidth && header.Y < tabs.Y + window.MainTabs.ActualHeight && header.Y + window.SelectionHeader.ActualHeight > tabs.Y,
             $"The selected-file header should sit on the same row as the Library and Preview tabs (tabs {tabs} {window.MainTabs.ActualWidth:0}x{window.MainTabs.ActualHeight:0}, header {header} {window.SelectionHeader.ActualWidth:0}x{window.SelectionHeader.ActualHeight:0}).");
         Render(window, Path.Combine(dataDirectory, "workspace-sound.png"));
-        await CheckHoverPreviewAsync(model, window, token);
         CheckIndexingBar(model, window, dataDirectory);
         model.InFrame = 0;
         model.OutFrame = model.MaximumFrame;
-    }
-
-    /// <summary>Hovering or dragging on the frame timeline shows a small picture of that place in the video.</summary>
-    private static async Task CheckHoverPreviewAsync(MainViewModel model, MainWindow window, CancellationToken token)
-    {
-        await WaitUntilAsync(() => model.TimelineThumbnails.Count > 0, token);
-        Require(model.TimelineThumbnails.Select(thumbnail => thumbnail.Frame).SequenceEqual(Enumerable.Range(0, 6)), "A six-frame video should get a preview picture for every frame: " + string.Join(",", model.TimelineThumbnails.Select(thumbnail => thumbnail.Frame)));
-        Require(model.TimelineThumbnails.All(thumbnail => thumbnail.Image is System.Windows.Media.Imaging.BitmapSource { PixelWidth: > 100, IsFrozen: true }), "Preview pictures should be decoded and frozen.");
-        Layout(window);
-        Require(!window.Timeline.IsPreviewOpen, "No preview should show while the pointer is elsewhere.");
-        window.Timeline.SimulateHover(4);
-        Require(window.Timeline.IsPreviewOpen && window.Timeline.PreviewFrame == 4 && window.Timeline.PreviewCaption == "frame 4" && ReferenceEquals(window.Timeline.ThumbnailFor(4), model.TimelineThumbnails[4]), "Hovering the timeline should preview the frame under the pointer: " + window.Timeline.PreviewCaption);
-        var card = window.Timeline.PreviewVisual;
-        card.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        card.Arrange(new Rect(card.DesiredSize));
-        card.UpdateLayout();
-        Require(card.ActualWidth is > 200 and < 240 && card.ActualHeight is > 120 and < 180, $"The preview card has an unexpected size: {card.ActualWidth:0} x {card.ActualHeight:0}.");
-        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(card.ActualWidth), (int)Math.Ceiling(card.ActualHeight), 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-        bitmap.Render(card);
-        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
-        using (var stream = File.Create(Path.Combine(Path.GetDirectoryName(model.ExportDirectory)!, "hover-preview.png")))
-            encoder.Save(stream);
-        window.Timeline.SimulateHover(null);
-        Require(!window.Timeline.IsPreviewOpen, "The preview should go away when the pointer leaves the timeline.");
-        Require(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(model.ExportDirectory)!, "cache"), "*.strip.bin").Length == 1, "The preview pictures should be cached for the file identity.");
     }
 
     /// <summary>The dotted loading bar beside the frame counter while a video is being indexed.</summary>

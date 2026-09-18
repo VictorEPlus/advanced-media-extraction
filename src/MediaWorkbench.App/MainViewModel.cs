@@ -433,7 +433,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         stopPlaybackAt = null;
         Player.Stop();
         playerMediaPath = null;
-        ReleaseVideoSurface();
+        pauseVersion++;
+        refiningPause = false;
+        pausedAtFrame = -1;
+        ReleaseVideoSurface(force: true);
         ShowPlayback = false;
         PreviewImage = null;
         CropSelection = null;
@@ -456,7 +459,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AudioEnd = 0;
         ResetAudioView();
         ResetFraming();
-        ResetPreviewStrip();
         IsIndexing = false;
         IsFrameLoading = item is not null;
         NotifyMediaProperties();
@@ -560,7 +562,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             UpdateAudioRange();
             UpdateFrameRate();
             SyncAudioPositionToFrame();
-            _ = LoadPreviewStripAsync(item, info, indexed, selectedEngine);
             if (CurrentFrame > MaximumFrame)
                 CurrentFrame = MaximumFrame;
             else if (DisplayedFrame != CurrentFrame && frameCancellation is null)
@@ -747,12 +748,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         catch (Exception) { }
     }
 
-    public static BitmapImage DecodeImage(byte[] bytes)
+    /// <param name="decodeWidth">When set, the picture is decoded no wider than this, which is much quicker for comparisons that only need a small copy.</param>
+    public static BitmapImage DecodeImage(byte[] bytes, int decodeWidth = 0)
     {
         using var stream = new MemoryStream(bytes);
         var image = new BitmapImage();
         image.BeginInit();
         image.CacheOption = BitmapCacheOption.OnLoad;
+        if (decodeWidth > 0) image.DecodePixelWidth = decodeWidth;
         image.StreamSource = stream;
         image.EndInit();
         image.Freeze();
@@ -776,11 +779,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         CurrentFrame = Math.Clamp(CurrentFrame + delta, 0, MaximumFrame);
     });
 
-    private void PauseAtPlaybackPosition()
+    /// <param name="refine">
+    /// True for the Pause button itself: after pausing, the picture the player stopped on is compared with the decoded frames around
+    /// the estimated position, so the still that replaces it is that very frame. Other callers move to a frame of their own next.
+    /// </param>
+    private void PauseAtPlaybackPosition(bool refine = false)
     {
         if (!ShowPlayback)
             return;
-        var time = Player.Time / 1000.0;
+        // The player only reports its time about four times a second; between reports the clock is carried forward.
+        var time = EstimatedPlayerTimeMs() / 1000.0;
         stopPlaybackAt = null;
         Player.SetPause(true);
         // Keep the paused video picture up until the exact still of that moment is ready, instead of flashing the
@@ -790,6 +798,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (HasFrames)
         {
             var frame = FrameAtTime(time);
+            pausedAtFrame = frame;
+            if (refine && loadedAsset is { } item)
+                _ = RefinePausedFrameAsync(item, frame);
             if (frame == CurrentFrame)
                 _ = SeekFrameAsync();
             else
@@ -826,14 +837,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         if (Player.IsPlaying)
         {
-            PauseAtPlaybackPosition();
+            PauseAtPlaybackPosition(refine: true);
             if (HasFrames)
                 _ = SeekFrameAsync();
             return;
         }
-        var startMs = HasFrames ? (long)(frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time * 1000)
+        // Rounded up to the millisecond: rounding down would land just before the frame and show the previous one first.
+        var startMs = HasFrames ? (long)Math.Ceiling(frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time * 1000)
             : (long)((mediaInfo is { } info && AudioPosition < info.Duration - 0.05 ? AudioPosition : 0) * 1000);
-        StartPlayback(startMs, null);
+        // Still on the frame the player was paused on: carry on from exactly where it stopped, with no seek at all.
+        StartPlayback(startMs, null, continueFromPause: HasFrames && pausedAtFrame >= 0 && CurrentFrame == pausedAtFrame);
         Status = "Playing. Pause or step to return to exact frame preview.";
     });
 
@@ -857,21 +870,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Status = $"Playing frames {InFrame:N0} to {OutFrame:N0}; playback pauses at the out marker.";
     });
 
-    private void StartPlayback(long startMs, long? stopMs)
+    private void StartPlayback(long startMs, long? stopMs, bool continueFromPause = false)
     {
+        pauseVersion++;
+        refiningPause = false;
+        pausedAtFrame = -1;
+        lastPlayerStamp = 0;
         frameCancellation?.Cancel();
         playbackStart = startMs;
         stopPlaybackAt = stopMs;
         var path = SelectedAsset!.Asset.FullPath;
         ShowPlayback = true;
-        ReleaseVideoSurface();
+        ReleaseVideoSurface(force: true);
         // Resuming the file that is already open and paused: move to the place and carry on. Opening it again for every
         // Play made the picture go black, start from the beginning and then jump, which showed as flicker and stutter.
         if (playerMediaPath == path && Player.State == VLCState.Paused)
         {
             verifyStartPending = false;
-            if (Math.Abs(Player.Time - startMs) > 40)
+            if (!continueFromPause)
+            {
+                // Moved since pausing: the player still holds the old picture, so keep showing the still until it has jumped.
+                ConcealVideoSurfaceUntilSeekLands();
                 Player.Time = startMs;
+            }
             Player.SetPause(false);
             return;
         }
@@ -895,7 +916,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         stopPlaybackAt = null;
         playerMediaPath = null;
-        ReleaseVideoSurface();
+        ReleaseVideoSurface(force: true);
         ShowPlayback = false;
         if (!HasFrames) AudioPosition = 0;
         Status = "Playback finished.";
@@ -904,10 +925,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void OnTimeChanged(object? sender, MediaPlayerTimeChangedEventArgs args)
     {
         var time = args.Time;
+        lastPlayerTimeMs = time;
+        lastPlayerStamp = System.Diagnostics.Stopwatch.GetTimestamp();
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
             if (disposed || !ShowPlayback)
                 return;
+            RevealVideoSurface();
             if (verifyStartPending)
             {
                 // A container that ignored the start option begins at zero: one corrective seek, only then.

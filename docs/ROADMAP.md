@@ -46,9 +46,9 @@
 - [x] Audio waveform under the frame timeline and as the preview of audio files; drag to select (frame-snapped for video), click to seek, play the selection, snip it to WAV.
 - [x] Frame rate readout beside the frame counter, measured from the frame index, with variable-frame-rate detection.
 - [x] Folder-style centre tabs with the selected-file header on the same row.
-- [x] Hover and drag preview on the frame timeline: a small picture of the video at the pointer, from a cached strip of key-frame or every-Nth-frame thumbnails that each know their frame.
+- [x] Hover preview on the frame timeline, later removed: once the wheel could step frames and the preview could zoom, the floating picture only got in the way.
 - [x] Crop and rotate a whole video: four edge grabbers, arrow-key nudging of a chosen edge, auto-fit to the picture inside black bars, quarter-turn rotation shown in the preview, export of the whole video or the trimmed range.
-- [x] Smooth pause and resume: the paused file is resumed instead of reopened, playback starts at the right moment instead of seeking after it starts, and the paused video picture stays up until the exact still is ready.
+- [x] Smooth, exact pause and resume: the paused file is resumed instead of reopened, playback starts at the right moment instead of seeking after it starts, the player's coarse clock is carried forward, the paused frame is confirmed by matching a snapshot against decoded frames, and the paused video picture stays up until that still is ready.
 - [x] Compact Details tab with one line per fact; closest everyday aspect ratio named beside the exact one.
 - [x] Zoom in the preview at the pointer with the wheel, pan by dragging, kept across frames; focus view that leaves only the picture, timeline and buttons.
 - [x] Mouse wheel steps frames over the timeline and sound (Ctrl+wheel over the picture). Compact tools under the preview (smaller readout, slim sound strip without its own ruler, snip button in the action row) and a side column of buttons for portrait pictures.
