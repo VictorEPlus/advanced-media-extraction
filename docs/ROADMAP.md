@@ -45,7 +45,11 @@
 
 - [ ] Interactive usability testing with representative user footage and large libraries.
 - [ ] Zoomable video-thumbnail timeline distinct from the folder filmstrip.
-- [ ] Audio waveform and mouse-based range selection/auditioning.
+- [x] Audio waveform under the frame timeline and as the preview of audio files; drag to select (frame-snapped for video), click to seek, play the selection, snip it to WAV.
+- [x] Frame rate readout beside the frame counter, measured from the frame index, with variable-frame-rate detection.
+- [x] Folder-style centre tabs with the selected-file header on the same row.
+- [x] Dotted loading bar with a percentage beside the frame counter while a video is being indexed.
+- [ ] Waveform zoom for placing cuts in long recordings; per-channel waveforms.
 - [x] Verified seek for deep cache misses, in-memory frame cache with directional read-ahead, decode overlay only for slow decodes.
 - [x] Percentages in the folder tree and graph; filmstrip header removed and its height given to the thumbnails; side-panel scrollbars at the panel edge.
 - [ ] Long-lived sequential decoder for sustained playback-speed stepping.

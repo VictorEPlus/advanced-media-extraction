@@ -85,7 +85,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string RangeSummary => !HasFrames ? "" : $"In {InFrame:N0} to out {OutFrame:N0}, inclusive: {Math.Max(0, OutFrame - InFrame + 1):N0} frames";
     /// <summary>Large tabular frame readout beside the timeline; the ordinal is zero-based like the export filenames.</summary>
     public string FrameNumberText => HasFrames ? CurrentFrame.ToString("N0") : "0";
-    public string FrameTotalText => HasFrames ? $"of {MaximumFrame:N0}" : IsIndexing ? "indexing frames" : IsVideo ? "no frame index" : "";
+    public string FrameTotalText => HasFrames ? $"of {MaximumFrame:N0}" : IsIndexing ? (ShowIndexing ? "" : "indexing frames") : IsVideo ? "no frame index" : "";
     public string FrameTimeText => HasFrames ? $"{frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time:0.000} s" : "";
     public string SelectionLabel => SelectedAsset?.Name ?? "Nothing selected";
     public string LibraryLabel => $"{Assets.Count:N0} items · {Assets.Count(asset => asset.IsFavorite):N0} favorites";
@@ -97,7 +97,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string ExportBadge => ActiveJobCount > 0 ? $"Export ({ActiveJobCount})" : "Export";
     public string JobHistoryLabel => $"Previous exports ({JobHistory.Count})";
     public bool ShowQueueHint => Jobs.Count == 0;
-    public bool ShowEmptyState => PreviewImage is null && !ShowPlayback;
+    public bool ShowEmptyState => PreviewImage is null && !ShowPlayback && !IsAudio;
 
     [ObservableProperty] private string status = "Choose a media folder to get started.";
     [ObservableProperty] private string libraryRoot = "";
@@ -181,17 +181,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         MainTab = value is null ? 0 : 1;
         _ = LoadSelectionAsync(value);
     }
-    partial void OnCurrentFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); NotifyFrameState(); _ = SeekFrameAsync(); }
+    partial void OnCurrentFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); NotifyFrameState(); SyncAudioPositionToFrame(); _ = SeekFrameAsync(); }
     partial void OnDisplayedFrameChanged(int value) => NotifyFrameState();
     partial void OnPreviewImageChanged(ImageSource? value) { NotifyFrameState(); OnPropertyChanged(nameof(ShowEmptyState)); }
     partial void OnIsFrameLoadingChanged(bool value) => NotifyFrameState();
-    partial void OnIsIndexingChanged(bool value) => NotifyFrameState();
+    partial void OnIsIndexingChanged(bool value) { NotifyFrameState(); NotifyIndexing(); }
     partial void OnShowPlaybackChanged(bool value)
     {
         NotifyFrameState();
         OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(ShowVideoSurface));
         if (value) { IsCropping = false; CropSelection = null; }
-        else PlaybackFrame = -1;
+        else { PlaybackFrame = -1; SyncAudioPositionToFrame(); }
     }
     partial void OnInFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); UpdateAudioRange(); }
     partial void OnOutFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); UpdateAudioRange(); }
@@ -202,6 +203,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         for (var channel = 0; channel < (value?.Channels ?? 0); channel++)
             AudioChannels.Add($"Channel {channel + 1} only");
         SelectedChannelIndex = 0;
+        _ = LoadWaveformAsync();
     }
 
     [RelayCommand]
@@ -437,6 +439,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OutFrame = 0;
         AudioStart = 0;
         AudioEnd = 0;
+        ResetAudioView();
         IsIndexing = false;
         IsFrameLoading = item is not null;
         NotifyMediaProperties();
@@ -479,6 +482,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 AudioTracks.Add(track);
             SelectedAudioTrack = AudioTracks.FirstOrDefault();
             AudioEnd = info.Duration;
+            UpdateFrameRate();
             ShowMetadata(item.Asset, info.Metadata);
             NotifyMediaProperties();
             if (item.Asset.Kind == MediaKind.Video)
@@ -518,10 +522,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         indexCancellation?.Cancel();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         indexCancellation = cancellation;
+        indexedFrames = 0;
+        indexPulses = 0;
+        indexEstimate = 0;
         IsIndexing = true;
         try
         {
-            var indexed = await selectedEngine.IndexFramesAsync(item.Asset, info, cancellation.Token);
+            var header = FrameRateInfo.FromRatio(info.Metadata.GetValueOrDefault("avg_frame_rate")) ?? FrameRateInfo.FromRatio(info.Metadata.GetValueOrDefault("r_frame_rate"));
+            indexEstimate = header is null ? 0 : (int)Math.Round(info.Duration * header.FramesPerSecond);
+            // Progress<T> is created here on the UI thread, so reports from the FFprobe reader arrive on it.
+            var progress = new Progress<int>(count => { if (indexCancellation == cancellation) SetIndexProgress(count, indexEstimate); });
+            var indexed = await selectedEngine.IndexFramesAsync(item.Asset, info, cancellation.Token, progress);
             cancellation.Token.ThrowIfCancellationRequested();
             if (loadedAsset != item)
                 return;
@@ -530,6 +541,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             OutFrame = MaximumFrame;
             NotifyMediaProperties();
             UpdateAudioRange();
+            UpdateFrameRate();
+            SyncAudioPositionToFrame();
             if (CurrentFrame > MaximumFrame)
                 CurrentFrame = MaximumFrame;
             else if (DisplayedFrame != CurrentFrame && frameCancellation is null)
@@ -746,6 +759,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ShowPlayback = false;
         if (HasFrames)
             CurrentFrame = FrameAtTime(time);
+        else
+            AudioPosition = Math.Max(0, time);
     }
 
     /// <summary>Last indexed frame whose timestamp is at or before <paramref name="seconds"/>; binary search over the sorted index.</summary>
@@ -775,7 +790,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 _ = SeekFrameAsync();
             return;
         }
-        var startMs = HasFrames ? (long)(frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time * 1000) : (long)(AudioStart * 1000);
+        var startMs = HasFrames ? (long)(frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time * 1000)
+            : (long)((mediaInfo is { } info && AudioPosition < info.Duration - 0.05 ? AudioPosition : 0) * 1000);
         StartPlayback(startMs, null);
         Status = "Playing. Pause or step to return to exact frame preview.";
     });
@@ -783,8 +799,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void PlaySelection() => Guard(() =>
     {
-        if (!CanPlay || SelectedAsset is null || !HasFrames || mediaInfo is null)
+        if (!CanPlay || SelectedAsset is null || mediaInfo is null)
             return;
+        if (!HasFrames)
+        {
+            var section = new TimeRange(AudioStart, AudioEnd);
+            section.Validate(mediaInfo.Duration);
+            StartPlayback((long)(section.Start * 1000), (long)(section.End * 1000));
+            Status = $"Playing {AudioSelectionText}; playback pauses at the end of the selection.";
+            return;
+        }
         var range = new FrameRange(InFrame, OutFrame);
         range.Validate(frames.Count);
         var times = range.ToTimeRange(frames, mediaInfo.Duration);
@@ -815,6 +839,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         stopPlaybackAt = null;
         ShowPlayback = false;
+        if (!HasFrames) AudioPosition = 0;
         Status = "Playback finished.";
     });
 
@@ -825,6 +850,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (disposed || !ShowPlayback)
                 return;
+            AudioPosition = time / 1000.0;
             if (HasFrames)
                 PlaybackFrame = FrameAtTime(time / 1000.0);
             if (stopPlaybackAt is { } stop && time >= stop)
@@ -836,16 +862,42 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     CurrentFrame = Math.Clamp(OutFrame, 0, MaximumFrame);
                     _ = SeekFrameAsync();
                 }
-                Status = "Reached the out marker.";
+                else AudioPosition = AudioStart;
+                Status = HasFrames ? "Reached the out marker." : "Reached the end of the selection.";
             }
         });
     }
 
     [RelayCommand]
-    private void MarkIn() { PauseAtPlaybackPosition(); InFrame = CurrentFrame; if (OutFrame < InFrame) OutFrame = InFrame; }
+    private void MarkIn()
+    {
+        if (!HasFrames && IsAudio && mediaInfo is not null)
+        {
+            // Audio has no frames: I and O mark at the playhead, even while it plays.
+            AudioStart = Math.Clamp(AudioPosition, 0, mediaInfo.Duration);
+            if (AudioEnd <= AudioStart) AudioEnd = mediaInfo.Duration;
+            return;
+        }
+        PauseAtPlaybackPosition(); InFrame = CurrentFrame; if (OutFrame < InFrame) OutFrame = InFrame;
+    }
 
     [RelayCommand]
-    private void MarkOut() { PauseAtPlaybackPosition(); OutFrame = CurrentFrame; if (InFrame > OutFrame) InFrame = OutFrame; }
+    private void MarkOut()
+    {
+        if (!HasFrames && IsAudio && mediaInfo is not null)
+        {
+            AudioEnd = Math.Clamp(AudioPosition, 0, mediaInfo.Duration);
+            if (AudioEnd <= AudioStart) AudioStart = 0;
+            return;
+        }
+        PauseAtPlaybackPosition(); OutFrame = CurrentFrame; if (InFrame > OutFrame) InFrame = OutFrame;
+    }
+
+    private void SyncAudioPositionToFrame()
+    {
+        if (HasFrames && !ShowPlayback)
+            AudioPosition = frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time;
+    }
 
     private void UpdateAudioRange()
     {
@@ -1129,6 +1181,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             OnPropertyChanged(property);
         foreach (var property in new[] { nameof(CanExportFrame), nameof(HasFrames), nameof(CanPlay), nameof(HasAudio), nameof(MaximumFrame), nameof(FrameLabel), nameof(FrameNumberText), nameof(FrameTotalText), nameof(FrameTimeText), nameof(SelectionLabel), nameof(RangeLabel), nameof(RangeSummary), nameof(CurrentFrame), nameof(FrameList), nameof(SelectedFramesLabel), nameof(AllFramesLabel), nameof(IsPreviewBusy), nameof(ShowPendingOverlay), nameof(PendingLabel), nameof(IsPreviewStale), nameof(ShowEmptyState), nameof(EmptyTitle), nameof(EmptyText) })
             OnPropertyChanged(property);
+        NotifyAudioState();
+        NotifyFrameRate();
     }
 
     private void Guard(Action action)

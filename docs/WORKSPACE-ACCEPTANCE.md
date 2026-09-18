@@ -20,4 +20,8 @@ For hands-on validation on your hardware:
 11. Click Tour the UI and step through it on your screen size and scaling. Every outline should sit on the control it describes and the callout should never cover it. Esc should end the tour and put the panels back as they were.
 12. Open folder, Browse folder, favorites export/import and Load JSON should all open the normal Windows dialogs.
 
+13. Select a video with sound. The frames per second should be readable at a glance beside the frame counter and match what you expect for the file. The waveform under the timeline should rise where the video is loud, and its playhead should follow playback. Drag a section on the waveform: the in and out handles on the frame timeline should move with it. Play marked range, then Snip selection to WAV and listen to the file.
+14. Select an audio file. The waveform should fill the preview. Drag a section, adjust an edge, click to move the playhead, press Space, press I and O while it plays, double-click to select everything. Play selection should stop at the end of the section, and the snipped WAV should contain exactly that section.
+15. The Library and Preview tabs should read as folder tabs at your scaling, with the file name, Favorite and Stage on the same row and nothing clipped when the window is at its minimum width.
+
 Native playback/GPU behavior, actual clipboard interoperability, huge libraries, filesystem/network latency, and all DPI/monitor combinations still require interactive verification.

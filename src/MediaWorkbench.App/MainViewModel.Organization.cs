@@ -475,13 +475,15 @@ public sealed partial class MainViewModel
         Metadata.Add(new MetadataRow("Extension", Path.GetExtension(asset.Name).TrimStart('.').ToLowerInvariant()));
         Metadata.Add(new MetadataRow("File size", $"{asset.Length / 1048576.0:N2} MB ({asset.Length:N0} bytes)", false));
         Metadata.Add(new MetadataRow("Modified", new DateTime(asset.ModifiedTicks, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")));
+        // The header line under the file name carries the frame rate too; the large readout beside the frame counter is the measured one.
+        var headerRate = IsVideo && (FrameRateInfo.FromRatio(values.GetValueOrDefault("avg_frame_rate")) ?? FrameRateInfo.FromRatio(values.GetValueOrDefault("r_frame_rate"))) is { } rate ? $", {rate.Number} fps" : "";
         if (PreviewImage is BitmapSource image)
         {
             Metadata.Add(new MetadataRow("Dimensions", $"{image.PixelWidth} x {image.PixelHeight}"));
             Metadata.Add(new MetadataRow("Aspect ratio", MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)));
             Metadata.Add(new MetadataRow("Megapixels", $"{image.PixelWidth * (double)image.PixelHeight / 1000000:0.##} MP"));
             Metadata.Add(new MetadataRow("Orientation", image.PixelWidth == image.PixelHeight ? "Square" : image.PixelWidth > image.PixelHeight ? "Landscape" : "Portrait"));
-            MediaSummary = $"{image.PixelWidth:N0} × {image.PixelHeight:N0}, {MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)}, {asset.Length / 1048576.0:N1} MB";
+            MediaSummary = $"{image.PixelWidth:N0} × {image.PixelHeight:N0}, {MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)}{headerRate}, {asset.Length / 1048576.0:N1} MB";
         }
         if (mediaInfo is { Duration: > 0 } info)
         {
@@ -489,20 +491,20 @@ public sealed partial class MainViewModel
             Metadata.Add(new MetadataRow("Audio tracks", info.AudioTracks.Count.ToString()));
             if (IsAudio) MediaSummary = $"{info.Duration:0.###} s, {info.AudioTracks.Count} tracks, {asset.Length / 1048576.0:N1} MB";
             else if (PreviewImage is null && values.TryGetValue("width", out var width) && values.TryGetValue("height", out var height))
-                MediaSummary = $"{width} × {height}, {info.Duration:0.###} s, {asset.Length / 1048576.0:N1} MB";
+                MediaSummary = $"{width} × {height}{headerRate}, {info.Duration:0.###} s, {asset.Length / 1048576.0:N1} MB";
         }
         var names = new Dictionary<string, string>
         {
             ["format_name"] = "Container", ["bit_rate"] = "Bit rate (bits/s)", ["size"] = "Container size (bytes)",
             ["width"] = "Encoded width", ["height"] = "Encoded height", ["codec_name"] = "Video codec",
-            ["pix_fmt"] = "Pixel format", ["avg_frame_rate"] = "Average frame rate", ["display_aspect_ratio"] = "Display aspect ratio",
+            ["pix_fmt"] = "Pixel format", ["avg_frame_rate"] = "Average frame rate", ["r_frame_rate"] = "Nominal frame rate", ["display_aspect_ratio"] = "Display aspect ratio",
             ["sample_aspect_ratio"] = "Pixel aspect ratio", ["color_space"] = "Color space", ["color_transfer"] = "Color transfer",
             ["bits_per_raw_sample"] = "Bits per channel"
         };
         foreach (var pair in values)
         {
             var value = pair.Value;
-            if (pair.Key == "avg_frame_rate")
+            if (pair.Key is "avg_frame_rate" or "r_frame_rate")
             {
                 var parts = value.Split('/');
                 if (parts.Length == 2 && double.TryParse(parts[0], System.Globalization.CultureInfo.InvariantCulture, out var numerator)

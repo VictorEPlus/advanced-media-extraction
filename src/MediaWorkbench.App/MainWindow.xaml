@@ -38,16 +38,27 @@
             <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
             <Setter Property="FontSize" Value="16" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
             <Setter Property="Template"><Setter.Value>
+                <!-- A file-folder tab: the open tab is taller, takes the colour of the page below it and breaks the line under the row; closed tabs sit lower and darker behind that line. -->
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="TabBorder" Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent" Padding="12,6">
-                        <ContentPresenter HorizontalAlignment="Center" />
+                    <Border x:Name="TabBorder" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBrush}" BorderThickness="1,1,1,0" CornerRadius="7,7,0,0" Margin="0,6,3,1" SnapsToDevicePixels="True">
+                        <Grid>
+                            <Border x:Name="TabMark" Height="3" VerticalAlignment="Top" CornerRadius="6,6,0,0" Background="Transparent" />
+                            <ContentPresenter x:Name="TabLabel" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18,7,18,5" />
+                        </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource InkBrush}" /></Trigger>
-                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="TabBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" /><Setter Property="Foreground" Value="{StaticResource InkBrush}" /></Trigger>
-                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="{StaticResource RaisedBrush}" /></Trigger>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource InkBrush}" /><Setter TargetName="TabBorder" Property="Background" Value="{StaticResource RaisedBrush}" /></Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource CanvasBrush}" />
+                            <Setter TargetName="TabBorder" Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                            <Setter TargetName="TabBorder" Property="Margin" Value="0,0,3,0" />
+                            <Setter TargetName="TabMark" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="TabLabel" Property="Margin" Value="18,10,18,8" />
+                            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="TabMark" Property="Background" Value="{StaticResource InkBrush}" /></Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value></Setter>
@@ -166,10 +177,29 @@
             </Border>
             <Grid x:Name="CenterPanel" Grid.Column="1" Margin="12,0,4,0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <StackPanel x:Name="MainTabs" Orientation="Horizontal" Margin="0,0,0,8">
-                    <RadioButton x:Name="LibraryTabButton" Content="Library" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsLibraryTab}" ToolTip="Folder tree and graph of where your media lives" />
-                    <RadioButton x:Name="PreviewTabButton" Content="Preview" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsPreviewTab}" ToolTip="The selected photo, video or audio file with its tools" />
-                </StackPanel>
+                <!-- One row: the folder tabs on the left, the selected file with Favorite and Stage on the right. -->
+                <Grid x:Name="CenterHeader" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{StaticResource BorderBrush}" SnapsToDevicePixels="True" />
+                    <StackPanel x:Name="MainTabs" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <RadioButton x:Name="LibraryTabButton" Content="Library" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsLibraryTab}" ToolTip="Folder tree and graph of where your media lives" />
+                        <RadioButton x:Name="PreviewTabButton" Content="Preview" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsPreviewTab}" ToolTip="The selected photo, video or audio file with its tools" />
+                    </StackPanel>
+                    <Grid x:Name="SelectionHeader" Grid.Column="1" Margin="14,0,0,6" VerticalAlignment="Bottom" Visibility="{Binding IsPreviewTab, Converter={StaticResource BoolVisibility}}">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding SelectionLabel}" FontFamily="{StaticResource DisplayFont}" FontSize="17" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedAsset.Asset.FullPath}" />
+                            <DockPanel>
+                                <Border DockPanel.Dock="Right" Background="{StaticResource RaisedBrush}" CornerRadius="3" Padding="6,1" Margin="8,2,0,0" Visibility="{Binding IsSelectionHidden, Converter={StaticResource BoolVisibility}}" ToolTip="The selected file no longer matches the filters. It stays open until you choose another file."><TextBlock Text="Hidden by filters" Style="{StaticResource Hint}" /></Border>
+                                <TextBlock Text="{Binding MediaSummary}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                            </DockPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
+                            <Button x:Name="FavoriteButton" Content="&#x2605; Favorite" Command="{Binding ToggleFavoriteCommand}" ToolTip="Toggle favorite (F)" />
+                            <Button x:Name="StageButton" Content="Stage" Command="{Binding StageSelectedCommand}" ToolTip="Add this file to the selected staging collection (S)" Margin="0" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
 
                 <!-- Library tab: where the media lives -->
                 <Grid x:Name="LibraryTab" Grid.Row="1" Visibility="{Binding IsLibraryTab, Converter={StaticResource BoolVisibility}}">
@@ -233,20 +263,6 @@
                 <!-- Preview tab: the selected file and its tools -->
                 <Grid x:Name="PreviewTab" Grid.Row="1" Visibility="{Binding IsPreviewTab, Converter={StaticResource BoolVisibility}}">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Grid x:Name="SelectionHeader" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <StackPanel>
-                            <TextBlock Text="{Binding SelectionLabel}" FontFamily="{StaticResource DisplayFont}" FontSize="17" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedAsset.Asset.FullPath}" />
-                            <DockPanel>
-                                <Border DockPanel.Dock="Right" Background="{StaticResource RaisedBrush}" CornerRadius="3" Padding="6,1" Margin="8,2,0,0" Visibility="{Binding IsSelectionHidden, Converter={StaticResource BoolVisibility}}" ToolTip="The selected file no longer matches the filters. It stays open until you choose another file."><TextBlock Text="Hidden by filters" Style="{StaticResource Hint}" /></Border>
-                                <TextBlock Text="{Binding MediaSummary}" Style="{StaticResource Hint}" Margin="0,3,0,0" />
-                            </DockPanel>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
-                            <Button x:Name="FavoriteButton" Content="&#x2605; Favorite" Command="{Binding ToggleFavoriteCommand}" ToolTip="Toggle favorite (F)" />
-                            <Button x:Name="StageButton" Content="Stage" Command="{Binding StageSelectedCommand}" ToolTip="Add this file to the selected staging collection (S)" Margin="0" />
-                        </StackPanel>
-                    </Grid>
                     <Border x:Name="PreviewMonitor" Grid.Row="1" Background="{StaticResource MonitorBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" ClipToBounds="True">
                         <Grid>
                             <local:CropSurface x:Name="PreviewSurface" Source="{Binding PreviewImage}" Selection="{Binding CropSelection}" IsCropping="{Binding IsCropping}" />
@@ -260,7 +276,11 @@
                                 <Button Content="Open folder&#x2026;" Command="{Binding OpenFolderCommand}" Style="{StaticResource AccentButton}" HorizontalAlignment="Center" Margin="0,20,0,0" Visibility="{Binding ShowEmptyOpenFolder, Converter={StaticResource BoolVisibility}}" />
                                 <Button Content="Clear filters" Command="{Binding ClearFiltersCommand}" HorizontalAlignment="Center" Margin="0,20,0,0" Visibility="{Binding ShowEmptyClearFilters, Converter={StaticResource BoolVisibility}}" />
                             </StackPanel>
-                            <vlc:VideoView MediaPlayer="{Binding Player}" Visibility="{Binding ShowPlayback, Converter={StaticResource BoolVisibility}}" />
+                            <DockPanel x:Name="AudioStage" Margin="18,18,18,14" Visibility="{Binding ShowAudioStage, Converter={StaticResource BoolVisibility}}">
+                                <TextBlock DockPanel.Dock="Bottom" Text="{Binding AudioHint}" Style="{StaticResource Hint}" FontSize="12" TextAlignment="Center" Margin="0,10,0,0" />
+                                <local:WaveformView x:Name="AudioWaveform" Waveform="{Binding Waveform}" Duration="{Binding WaveformDuration}" Position="{Binding AudioPosition}" IsLive="{Binding ShowPlayback}" SelectionStart="{Binding AudioStart}" SelectionEnd="{Binding AudioEnd}" Message="{Binding WaveformMessage}" SelectionRequested="OnAudioSelectionRequested" SeekRequested="OnAudioSeekRequested" AutomationProperties.Name="Audio waveform" />
+                            </DockPanel>
+                            <vlc:VideoView MediaPlayer="{Binding Player}" Visibility="{Binding ShowVideoSurface, Converter={StaticResource BoolVisibility}}" />
                             <ProgressBar Height="3" VerticalAlignment="Bottom" IsIndeterminate="True" Visibility="{Binding ShowFrameProgress, Converter={StaticResource BoolVisibility}}" />
                             <ItemsControl ItemsSource="{Binding Notifications}" ItemTemplate="{StaticResource NotificationTemplate}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12" MaxWidth="440" AutomationProperties.Name="Notifications" />
                         </Grid>
@@ -272,15 +292,32 @@
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="{Binding FrameNumberText}" Style="{StaticResource Readout}" FontSize="30" VerticalAlignment="Bottom" AutomationProperties.Name="Current frame" />
                                     <TextBlock Text="{Binding FrameTotalText}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="6,0,0,5" />
+                                    <StackPanel x:Name="IndexingIndicator" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="6,0,0,5" Background="Transparent" Visibility="{Binding ShowIndexing, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding IndexingNote}" AutomationProperties.Name="{Binding IndexingText}" AutomationProperties.LiveSetting="Polite">
+                                        <TextBlock FontSize="15" VerticalAlignment="Center" Foreground="{StaticResource BorderBrush}"><Run Text="{Binding IndexDotsLead, Mode=OneWay}" /><Run Text="{Binding IndexDotsLit, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" /><Run Text="{Binding IndexDotsTail, Mode=OneWay}" /></TextBlock>
+                                        <TextBlock Text="{Binding IndexingText}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                    </StackPanel>
                                     <TextBlock Text="{Binding FrameTimeText}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="18,0,0,5" />
+                                    <StackPanel x:Name="FrameRateReadout" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="22,0,0,0" Background="Transparent" Visibility="{Binding HasFrameRate, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding FrameRateNote}">
+                                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="0,8,22,6" />
+                                        <TextBlock Text="{Binding FrameRateText}" Style="{StaticResource Readout}" FontSize="30" VerticalAlignment="Bottom" AutomationProperties.Name="Frames per second" />
+                                        <TextBlock Text="{Binding FrameRateUnit}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="6,0,0,5" />
+                                    </StackPanel>
                                 </StackPanel>
                             </DockPanel>
-                            <DockPanel Margin="0,0,0,4">
-                                <Button x:Name="MarkInButton" DockPanel.Dock="Left" Content="Mark in (I)" Command="{Binding MarkInCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive in point at the current frame" VerticalAlignment="Top" Margin="0,8,6,0" />
-                                <Button x:Name="MarkOutButton" DockPanel.Dock="Right" Content="Mark out (O)" Command="{Binding MarkOutCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive out point at the current frame" Margin="6,8,0,0" VerticalAlignment="Top" />
-                                <local:FrameTimeline x:Name="Timeline" Maximum="{Binding MaximumFrame}" Value="{Binding CurrentFrame, Mode=TwoWay}" InFrame="{Binding InFrame, Mode=TwoWay}" OutFrame="{Binding OutFrame, Mode=TwoWay}" Frames="{Binding FrameList}" DisplayedFrame="{Binding DisplayedFrame}" LivePosition="{Binding PlaybackFrame}" IsEnabled="{Binding HasFrames}" Height="60" AutomationProperties.Name="Exact frame position" ToolTip="Drag the playhead, in and out handles. Left/Right step one frame, Shift+arrow ten." />
-                            </DockPanel>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Button x:Name="MarkInButton" Content="Mark in (I)" Command="{Binding MarkInCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive in point at the current frame" VerticalAlignment="Top" Margin="0,8,6,0" />
+                                <Button x:Name="MarkOutButton" Grid.Column="2" Content="Mark out (O)" Command="{Binding MarkOutCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive out point at the current frame" Margin="6,8,0,0" VerticalAlignment="Top" />
+                                <local:FrameTimeline x:Name="Timeline" Grid.Column="1" Maximum="{Binding MaximumFrame}" Value="{Binding CurrentFrame, Mode=TwoWay}" InFrame="{Binding InFrame, Mode=TwoWay}" OutFrame="{Binding OutFrame, Mode=TwoWay}" Frames="{Binding FrameList}" DisplayedFrame="{Binding DisplayedFrame}" LivePosition="{Binding PlaybackFrame}" IsEnabled="{Binding HasFrames}" Height="60" AutomationProperties.Name="Exact frame position" ToolTip="Drag the playhead, in and out handles. Left/Right step one frame, Shift+arrow ten." />
+                                <local:WaveformView x:Name="VideoWaveform" Grid.Row="1" Grid.Column="1" Height="72" Margin="0,2,0,0" Visibility="{Binding ShowVideoWaveform, Converter={StaticResource BoolVisibility}}" Waveform="{Binding Waveform}" Duration="{Binding WaveformDuration}" Position="{Binding AudioPosition}" IsLive="{Binding ShowPlayback}" SelectionStart="{Binding AudioStart}" SelectionEnd="{Binding AudioEnd}" Message="{Binding WaveformMessage}" IsEnabled="{Binding HasFrames}" SelectionRequested="OnAudioSelectionRequested" SeekRequested="OnAudioSeekRequested" AutomationProperties.Name="Audio waveform" />
+                                <TextBlock Grid.Row="1" Text="Sound" Style="{StaticResource Hint}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,8,0" Visibility="{Binding ShowVideoWaveform, Converter={StaticResource BoolVisibility}}" />
+                            </Grid>
                         </StackPanel>
+                        <DockPanel x:Name="AudioTools" Margin="0,0,0,6" Visibility="{Binding HasAudio, Converter={StaticResource BoolVisibility}}">
+                            <Button x:Name="SnipAudioButton" DockPanel.Dock="Right" Content="Snip selection to WAV" Command="{Binding ExportAudioCommand}" IsEnabled="{Binding CanSnipAudio}" ToolTip="Saves only the selected section of sound as a WAV file in the export folder. The original is not changed." Margin="10,0,0,0" />
+                            <TextBlock x:Name="AudioSelectionReadout" Text="{Binding AudioSelectionText}" Style="{StaticResource Readout}" FontSize="14" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding AudioHint}" />
+                        </DockPanel>
                         <DockPanel x:Name="ActionRow" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
                             <Button x:Name="ExportFrameButton" DockPanel.Dock="Right" Content="{Binding ExportLabel}" Command="{Binding ExportFrameCommand}" IsEnabled="{Binding CanExportFrame}" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding ExportDestination}" Margin="10,0,0,6" VerticalAlignment="Top" />
                             <WrapPanel>
@@ -288,7 +325,7 @@
                                     <Button x:Name="PlaybackButton" Content="&#x25B6; Play / pause" Command="{Binding TogglePlaybackCommand}" IsEnabled="{Binding CanPlay}" ToolTip="Play or pause (Space)">
                                         <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding IsPhoto}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
                                     </Button>
-                                    <Button x:Name="PlayRangeButton" Content="Play marked range" Command="{Binding PlaySelectionCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Play from the in point and pause at the out point" />
+                                    <Button x:Name="PlayRangeButton" Content="{Binding PlayRangeLabel}" Command="{Binding PlaySelectionCommand}" IsEnabled="{Binding CanPlayRange}" Visibility="{Binding CanPlay, Converter={StaticResource BoolVisibility}}" ToolTip="Play only the marked section and pause at its end" />
                                     <Button x:Name="PreviousFrameButton" Content="&#x25C0; Frame" Command="{Binding PreviousFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Previous frame (Left in the preview, or comma)" />
                                     <Button x:Name="NextFrameButton" Content="Frame &#x25B6;" Command="{Binding NextFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Next frame (Right in the preview, or period)" Margin="0" />
                                 </StackPanel>

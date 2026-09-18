@@ -126,6 +126,10 @@ public partial class MainWindow : Window
             viewModel.ToggleFolderRowCommand.Execute(row);
     }
 
+    private void OnAudioSelectionRequested(object? sender, AudioRangeEventArgs args) => viewModel.SelectAudioRange(args.Start, args.End);
+
+    private void OnAudioSeekRequested(object? sender, AudioSeekEventArgs args) => viewModel.SeekAudio(args.Time);
+
     private void FolderTreeKeyDown(object sender, KeyEventArgs args)
     {
         if (FolderTreeList.SelectedItem is not FolderRowViewModel { HasChildren: true } row) return;
@@ -180,8 +184,8 @@ public partial class MainWindow : Window
             Key.S => viewModel.StageSelectedCommand,
             Key.C => viewModel.ToggleCropCommand,
             Key.Escape => viewModel.ResetCropCommand,
-            Key.I when viewModel.IsVideo => viewModel.MarkInCommand,
-            Key.O when viewModel.IsVideo => viewModel.MarkOutCommand,
+            Key.I when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkInCommand,
+            Key.O when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkOutCommand,
             Key.Space => viewModel.TogglePlaybackCommand,
             _ => null
         };

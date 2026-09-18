@@ -22,7 +22,7 @@ internal static partial class DesktopSmokeTest
         Directory.CreateDirectory(mediaDirectory);
         var video = Path.Combine(mediaDirectory, "Sample video.mkv");
         await new ProcessRunner().RunAsync(tools.Ffmpeg,
-            ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=6:duration=1", "-c:v", "libx264", video], cancellationToken: timeout.Token);
+            ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=6:duration=1", "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,0.5)\\,0.05*sin(2*PI*90*t)\\,0.6*sin(2*PI*330*t)):s=44100:d=1", "-c:v", "libx264", "-c:a", "pcm_s16le", video], cancellationToken: timeout.Token);
         var photo = Path.Combine(mediaDirectory, "Sample photo.png");
         await new ProcessRunner().RunAsync(tools.Ffmpeg,
             ["-v", "error", "-nostdin", "-y", "-i", video, "-frames:v", "1", photo], cancellationToken: timeout.Token);
@@ -41,6 +41,7 @@ internal static partial class DesktopSmokeTest
         await WaitUntilAsync(() => !viewModel.IsPreviewBusy, timeout.Token);
         Require(viewModel.CanExportFrame && viewModel.DisplayedFrame == 3 && !viewModel.IsPreviewStale, "Exact frame preview failed: " + viewModel.Status);
         Require(viewModel.PreviewImage is not null, "The previous frame must stay visible while the next one decodes.");
+        await CheckVideoSoundAsync(viewModel, window, dataDirectory, timeout.Token);
         Require(Directory.GetFiles(Path.Combine(dataDirectory, "cache"), "*.png").Length >= 6, "A cache miss should decode a window of neighbouring frames in one pass.");
         Require(Directory.GetFiles(Path.Combine(dataDirectory, "cache"), "*.index.json").Length == 1, "The frame index should be persisted for the file identity.");
         viewModel.SearchText = "no such file";
@@ -79,6 +80,7 @@ internal static partial class DesktopSmokeTest
             await viewModel.LoadThumbnailAsync(item);
         Render(window, Path.Combine(dataDirectory, "desktop.png"));
         await CheckWorkspaceAsync(viewModel, window, dataDirectory, mediaDirectory, photoItem, videoItem, timeout.Token);
+        await CheckAudioFileAsync(viewModel, window, dataDirectory, tools, timeout.Token);
         Require(viewModel.Notifications.All(notification => notification.Kind != NotificationKind.Error),
             "The scenario raised an unexpected error notification: " + string.Join(" | ", viewModel.Notifications.Where(notification => notification.Kind == NotificationKind.Error).Select(notification => notification.Message)));
         CheckLibraryAndTour(viewModel, window, dataDirectory, photoItem);

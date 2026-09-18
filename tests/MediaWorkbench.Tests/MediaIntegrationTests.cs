@@ -107,6 +107,29 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task IndexingReportsHowManyFramesHaveBeenReadAndStaysSilentWhenCached()
+    {
+        var engine = new MediaEngine(fixture.Tools, fixture.Temporary.FilePath("progress cache"));
+        var asset = fixture.Asset(fixture.LongPath);
+        var info = await engine.ProbeAsync(asset.FullPath);
+        var reports = new List<int>();
+        var frames = await engine.IndexFramesAsync(asset, info, progress: new Collecting(reports));
+        Assert.Equal(300, frames.Count);
+        Assert.True(reports.Count >= 12, "Expected a report every 25 frames.");
+        Assert.Equal(reports.Order(), reports);
+        Assert.Equal(300, reports[^1]);
+        reports.Clear();
+        await engine.IndexFramesAsync(asset, info, progress: new Collecting(reports));
+        Assert.Empty(reports);
+    }
+
+    /// <summary>Synchronous, unlike Progress&lt;T&gt;, so every report has arrived when the call returns.</summary>
+    private sealed class Collecting(List<int> reports) : IProgress<int>
+    {
+        public void Report(int value) { lock (reports) reports.Add(value); }
+    }
+
+    [Fact]
     public async Task FrameIndexIsPersistedPerFileIdentityAndReusedOnlyWhenValid()
     {
         using var cache = new TemporaryDirectory();
@@ -209,6 +232,35 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
         var clip = await fixture.Engine.ExportAudioAsync(fixture.Asset(wave) with { Kind = MediaKind.Audio }, audio, audio.AudioTracks[0], null, new TimeRange(0.2, 0.4), output.Path);
         Assert.InRange((await fixture.Engine.ProbeAsync(clip)).Duration, 0.199, 0.201);
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => fixture.Engine.ExportAudioAsync(fixture.Asset(fixture.VideoPath), info, info.AudioTracks[0], 2, new TimeRange(0, 1), output.Path));
+    }
+
+    [Fact]
+    public async Task WaveformFollowsTheSoundInTimeAndIsCachedPerTrack()
+    {
+        using var output = new TemporaryDirectory();
+        var path = output.FilePath("quiet then loud.wav");
+        // One second of silence, then one second of a half-scale tone.
+        await new ProcessRunner().RunAsync(fixture.Tools.Ffmpeg,
+            ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,1)\\,0\\,0.5*sin(2*PI*440*t)):s=48000:d=2", "-c:a", "pcm_s16le", path]);
+        var asset = fixture.Asset(path) with { Kind = MediaKind.Audio };
+        var info = await fixture.Engine.ProbeAsync(path);
+        var waveform = await fixture.Engine.GetWaveformAsync(asset, info, info.AudioTracks[0]);
+        Assert.InRange(waveform.Count, 198, 202);
+        Assert.InRange(waveform.Duration, 1.98, 2.02);
+        Assert.All(Enumerable.Range(5, 85), bucket => Assert.InRange(waveform.Maximum[bucket], -0.01f, 0.01f));
+        Assert.All(Enumerable.Range(110, 80), bucket => Assert.InRange(waveform.Maximum[bucket], 0.4f, 0.55f));
+        Assert.All(Enumerable.Range(110, 80), bucket => Assert.InRange(waveform.Minimum[bucket], -0.55f, -0.4f));
+
+        // The second request must come from the cache: it still answers after the source file is gone.
+        File.Delete(path);
+        var cached = await fixture.Engine.GetWaveformAsync(asset, info, info.AudioTracks[0]);
+        Assert.Equal(waveform.Count, cached.Count);
+
+        var video = await fixture.Engine.ProbeAsync(fixture.VideoPath);
+        var mixed = await fixture.Engine.GetWaveformAsync(fixture.Asset(fixture.VideoPath), video, video.AudioTracks[0]);
+        Assert.InRange(mixed.Duration, 1.95, 2.05);
+        Assert.InRange(mixed.Maximum.Max(), 0.1f, 0.25f);
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.Engine.GetWaveformAsync(asset, info, new AudioTrack(9, 1, "missing")));
     }
 
     [Fact]

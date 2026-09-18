@@ -16,6 +16,14 @@ Frame identity is the decoded ordinal. A plain timestamp seek is never trusted o
 
 The view model separates the requested frame (`CurrentFrame`, what the timeline shows) from the displayed frame (`DisplayedFrame`, the ordinal whose PNG bytes are on screen). Exports always use the displayed ordinal and bytes. Decoded frames of the selected video are held in a bounded in-memory LRU (`FrameMemoryCache`, by decoded pixel bytes) and a single background loop reads ahead in the direction of travel; it re-reads its target instead of being cancelled per step, so rapid stepping never aborts a window decode in flight. Frame and thumbnail decodes use separate gates so a folder of video thumbnails cannot hold up stepping. While a decode is pending the previous still stays visible; only when it has been pending for about 350 ms is it dimmed, with an overlay naming both ordinals; indexing runs in the background after the probe so metadata and frame 0 appear first, and any request made before the index finishes is reconciled when it lands.
 
+## Sound and frame rate
+
+`MediaEngine.GetWaveformAsync` decodes one audio track once to 8 kHz mono PCM on FFmpeg's standard output (`ProcessRunner.RunBinaryAsync`) and reduces it to bucket extremes as it streams, so nothing large is held or written: 100 buckets a second, fewer for very long files (at most 120,000). `aresample=async=1:first_pts=0` pads a track that starts late so bucket times line up with the normalized frame timestamps. The result is cached per file identity and track as `*.wave.bin` (two signed bytes per bucket) and trimmed with the rest of the cache. It is a picture only; playback and exports always read the source file.
+
+`WaveformView` never changes its own selection. It shows a pending section while dragging and raises `SelectionRequested` or `SeekRequested` on release; the view model snaps a video's section outward to whole frames and writes the in/out markers, from which the audio range is derived as before, so frame markers stay the single source of truth for video. Audio files have no frames: their range is `AudioStart`/`AudioEnd` in seconds and the playhead is `AudioPosition`. The VLC surface is only shown for video, so the waveform of a playing audio file stays visible.
+
+`FrameRateInfo` reports the header rate immediately and the rate measured from the frame index once it lands. Because container timestamps are rounded (often to 1 ms), evenly spaced frames that agree with the header to within half a percent report the exact header rate (29.97, not 29.969); a gap that differs from the average by more than 20 % (and 1.5 ms) marks the video as variable frame rate.
+
 ## Safety and portability
 
 - Launch FFmpeg/FFprobe directly with `ProcessStartInfo.ArgumentList`, never through a command shell. Bound captured stderr, redirect both streams, and terminate the child process tree on cancellation.

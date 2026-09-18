@@ -5,7 +5,19 @@ namespace MediaWorkbench.Core;
 
 public sealed class ProcessRunner
 {
-    public async Task RunAsync(string executable, IEnumerable<string> arguments, Action<string>? output = null, CancellationToken cancellationToken = default, Action<string>? errorOutput = null)
+    public Task RunAsync(string executable, IEnumerable<string> arguments, Action<string>? output = null, CancellationToken cancellationToken = default, Action<string>? errorOutput = null) =>
+        RunCoreAsync(executable, arguments, async stream =>
+        {
+            using var reader = new StreamReader(stream, leaveOpen: true);
+            while (await reader.ReadLineAsync() is { } line)
+                output?.Invoke(line);
+        }, cancellationToken, errorOutput);
+
+    /// <summary>Runs a tool whose standard output is binary (for example raw PCM) and hands the stream to <paramref name="consume"/>.</summary>
+    public Task RunBinaryAsync(string executable, IEnumerable<string> arguments, Func<Stream, Task> consume, CancellationToken cancellationToken = default) =>
+        RunCoreAsync(executable, arguments, consume, cancellationToken, null);
+
+    private static async Task RunCoreAsync(string executable, IEnumerable<string> arguments, Func<Stream, Task> consume, CancellationToken cancellationToken, Action<string>? errorOutput)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable)
@@ -35,8 +47,14 @@ public sealed class ProcessRunner
         var errors = new StringBuilder();
         var stdout = Task.Run(async () =>
         {
-            while (await process.StandardOutput.ReadLineAsync() is { } line)
-                output?.Invoke(line);
+            try { await consume(process.StandardOutput.BaseStream); }
+            finally
+            {
+                // Drain whatever the consumer left so the child can never block on a full pipe.
+                try { await process.StandardOutput.BaseStream.CopyToAsync(Stream.Null); }
+                catch (IOException) { }
+                catch (ObjectDisposedException) { }
+            }
         }, CancellationToken.None);
         var stderr = Task.Run(async () =>
         {

@@ -20,6 +20,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     // Frames and thumbnails queue separately so a folder full of video thumbnails can never hold up frame stepping.
     private readonly SemaphoreSlim cacheGate = new(2);
     private readonly SemaphoreSlim thumbnailGate = new(2);
+    private readonly SemaphoreSlim waveformGate = new(1);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> seekUnsafe = new();
     private readonly object trimLock = new();
 
@@ -45,7 +46,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
             if (kind == "video" && !hasVideo)
             {
                 hasVideo = true;
-                foreach (var key in new[] { "width", "height", "codec_name", "pix_fmt", "avg_frame_rate", "display_aspect_ratio", "sample_aspect_ratio", "color_space", "color_transfer", "bits_per_raw_sample" })
+                foreach (var key in new[] { "width", "height", "codec_name", "pix_fmt", "avg_frame_rate", "r_frame_rate", "display_aspect_ratio", "sample_aspect_ratio", "color_space", "color_transfer", "bits_per_raw_sample" })
                     if (stream.TryGetProperty(key, out var value)) metadata[key] = value.ToString();
                 if (stream.TryGetProperty("tags", out var streamTags))
                     foreach (var tag in streamTags.EnumerateObject()) metadata["Video " + tag.Name] = tag.Value.ToString();
@@ -61,8 +62,8 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         return new MediaInfo(duration, start, hasVideo, audio) { Metadata = metadata };
     }
 
-    /// <summary>Indexes decoded frames, reusing a persisted index for this exact file identity when one exists.</summary>
-    public async Task<IReadOnlyList<VideoFrame>> IndexFramesAsync(MediaAsset asset, MediaInfo info, CancellationToken cancellationToken = default)
+    /// <summary>Indexes decoded frames, reusing a persisted index for this exact file identity when one exists. <paramref name="progress"/> receives the number of frames read so far while a new index is being built.</summary>
+    public async Task<IReadOnlyList<VideoFrame>> IndexFramesAsync(MediaAsset asset, MediaInfo info, CancellationToken cancellationToken = default, IProgress<int>? progress = null)
     {
         var path = Path.Combine(cacheDirectory, CacheKey(asset.Identity + "|index-v1") + ".index.json");
         if (File.Exists(path))
@@ -79,7 +80,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
             catch (JsonException) { }
             catch (IOException) { }
         }
-        var frames = await IndexFramesAsync(asset.FullPath, info, cancellationToken);
+        var frames = await IndexFramesAsync(asset.FullPath, info, cancellationToken, progress);
         Directory.CreateDirectory(cacheDirectory);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -96,7 +97,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         return frames;
     }
 
-    public async Task<IReadOnlyList<VideoFrame>> IndexFramesAsync(string path, MediaInfo info, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<VideoFrame>> IndexFramesAsync(string path, MediaInfo info, CancellationToken cancellationToken = default, IProgress<int>? progress = null)
     {
         var frames = new List<VideoFrame>();
         var invalidTimestamp = false;
@@ -121,7 +122,10 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
                 if (time is null)
                     invalidTimestamp = true;
                 frames.Add(new VideoFrame(frames.Count, time ?? 0, duration));
+                if (frames.Count % 25 == 0)
+                    progress?.Report(frames.Count);
             }, cancellationToken);
+        progress?.Report(frames.Count);
         if (invalidTimestamp || frames.Count == 0)
             throw new InvalidDataException("This video has no usable frame timestamps. Precision editing is unavailable.");
         for (var index = 1; index < frames.Count; index++)
@@ -268,6 +272,55 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         return false;
     }
 
+    /// <summary>
+    /// Loudness outline of one audio track for drawing. The track is decoded once to 8 kHz mono, reduced to bucket extremes as it streams
+    /// (nothing large is held or written), and the small result is cached per file identity and track. Silence is inserted ahead of a track
+    /// that starts late, so bucket times line up with the normalized frame timestamps.
+    /// </summary>
+    public async Task<Waveform> GetWaveformAsync(MediaAsset asset, MediaInfo info, AudioTrack track, CancellationToken cancellationToken = default)
+    {
+        if (!info.AudioTracks.Contains(track))
+            throw new ArgumentException("Select an audio track from this media file.");
+        var path = Path.Combine(cacheDirectory, CacheKey(asset.Identity + $"|waveform-v1|{track.StreamIndex}") + ".wave.bin");
+        await waveformGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (File.Exists(path))
+            {
+                try
+                {
+                    if (Waveform.FromBytes(await File.ReadAllBytesAsync(path, cancellationToken)) is { } cached)
+                    {
+                        File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+                        return cached;
+                    }
+                }
+                catch (IOException) { }
+            }
+            Waveform? waveform = null;
+            await runner.RunBinaryAsync(tools.Ffmpeg,
+                ["-v", "error", "-nostdin", "-i", asset.FullPath, "-map", $"0:{track.StreamIndex}", "-vn", "-af", "aresample=async=1:first_pts=0", "-ac", "1", "-ar", Waveform.SampleRate.ToString(CultureInfo.InvariantCulture), "-f", "s16le", "pipe:1"],
+                async stream => waveform = await Waveform.FromPcmAsync(stream, Waveform.SamplesPerBucket(info.Duration), cancellationToken), cancellationToken);
+            if (waveform is null || waveform.Count == 0)
+                throw new IOException("No audio could be decoded from this track.");
+            Directory.CreateDirectory(cacheDirectory);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                await File.WriteAllBytesAsync(temporary, waveform.ToBytes(), cancellationToken);
+                lock (trimLock) File.Move(temporary, path, true);
+            }
+            catch (IOException) { }
+            finally
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            return waveform;
+        }
+        finally { waveformGate.Release(); }
+    }
+
     public async Task<string> ExportFrameAsync(MediaAsset asset, int frameIndex, string directory, CancellationToken cancellationToken = default)
     {
         var bytes = await GetFrameAsync(asset, frameIndex, cancellationToken);
@@ -400,7 +453,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     {
         var files = new DirectoryInfo(cacheDirectory).EnumerateFiles()
             .Where(file => !file.Name.Contains(".tmp", StringComparison.Ordinal)
-                && (file.Name.EndsWith(".png", StringComparison.Ordinal) || file.Name.EndsWith(".index.json", StringComparison.Ordinal)))
+                && (file.Name.EndsWith(".png", StringComparison.Ordinal) || file.Name.EndsWith(".index.json", StringComparison.Ordinal) || file.Name.EndsWith(".wave.bin", StringComparison.Ordinal)))
             .OrderBy(file => file.LastWriteTimeUtc).ToArray();
         var size = files.Sum(file => file.Length);
         foreach (var file in files)
