@@ -48,6 +48,8 @@
 - [x] Audio waveform under the frame timeline and as the preview of audio files; drag to select (frame-snapped for video), click to seek, play the selection, snip it to WAV.
 - [x] Frame rate readout beside the frame counter, measured from the frame index, with variable-frame-rate detection.
 - [x] Folder-style centre tabs with the selected-file header on the same row.
+- [x] Hover and drag preview on the frame timeline: a small picture of the video at the pointer, from a cached strip of key-frame or every-Nth-frame thumbnails that each know their frame.
+- [x] Preview follows scroll: a filmstrip marker, instant thumbnail stand-in in the preview, the file opened when scrolling settles, and a gliding mouse wheel.
 - [x] Dotted loading bar with a percentage beside the frame counter while a video is being indexed.
 - [ ] Waveform zoom for placing cuts in long recordings; per-channel waveforms.
 - [x] Verified seek for deep cache misses, in-memory frame cache with directional read-ahead, decode overlay only for slow decodes.

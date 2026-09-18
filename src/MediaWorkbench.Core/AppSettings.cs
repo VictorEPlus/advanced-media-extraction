@@ -14,6 +14,8 @@ public sealed record AppSettings
     public double ThumbnailHeight { get; init; } = 84;
     public bool ShowSources { get; init; } = true;
     public bool ShowInspector { get; init; } = true;
+    /// <summary>The preview follows the thumbnail at the filmstrip marker while scrolling.</summary>
+    public bool FollowFilmstrip { get; init; }
     /// <summary>Set once the first-run "Tour the UI" invitation has been shown, so it is not repeated.</summary>
     public bool TourOffered { get; init; }
     /// <summary>Bumped when a layout change needs a one-time adjustment of saved sizes. 2 = the filmstrip header row was removed and its height given to the thumbnails.</summary>
@@ -32,11 +34,11 @@ public sealed record AppSettings
     public bool Equals(AppSettings? other) => other is not null
         && ExportDirectory == other.ExportDirectory && FfmpegDirectory == other.FfmpegDirectory && LastLibrary == other.LastLibrary
         && CacheMegabytes == other.CacheMegabytes && SortMethod == other.SortMethod && ThumbnailHeight.Equals(other.ThumbnailHeight)
-        && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && TourOffered == other.TourOffered && LayoutVersion == other.LayoutVersion
+        && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && FollowFilmstrip == other.FollowFilmstrip && TourOffered == other.TourOffered && LayoutVersion == other.LayoutVersion
         && RecentLibraries.SequenceEqual(other.RecentLibraries, StringComparer.Ordinal);
 
     public override int GetHashCode() => HashCode.Combine(ExportDirectory, FfmpegDirectory, LastLibrary, CacheMegabytes, SortMethod, ThumbnailHeight,
-        HashCode.Combine(ShowSources, ShowInspector, TourOffered), RecentLibraries.Length);
+        HashCode.Combine(ShowSources, ShowInspector, TourOffered, FollowFilmstrip), RecentLibraries.Length);
 }
 
 public sealed class SettingsStore(string path)

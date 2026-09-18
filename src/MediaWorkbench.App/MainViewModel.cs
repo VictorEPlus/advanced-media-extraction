@@ -87,7 +87,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string FrameNumberText => HasFrames ? CurrentFrame.ToString("N0") : "0";
     public string FrameTotalText => HasFrames ? $"of {MaximumFrame:N0}" : IsIndexing ? (ShowIndexing ? "" : "indexing frames") : IsVideo ? "no frame index" : "";
     public string FrameTimeText => HasFrames ? $"{frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time:0.000} s" : "";
-    public string SelectionLabel => SelectedAsset?.Name ?? "Nothing selected";
+    public string SelectionLabel => (PeekedAsset ?? SelectedAsset)?.Name ?? "Nothing selected";
     public string LibraryLabel => $"{Assets.Count:N0} items · {Assets.Count(asset => asset.IsFavorite):N0} favorites";
     public string RangeLabel => frames.Count == 0 ? "Video markers use inclusive frame indices." :
         $"Selection: {Math.Max(0, OutFrame - InFrame + 1):N0} frames. All: {frames.Count:N0}. PNG size varies; estimated all-frame output: {(displayedFrameBytes?.Length ?? 0) * (double)frames.Count / 1048576:N0} MB.";
@@ -97,7 +97,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string ExportBadge => ActiveJobCount > 0 ? $"Export ({ActiveJobCount})" : "Export";
     public string JobHistoryLabel => $"Previous exports ({JobHistory.Count})";
     public bool ShowQueueHint => Jobs.Count == 0;
-    public bool ShowEmptyState => PreviewImage is null && !ShowPlayback && !IsAudio;
+    public bool ShowEmptyState => PreviewImage is null && !ShowPlayback && !IsAudio && !ShowInstantLayer;
 
     [ObservableProperty] private string status = "Choose a media folder to get started.";
     [ObservableProperty] private string libraryRoot = "";
@@ -179,11 +179,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         // The centre shows the Library map while nothing is selected and the Preview once a file is chosen.
         MainTab = value is null ? 0 : 1;
+        BeginInstantPreview(value);
         _ = LoadSelectionAsync(value);
     }
     partial void OnCurrentFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); NotifyFrameState(); SyncAudioPositionToFrame(); _ = SeekFrameAsync(); }
     partial void OnDisplayedFrameChanged(int value) => NotifyFrameState();
-    partial void OnPreviewImageChanged(ImageSource? value) { NotifyFrameState(); OnPropertyChanged(nameof(ShowEmptyState)); }
+    partial void OnPreviewImageChanged(ImageSource? value)
+    {
+        if (value is not null) EndInstantPreview();
+        NotifyFrameState();
+        OnPropertyChanged(nameof(ShowInstantLayer));
+        OnPropertyChanged(nameof(ShowEmptyState));
+    }
     partial void OnIsFrameLoadingChanged(bool value) => NotifyFrameState();
     partial void OnIsIndexingChanged(bool value) { NotifyFrameState(); NotifyIndexing(); }
     partial void OnShowPlaybackChanged(bool value)
@@ -191,6 +198,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         NotifyFrameState();
         OnPropertyChanged(nameof(ShowEmptyState));
         OnPropertyChanged(nameof(ShowVideoSurface));
+        OnPropertyChanged(nameof(ShowInstantLayer));
         if (value) { IsCropping = false; CropSelection = null; }
         else { PlaybackFrame = -1; SyncAudioPositionToFrame(); }
     }
@@ -440,6 +448,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AudioStart = 0;
         AudioEnd = 0;
         ResetAudioView();
+        ResetPreviewStrip();
         IsIndexing = false;
         IsFrameLoading = item is not null;
         NotifyMediaProperties();
@@ -543,6 +552,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             UpdateAudioRange();
             UpdateFrameRate();
             SyncAudioPositionToFrame();
+            _ = LoadPreviewStripAsync(item, info, indexed, selectedEngine);
             if (CurrentFrame > MaximumFrame)
                 CurrentFrame = MaximumFrame;
             else if (DisplayedFrame != CurrentFrame && frameCancellation is null)
@@ -1183,6 +1193,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             OnPropertyChanged(property);
         NotifyAudioState();
         NotifyFrameRate();
+        NotifyInstant();
     }
 
     private void Guard(Action action)

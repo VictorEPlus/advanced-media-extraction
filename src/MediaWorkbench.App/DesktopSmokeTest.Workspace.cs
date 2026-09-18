@@ -136,6 +136,7 @@ internal static partial class DesktopSmokeTest
         window.Filmstrip.ScrollIntoView(view.GetItemAt(4000));
         window.Filmstrip.UpdateLayout();
         Require(CountRealized() is > 0 and < 100, "Scrolling should retain container virtualization.");
+        CheckFollowMarker(model, window, dataDirectory);
         model.ShowSources = false;
         model.MainTab = 1;
         var content = (FrameworkElement)window.Content;

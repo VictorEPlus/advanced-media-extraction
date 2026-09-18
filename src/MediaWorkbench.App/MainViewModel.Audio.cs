@@ -233,3 +233,50 @@ public sealed partial class MainViewModel
             OnPropertyChanged(property);
     }
 }
+
+// Small pictures along the selected video for the timeline's hover preview.
+public sealed partial class MainViewModel
+{
+    private CancellationTokenSource? stripCancellation;
+
+    /// <summary>Ascending by frame; empty until the pictures have been made, which happens in the background after indexing.</summary>
+    [ObservableProperty] private IReadOnlyList<TimelineThumbnail> timelineThumbnails = [];
+
+    private void ResetPreviewStrip()
+    {
+        stripCancellation?.Cancel();
+        stripCancellation = null;
+        TimelineThumbnails = [];
+    }
+
+    private async Task LoadPreviewStripAsync(AssetViewModel item, MediaInfo info, IReadOnlyList<VideoFrame> indexed, MediaEngine selectedEngine)
+    {
+        stripCancellation?.Cancel();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        stripCancellation = cancellation;
+        try
+        {
+            var pictures = await Task.Run(async () =>
+            {
+                var strip = await selectedEngine.GetPreviewStripAsync(item.Asset, info, indexed, cancellation.Token);
+                var decoded = new List<TimelineThumbnail>(strip.Thumbnails.Count);
+                foreach (var thumbnail in strip.Thumbnails)
+                {
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    decoded.Add(new TimelineThumbnail(thumbnail.Frame, DecodeImage(thumbnail.Jpeg)));
+                }
+                return decoded;
+            }, cancellation.Token);
+            if (loadedAsset == item && !cancellation.IsCancellationRequested)
+                TimelineThumbnails = pictures;
+        }
+        catch (OperationCanceledException) { }
+        // The hover preview is a convenience: a video it cannot be made for still steps, plays and exports.
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or NotSupportedException or ArgumentException) { }
+        finally
+        {
+            if (stripCancellation == cancellation)
+                stripCancellation = null;
+        }
+    }
+}

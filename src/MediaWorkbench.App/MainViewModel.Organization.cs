@@ -88,6 +88,7 @@ public sealed partial class MainViewModel
         ThumbnailHeight = settings.LayoutVersion < 2 ? Math.Min(168, settings.ThumbnailHeight + 32) : settings.ThumbnailHeight;
         ShowSources = settings.ShowSources;
         ShowInspector = settings.ShowInspector;
+        FollowFilmstrip = settings.FollowFilmstrip;
         ApplySort();
     }
 
@@ -515,5 +516,5 @@ public sealed partial class MainViewModel
         }
     }
 
-    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector, LayoutVersion = 2 };
+    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector, FollowFilmstrip = FollowFilmstrip, LayoutVersion = 2 };
 }

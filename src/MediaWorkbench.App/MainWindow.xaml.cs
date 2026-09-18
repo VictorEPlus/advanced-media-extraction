@@ -30,6 +30,7 @@ public partial class MainWindow : Window
         {
             case nameof(MainViewModel.SelectedAsset): SyncFilmstripSelection(); break;
             case nameof(MainViewModel.ShowInspector): ApplyInspectorVisibility(); break;
+            case nameof(MainViewModel.FollowFilmstrip): OnFollowFilmstripChanged(); break;
         }
     }
 
@@ -51,7 +52,7 @@ public partial class MainWindow : Window
             return;
         if (!ReferenceEquals(viewModel.SelectedAsset, item))
             viewModel.SelectedAsset = item;
-        Filmstrip.ScrollIntoView(item);
+        RevealSelection(item);
     }
 
     private void ApplyInspectorVisibility()
@@ -209,14 +210,6 @@ public partial class MainWindow : Window
         args.Handled = true;
     }
 
-    private void FilmstripMouseWheel(object sender, MouseWheelEventArgs args)
-    {
-        if (FindScrollViewer(Filmstrip) is not { } scroll)
-            return;
-        scroll.ScrollToHorizontalOffset(scroll.HorizontalOffset - args.Delta * 1.5);
-        args.Handled = true;
-    }
-
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
     {
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
@@ -234,6 +227,8 @@ public partial class MainWindow : Window
     {
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         viewModel.TourRequested -= OnTourRequested;
+        StopGlide();
+        settleTimer?.Stop();
         foreach (var image in thumbnailRequests.Keys.ToArray()) ReleaseThumbnail(image);
         viewModel.Dispose();
     }

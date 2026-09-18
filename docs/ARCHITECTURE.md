@@ -24,6 +24,16 @@ The view model separates the requested frame (`CurrentFrame`, what the timeline 
 
 `FrameRateInfo` reports the header rate immediately and the rate measured from the frame index once it lands. Because container timestamps are rounded (often to 1 ms), evenly spaced frames that agree with the header to within half a percent report the exact header rate (29.97, not 29.969); a gap that differs from the average by more than 20 % (and 1.5 ms) marks the video as variable frame rate.
 
+## Timeline hover preview
+
+`MediaEngine.GetPreviewStripAsync` makes about 120 small JPEGs along a video, packed into one cached `*.strip.bin` per file identity. It is built after the frame index lands and never blocks stepping. Two passes keep it cheap and honest. The first decodes **key frames only** (`-skip_frame nokey`), thinned by time, which takes seconds even for an hour of video; `showinfo` logs each picture's timestamp and it is kept only if that timestamp equals an indexed frame's (same tolerance as the verified seek), so every picture knows its ordinal. If that yields fewer than 40 pictures and the video has at most 9,000 frames, a second pass decodes from the start and keeps every Nth frame, where the ordinal is exact by counting. An integration test requires both passes to produce byte-identical pictures for the same ordinals. `FrameTimeline` shows the nearest picture in a popup and captions the frame it really shows. These pictures are a browsing aid only: the preview, clipboard and exports never use them.
+
+## Instant preview and following the filmstrip
+
+Selecting a file first shows its filmstrip thumbnail, already in memory, scaled up in the preview (`InstantPreview`), and the real picture replaces it when decoded. The stand-in is a separate layer: `PreviewImage`, copy and export never see it.
+
+With **Preview follows scroll** on, `MainWindow.Filmstrip.cs` finds the live thumbnail container nearest the marker on every scroll step and calls `PeekAsset`, which only swaps the stand-in picture, the name and a one-line description. Opening a file (probe, decode, index, layout changes) is deliberately not done per step: `CommitPeek` selects the peeked file once the strip has rested for 140 ms with no glide running and no mouse button held. Only scrolling the person does is followed (the wheel glide or the mouse held on the scrollbar); scans, filters, thumbnail-size changes and bringing a clicked file to the marker also move the strip and are ignored. The marker position is `FollowFocusX`: the middle of the view, sliding linearly to the edges within half a view of either end, which keeps "offset plus marker" strictly increasing so every file can be reached. The wheel sets a target offset and a per-frame, frame-rate independent ease-out moves towards it, so fast spinning accumulates instead of stuttering.
+
 ## Safety and portability
 
 - Launch FFmpeg/FFprobe directly with `ProcessStartInfo.ArgumentList`, never through a command shell. Bound captured stderr, redirect both streams, and terminate the child process tree on cancellation.

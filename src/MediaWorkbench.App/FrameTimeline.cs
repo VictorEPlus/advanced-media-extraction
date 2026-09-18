@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using MediaWorkbench.Core;
@@ -10,6 +12,9 @@ namespace MediaWorkbench.App;
 /// Frame-ordinal timeline with a playhead, in/out handles, a shaded selection and hover readout.
 /// Dragging the playhead shows a pending position and commits <see cref="Value"/> on release so every
 /// intermediate frame is not decoded. Keyboard: Left/Right step one frame, Shift steps ten, Home/End jump.
+/// While the pointer is over the timeline, or the playhead or a handle is being dragged, a small picture of the video at that
+/// place floats above it. The picture comes from <see cref="Thumbnails"/> and is the nearest one available, so its caption
+/// names the frame it really shows when that is not the frame under the pointer.
 /// </summary>
 public sealed class FrameTimeline : FrameworkElement
 {
@@ -28,6 +33,9 @@ public sealed class FrameTimeline : FrameworkElement
     public int DisplayedFrame { get => (int)GetValue(DisplayedFrameProperty); set => SetValue(DisplayedFrameProperty, value); }
     public int LivePosition { get => (int)GetValue(LivePositionProperty); set => SetValue(LivePositionProperty, value); }
     public IReadOnlyList<VideoFrame>? Frames { get => (IReadOnlyList<VideoFrame>?)GetValue(FramesProperty); set => SetValue(FramesProperty, value); }
+    public static readonly DependencyProperty ThumbnailsProperty = DependencyProperty.Register(nameof(Thumbnails), typeof(IReadOnlyList<TimelineThumbnail>), typeof(FrameTimeline), new FrameworkPropertyMetadata(null, (d, _) => ((FrameTimeline)d).UpdatePreview()));
+    /// <summary>Small pictures along the video, ascending by frame, for the hover preview. Null or empty: no preview is shown.</summary>
+    public IReadOnlyList<TimelineThumbnail>? Thumbnails { get => (IReadOnlyList<TimelineThumbnail>?)GetValue(ThumbnailsProperty); set => SetValue(ThumbnailsProperty, value); }
 
     private const double SidePadding = 10;
     private const double TrackTop = 24;
@@ -50,13 +58,81 @@ public sealed class FrameTimeline : FrameworkElement
     private DragTarget drag;
     private int? pendingValue;
     private double? hoverX;
+    private const double PreviewWidth = 208;
+    private readonly Popup previewPopup;
+    private readonly Image previewImage = new() { Stretch = Stretch.Uniform };
+    private readonly TextBlock previewCaption = new() { FontSize = 11, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
+    private bool previewWanted;
+    private Window? hookedWindow;
 
     public FrameTimeline()
     {
         Focusable = true;
         MinHeight = 60;
-        IsEnabledChanged += (_, _) => InvalidateVisual();
+        IsEnabledChanged += (_, _) => { InvalidateVisual(); UpdatePreview(); };
+        previewCaption.Foreground = MutedBrush;
+        previewCaption.FontFamily = LabelTypeface.FontFamily;
+        var stack = new StackPanel { Width = PreviewWidth };
+        stack.Children.Add(previewImage);
+        stack.Children.Add(previewCaption);
+        // A popup, not a drawing: it has its own window, so it stays visible above the video surface while a video plays.
+        previewPopup = new Popup
+        {
+            PlacementTarget = this, Placement = PlacementMode.Relative, AllowsTransparency = true, IsHitTestVisible = false, StaysOpen = true, Focusable = false,
+            Child = new Border { Background = LabelBackground, BorderBrush = TrackBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(5), Child = stack }
+        };
+        Unloaded += (_, _) => previewPopup.IsOpen = false;
+        // A popup is a top-most window of its own: close it when the app loses focus so it never floats over another program.
+        Loaded += (_, _) =>
+        {
+            if (hookedWindow is null && (hookedWindow = Window.GetWindow(this)) is not null)
+                hookedWindow.Deactivated += (_, _) => { hoverX = null; InvalidateVisual(); UpdatePreview(); };
+        };
     }
+
+    /// <summary>The frame the floating preview is about: the dragged playhead or handle, otherwise the frame under the pointer. Null when no preview applies.</summary>
+    public int? PreviewFrame => !IsEnabled || Frames is not { Count: > 0 } ? null
+        : drag == DragTarget.Playhead && pendingValue is { } pending ? pending
+        : drag == DragTarget.In ? InFrame
+        : drag == DragTarget.Out ? OutFrame
+        : hoverX is { } x ? FrameAt(x) : null;
+
+    /// <summary>The picture that would be shown for <paramref name="frame"/>: the nearest one in <see cref="Thumbnails"/>.</summary>
+    public TimelineThumbnail? ThumbnailFor(int frame)
+    {
+        if (Thumbnails is not { Count: > 0 } thumbnails) return null;
+        return thumbnails[PreviewStrip.NearestIndex(thumbnails.Count, index => thumbnails[index].Frame, frame)];
+    }
+
+    private void UpdatePreview()
+    {
+        if (PreviewFrame is not { } frame || ThumbnailFor(frame) is not { } thumbnail)
+        {
+            previewWanted = false;
+            previewPopup.IsOpen = false;
+            return;
+        }
+        previewImage.Source = thumbnail.Image;
+        previewCaption.Text = thumbnail.Frame == frame ? $"frame {frame:N0}" : $"near frame {frame:N0}, showing frame {thumbnail.Frame:N0}";
+        var height = thumbnail.Image.Width > 0 ? PreviewWidth * thumbnail.Image.Height / thumbnail.Image.Width : PreviewWidth * 9 / 16;
+        previewPopup.HorizontalOffset = Math.Clamp(XOf(frame) - (PreviewWidth + 12) / 2, 0, Math.Max(0, ActualWidth - PreviewWidth - 12));
+        previewPopup.VerticalOffset = -(height + 36);
+        previewWanted = true;
+        // Only a timeline inside a shown window opens the popup; the hidden window used by the automated check must not put one on screen.
+        previewPopup.IsOpen = PresentationSource.FromVisual(this) is not null;
+    }
+
+    /// <summary>For checks that have no real pointer: behaves as if the pointer rested over <paramref name="frame"/>, or left when null.</summary>
+    internal void SimulateHover(int? frame)
+    {
+        hoverX = frame is { } value ? XOf(value) : null;
+        InvalidateVisual();
+        UpdatePreview();
+    }
+
+    internal bool IsPreviewOpen => previewWanted;
+    internal string PreviewCaption => previewCaption.Text;
+    internal FrameworkElement PreviewVisual => (FrameworkElement)previewPopup.Child;
 
     /// <summary>The frame the playhead is drawn at: the pending drag position while dragging, otherwise <see cref="Value"/>.</summary>
     public int PlayheadFrame => pendingValue ?? Value;
@@ -175,6 +251,7 @@ public sealed class FrameTimeline : FrameworkElement
             pendingValue = FrameAt(position.X);
         CaptureMouse();
         InvalidateVisual();
+        UpdatePreview();
         args.Handled = true;
     }
 
@@ -193,6 +270,7 @@ public sealed class FrameTimeline : FrameworkElement
             }
         }
         InvalidateVisual();
+        UpdatePreview();
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs args)
@@ -202,7 +280,9 @@ public sealed class FrameTimeline : FrameworkElement
         drag = DragTarget.None;
         pendingValue = null;
         ReleaseMouseCapture();
+        if (!IsMouseOver) hoverX = null;
         InvalidateVisual();
+        UpdatePreview();
     }
 
     protected override void OnLostMouseCapture(MouseEventArgs args)
@@ -210,12 +290,14 @@ public sealed class FrameTimeline : FrameworkElement
         drag = DragTarget.None;
         pendingValue = null;
         InvalidateVisual();
+        UpdatePreview();
     }
 
     protected override void OnMouseLeave(MouseEventArgs args)
     {
-        hoverX = null;
+        if (drag == DragTarget.None) hoverX = null;
         InvalidateVisual();
+        UpdatePreview();
     }
 
     protected override void OnKeyDown(KeyEventArgs args)
@@ -241,3 +323,6 @@ public sealed class FrameTimeline : FrameworkElement
         return brush;
     }
 }
+
+/// <summary>One decoded preview picture and the frame ordinal it really shows.</summary>
+public sealed record TimelineThumbnail(int Frame, ImageSource Image);

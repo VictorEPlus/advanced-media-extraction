@@ -79,6 +79,7 @@ internal static partial class DesktopSmokeTest
         foreach (var item in viewModel.Assets)
             await viewModel.LoadThumbnailAsync(item);
         Render(window, Path.Combine(dataDirectory, "desktop.png"));
+        await CheckInstantPreviewAsync(viewModel, window, photoItem, videoItem, dataDirectory, timeout.Token);
         await CheckWorkspaceAsync(viewModel, window, dataDirectory, mediaDirectory, photoItem, videoItem, timeout.Token);
         await CheckAudioFileAsync(viewModel, window, dataDirectory, tools, timeout.Token);
         Require(viewModel.Notifications.All(notification => notification.Kind != NotificationKind.Error),
