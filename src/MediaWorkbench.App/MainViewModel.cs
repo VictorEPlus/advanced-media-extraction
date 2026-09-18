@@ -72,8 +72,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IsIndexing && !HasFrames ? "Indexing frame timestamps for exact stepping…" : "";
     public string FrameLabel => !HasFrames ? (IsIndexing ? "Indexing frame timestamps…" : "Select a video for frame-accurate editing") :
         $"Frame {CurrentFrame:N0} / {MaximumFrame:N0}  ·  {frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time:0.000000}s  ·  zero-based";
-    public string RangeSummary => !HasFrames ? "" : $"In {InFrame:N0} · Out {OutFrame:N0} (inclusive) · {Math.Max(0, OutFrame - InFrame + 1):N0} frames";
-    public string SelectionLabel => SelectedAsset?.Name ?? "Your media, within reach.";
+    public string RangeSummary => !HasFrames ? "" : $"In {InFrame:N0} to out {OutFrame:N0}, inclusive: {Math.Max(0, OutFrame - InFrame + 1):N0} frames";
+    /// <summary>Large tabular frame readout beside the timeline; the ordinal is zero-based like the export filenames.</summary>
+    public string FrameNumberText => HasFrames ? CurrentFrame.ToString("N0") : "0";
+    public string FrameTotalText => HasFrames ? $"of {MaximumFrame:N0}" : IsIndexing ? "indexing frames" : IsVideo ? "no frame index" : "";
+    public string FrameTimeText => HasFrames ? $"{frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time:0.000} s" : "";
+    public string SelectionLabel => SelectedAsset?.Name ?? "Nothing selected";
     public string LibraryLabel => $"{Assets.Count:N0} items · {Assets.Count(asset => asset.IsFavorite):N0} favorites";
     public string RangeLabel => frames.Count == 0 ? "Video markers use inclusive frame indices." :
         $"Selection: {Math.Max(0, OutFrame - InFrame + 1):N0} frames. All: {frames.Count:N0}. PNG size varies; estimated all-frame output: {(displayedFrameBytes?.Length ?? 0) * (double)frames.Count / 1048576:N0} MB.";
@@ -82,6 +86,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public int ActiveJobCount => Jobs.Count(job => !job.IsFinished);
     public string ExportBadge => ActiveJobCount > 0 ? $"Export ({ActiveJobCount})" : "Export";
     public string JobHistoryLabel => $"Previous exports ({JobHistory.Count})";
+    public bool ShowQueueHint => Jobs.Count == 0;
     public bool ShowEmptyState => PreviewImage is null && !ShowPlayback;
 
     [ObservableProperty] private string status = "Choose a media folder to get started.";
@@ -145,6 +150,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             await ToolPaths.Resolve(settings.FfmpegDirectory).CheckAsync(lifetime.Token);
             Status = "Ready · FFmpeg, FFprobe, SQLite and VLC available.";
+            if (!settings.TourOffered)
+            {
+                settings = settings with { TourOffered = true };
+                Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
+                Notify(NotificationKind.Info, "New here? The tour points at every panel and button and says what it does.", "Tour the UI", () => TourRequested?.Invoke(this, EventArgs.Empty), sticky: true);
+            }
             if (scanLastLibrary && Directory.Exists(LibraryRoot))
                 await OpenLibraryAsync(LibraryRoot);
         }
@@ -154,7 +165,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSearchTextChanged(string value) => RefreshView();
     partial void OnMediaFilterChanged(string value) => RefreshView();
     partial void OnFavoritesOnlyChanged(bool value) => RefreshView();
-    partial void OnSelectedAssetChanged(AssetViewModel? value) => _ = LoadSelectionAsync(value);
+    partial void OnSelectedAssetChanged(AssetViewModel? value)
+    {
+        // The centre shows the Library map while nothing is selected and the Preview once a file is chosen.
+        MainTab = value is null ? 0 : 1;
+        _ = LoadSelectionAsync(value);
+    }
     partial void OnCurrentFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); NotifyFrameState(); _ = SeekFrameAsync(); }
     partial void OnDisplayedFrameChanged(int value) => NotifyFrameState();
     partial void OnPreviewImageChanged(ImageSource? value) { NotifyFrameState(); OnPropertyChanged(nameof(ShowEmptyState)); }
@@ -181,7 +197,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task OpenFolderAsync()
     {
-        var path = PathPickerWindow.Select(PathPickerMode.Folder, "Choose a media library folder", LibraryRoot);
+        var path = NativeDialogs.PickFolder("Choose a media library folder", LibraryRoot);
         if (path is not null)
             await OpenLibraryAsync(path);
     }
@@ -247,6 +263,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         virtualSource = false;
         activeCollectionPath = null;
         hasSource = true;
+        ResetFolderTree();
         OnPropertyChanged(nameof(IsCollectionView));
         UpdateVisibleCount();
         NotifyEmptyState();
@@ -289,6 +306,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (scanCancellation == cancellation) { IsScanning = false; scanCancellation = null; }
             OnPropertyChanged(nameof(LibraryLabel));
             UpdateVisibleCount();
+            RebuildFolderTree();
             NotifyEmptyState();
         }
     }
@@ -299,7 +317,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.RelativePath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []) }));
+            Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.RelativePath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []), FolderKey = FolderKeyOf(asset) }));
             AfterBatchAdded();
             Status = $"Found {Assets.Count:N0} media files…";
         }, DispatcherPriority.Background, cancellationToken);
@@ -310,6 +328,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(LibraryLabel));
         UpdateVisibleCount();
+        RebuildFolderTreeThrottled();
         NotifyEmptyState();
         if (pendingSelectionPath is { } pending && Assets.FirstOrDefault(item => string.Equals(item.Asset.FullPath, pending, StringComparison.OrdinalIgnoreCase)) is { } match)
         {
@@ -323,7 +342,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (value is not AssetViewModel item)
             return false;
-        return (!FavoritesOnly || item.IsFavorite)
+        return FolderTree.Contains(folderFilter, item.FolderKey)
+            && (!FavoritesOnly || item.IsFavorite)
             && (string.IsNullOrWhiteSpace(TagFilter) || item.Tags.Any(tag => tag.Contains(TagFilter.Trim(), StringComparison.OrdinalIgnoreCase)))
             && (string.IsNullOrWhiteSpace(SearchText) || item.Asset.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
             && (MediaFilter == "All media" || MediaFilter == "Photos" && item.Asset.Kind == MediaKind.Photo
@@ -349,7 +369,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ExportFavorites() => Guard(() =>
     {
         RequireLibrary();
-        var path = PathPickerWindow.Select(PathPickerMode.SaveFavorites, "Export favorites", settings.ExportDirectory);
+        var path = NativeDialogs.SaveJson("Export favorites", settings.ExportDirectory, "favorites.json");
         if (path is null)
             return;
         File.WriteAllText(path, catalog.ExportFavorites(LibraryRoot));
@@ -363,7 +383,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RequireLibrary();
         if (IsScanning)
             throw new InvalidOperationException("Wait for the folder scan to finish before importing favorites.");
-        var path = PathPickerWindow.Select(PathPickerMode.OpenFavorites, "Import favorites", settings.ExportDirectory);
+        var path = NativeDialogs.OpenJson("Import favorites", settings.ExportDirectory);
         if (path is null)
             return;
         var count = catalog.ImportFavorites(LibraryRoot, File.ReadAllText(path));
@@ -743,7 +763,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var index = DisplayedFrame;
         var bytes = displayedFrameBytes;
         var directory = settings.ExportDirectory;
-        QueueExport($"Frame {index} · {asset.Name}", async (_, token) =>
+        QueueExport($"Frame {index} from {asset.Name}", async (_, token) =>
         {
             var encoded = bytes ?? await Task.Run(() => ImageLoader.Encode(image), token);
             return await MediaEngine.SaveFrameAsync(asset, index, encoded, directory, token);
@@ -775,7 +795,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         NotifyExportLabels();
         var selectedEngine = engine;
         var directory = settings.ExportDirectory;
-        QueueExport($"{range.Count:N0} frames · {asset.Name}", (progress, token) => selectedEngine.ExportFramesAsync(asset, range, count, directory, progress, token));
+        QueueExport($"{range.Count:N0} frames from {asset.Name}", (progress, token) => selectedEngine.ExportFramesAsync(asset, range, count, directory, progress, token));
     });
 
     [RelayCommand]
@@ -789,7 +809,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var selectedFrames = frames;
         var selectedEngine = engine;
         var directory = settings.ExportDirectory;
-        QueueExport($"Trim · {asset.Name}", (progress, token) => selectedEngine.TrimVideoAsync(asset, range, selectedFrames, info, directory, progress, token));
+        QueueExport($"Trim of {asset.Name}", (progress, token) => selectedEngine.TrimVideoAsync(asset, range, selectedFrames, info, directory, progress, token));
     });
 
     [RelayCommand]
@@ -803,7 +823,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         int? channel = SelectedChannelIndex > 0 ? SelectedChannelIndex - 1 : null;
         var selectedEngine = engine;
         var directory = settings.ExportDirectory;
-        QueueExport($"Audio · {asset.Name}", (progress, token) => selectedEngine.ExportAudioAsync(asset, info, track, channel, range, directory, progress, token));
+        QueueExport($"Audio from {asset.Name}", (progress, token) => selectedEngine.ExportAudioAsync(asset, info, track, channel, range, directory, progress, token));
     });
 
     private void QueueExport(string title, Func<IProgress<ExportProgress>, CancellationToken, Task<string>> action)
@@ -872,6 +892,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(ActiveJobCount));
         OnPropertyChanged(nameof(ExportBadge));
+        OnPropertyChanged(nameof(ShowQueueHint));
     }
 
     [RelayCommand]
@@ -886,7 +907,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void BrowseExportDirectory()
     {
-        var path = PathPickerWindow.Select(PathPickerMode.Folder, "Default export destination", ExportDirectory);
+        var path = NativeDialogs.PickFolder("Default export destination", ExportDirectory);
         if (path is not null)
             ExportDirectory = path;
     }
@@ -934,13 +955,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             throw new FileNotFoundException("The output no longer exists.", path);
     }
 
-    public void Notify(NotificationKind kind, string message, string? actionLabel = null, Action? action = null)
+    public void Notify(NotificationKind kind, string message, string? actionLabel = null, Action? action = null, bool sticky = false)
     {
         var notification = new Notification(kind, message, actionLabel, action);
         Notifications.Insert(0, notification);
         while (Notifications.Count > MaximumNotifications)
             Notifications.RemoveAt(Notifications.Count - 1);
-        if (kind != NotificationKind.Error)
+        if (kind != NotificationKind.Error && !sticky)
             _ = DismissLaterAsync(notification);
     }
 
@@ -990,7 +1011,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void NotifyFrameState()
     {
-        foreach (var property in new[] { nameof(IsPreviewStale), nameof(ShowPendingOverlay), nameof(PendingLabel), nameof(FrameLabel), nameof(IsPreviewBusy), nameof(CanExportFrame), nameof(CanCopy) })
+        foreach (var property in new[] { nameof(IsPreviewStale), nameof(ShowPendingOverlay), nameof(PendingLabel), nameof(FrameLabel), nameof(FrameNumberText), nameof(FrameTotalText), nameof(FrameTimeText), nameof(IsPreviewBusy), nameof(CanExportFrame), nameof(CanCopy) })
             OnPropertyChanged(property);
     }
 
@@ -998,7 +1019,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         foreach (var property in new[] { nameof(HasSelection), nameof(IsPhoto), nameof(IsVideo), nameof(IsAudio), nameof(IsVisual), nameof(CanCopy), nameof(CopyLabel), nameof(ExportLabel), nameof(SelectedKindLabel) })
             OnPropertyChanged(property);
-        foreach (var property in new[] { nameof(CanExportFrame), nameof(HasFrames), nameof(CanPlay), nameof(HasAudio), nameof(MaximumFrame), nameof(FrameLabel), nameof(SelectionLabel), nameof(RangeLabel), nameof(RangeSummary), nameof(CurrentFrame), nameof(FrameList), nameof(SelectedFramesLabel), nameof(AllFramesLabel), nameof(IsPreviewBusy), nameof(ShowPendingOverlay), nameof(PendingLabel), nameof(IsPreviewStale), nameof(ShowEmptyState), nameof(EmptyTitle), nameof(EmptyText) })
+        foreach (var property in new[] { nameof(CanExportFrame), nameof(HasFrames), nameof(CanPlay), nameof(HasAudio), nameof(MaximumFrame), nameof(FrameLabel), nameof(FrameNumberText), nameof(FrameTotalText), nameof(FrameTimeText), nameof(SelectionLabel), nameof(RangeLabel), nameof(RangeSummary), nameof(CurrentFrame), nameof(FrameList), nameof(SelectedFramesLabel), nameof(AllFramesLabel), nameof(IsPreviewBusy), nameof(ShowPendingOverlay), nameof(PendingLabel), nameof(IsPreviewStale), nameof(ShowEmptyState), nameof(EmptyTitle), nameof(EmptyText) })
             OnPropertyChanged(property);
     }
 

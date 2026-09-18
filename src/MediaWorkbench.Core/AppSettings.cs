@@ -14,6 +14,8 @@ public sealed record AppSettings
     public double ThumbnailHeight { get; init; } = 84;
     public bool ShowSources { get; init; } = true;
     public bool ShowInspector { get; init; } = true;
+    /// <summary>Set once the first-run "Tour the UI" invitation has been shown, so it is not repeated.</summary>
+    public bool TourOffered { get; init; }
     public string[] RecentLibraries { get; init; } = [];
 
     /// <summary>Returns settings with <paramref name="root"/> moved to the front of the recent list, bounded and de-duplicated.</summary>
@@ -28,10 +30,11 @@ public sealed record AppSettings
     public bool Equals(AppSettings? other) => other is not null
         && ExportDirectory == other.ExportDirectory && FfmpegDirectory == other.FfmpegDirectory && LastLibrary == other.LastLibrary
         && CacheMegabytes == other.CacheMegabytes && SortMethod == other.SortMethod && ThumbnailHeight.Equals(other.ThumbnailHeight)
-        && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector
+        && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && TourOffered == other.TourOffered
         && RecentLibraries.SequenceEqual(other.RecentLibraries, StringComparer.Ordinal);
 
-    public override int GetHashCode() => HashCode.Combine(ExportDirectory, FfmpegDirectory, LastLibrary, CacheMegabytes, SortMethod, ThumbnailHeight, ShowSources, RecentLibraries.Length);
+    public override int GetHashCode() => HashCode.Combine(ExportDirectory, FfmpegDirectory, LastLibrary, CacheMegabytes, SortMethod, ThumbnailHeight,
+        HashCode.Combine(ShowSources, ShowInspector, TourOffered), RecentLibraries.Length);
 }
 
 public sealed class SettingsStore(string path)

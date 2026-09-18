@@ -19,6 +19,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        viewModel.TourRequested += OnTourRequested;
         ApplyInspectorVisibility();
         SyncFilmstripSelection();
     }
@@ -108,8 +109,46 @@ public partial class MainWindow : Window
         request.Item.Thumbnail = null;
     }
 
+    private void OnTourRequested(object? sender, EventArgs args) => StartTour();
+
+    private void FolderToggleClicked(object sender, MouseButtonEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: FolderRowViewModel row })
+        {
+            viewModel.ToggleFolderRowCommand.Execute(row);
+            args.Handled = true;
+        }
+    }
+
+    private void FolderTreeDoubleClick(object sender, MouseButtonEventArgs args)
+    {
+        if (FolderTreeList.SelectedItem is FolderRowViewModel row)
+            viewModel.ToggleFolderRowCommand.Execute(row);
+    }
+
+    private void FolderTreeKeyDown(object sender, KeyEventArgs args)
+    {
+        if (FolderTreeList.SelectedItem is not FolderRowViewModel { HasChildren: true } row) return;
+        if ((args.Key == Key.Right && !row.IsExpanded) || (args.Key == Key.Left && row.IsExpanded))
+        {
+            viewModel.ToggleFolderRowCommand.Execute(row);
+            args.Handled = true;
+        }
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs args)
     {
+        if (IsTourActive)
+        {
+            switch (args.Key)
+            {
+                case Key.Escape: EndTour(); break;
+                case Key.Right or Key.Enter or Key.Space: AdvanceTour(1); break;
+                case Key.Left: AdvanceTour(-1); break;
+            }
+            args.Handled = true;
+            return;
+        }
         var focused = Keyboard.FocusedElement as DependencyObject;
         if (focused is TextBoxBase or PasswordBox or ComboBox)
             return;
@@ -122,6 +161,9 @@ public partial class MainWindow : Window
         if (Keyboard.Modifiers != ModifierKeys.None) return;
         // Arrow keys mean "next file" in the filmstrip and "next frame" in the preview; controls with their own arrow handling keep it.
         if (args.Key is Key.Left or Key.Right && focused is Slider or TabItem or FrameTimeline)
+            return;
+        // The folder tree and graph use the arrow keys themselves.
+        if (args.Key is Key.Left or Key.Right or Key.Space && focused is Visual libraryFocus && (FolderTreeList.IsAncestorOf(libraryFocus) || ReferenceEquals(libraryFocus, FolderTreeList) || ReferenceEquals(libraryFocus, FolderChartView)))
             return;
         var filmstripFocused = focused is Visual visual && (ReferenceEquals(visual, Filmstrip) || Filmstrip.IsAncestorOf(visual));
         var stepFrames = viewModel.IsVideo && !filmstripFocused;
@@ -187,6 +229,7 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs args)
     {
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        viewModel.TourRequested -= OnTourRequested;
         foreach (var image in thumbnailRequests.Keys.ToArray()) ReleaseThumbnail(image);
         viewModel.Dispose();
     }

@@ -30,11 +30,13 @@ internal static partial class DesktopSmokeTest
         await viewModel.SaveSettingsCommand.ExecuteAsync(null);
         await viewModel.OpenLibraryAsync(mediaDirectory);
         Require(viewModel.Assets.Count == 2, "The desktop scan did not discover both generated files.");
+        Require(viewModel.IsLibraryTab && viewModel.FolderRows.Count == 1 && viewModel.FolderRows[0].Node.Total == 2, "Opening a folder should show the Library tab with its folder tree.");
         var videoItem = viewModel.Assets.Single(item => item.Asset.Kind == MediaKind.Video);
         var photoItem = viewModel.Assets.Single(item => item.Asset.Kind == MediaKind.Photo);
         viewModel.SelectedAsset = videoItem;
         await WaitUntilAsync(() => !viewModel.IsPreviewBusy, timeout.Token);
         Require(viewModel.HasFrames && viewModel.MaximumFrame == 5, "Video frame indexing failed: " + viewModel.Status);
+        Require(viewModel.IsPreviewTab, "Selecting a file should switch the centre to the Preview tab.");
         viewModel.CurrentFrame = 3;
         await WaitUntilAsync(() => !viewModel.IsPreviewBusy, timeout.Token);
         Require(viewModel.CanExportFrame && viewModel.DisplayedFrame == 3 && !viewModel.IsPreviewStale, "Exact frame preview failed: " + viewModel.Status);
@@ -77,7 +79,56 @@ internal static partial class DesktopSmokeTest
             await viewModel.LoadThumbnailAsync(item);
         Render(window, Path.Combine(dataDirectory, "desktop.png"));
         await CheckWorkspaceAsync(viewModel, window, dataDirectory, mediaDirectory, photoItem, videoItem, timeout.Token);
-        CheckPathPickers(dataDirectory, mediaDirectory);
+        Require(viewModel.Notifications.All(notification => notification.Kind != NotificationKind.Error),
+            "The scenario raised an unexpected error notification: " + string.Join(" | ", viewModel.Notifications.Where(notification => notification.Kind == NotificationKind.Error).Select(notification => notification.Message)));
+        CheckLibraryAndTour(viewModel, window, dataDirectory, photoItem);
+        var errorWindow = new StartupErrorWindow("Synthetic startup error for theme verification.");
+        CheckDarkTheme(errorWindow);
+        Render(errorWindow, Path.Combine(dataDirectory, "startup-dialog.png"));
+    }
+
+    /// <summary>Library tab: folder tree, folder filter and graph. Then every tour step must point at a real element.</summary>
+    private static void CheckLibraryAndTour(MainViewModel model, MainWindow window, string dataDirectory, AssetViewModel photo)
+    {
+        (string Folder, int Count, MediaKind Kind)[] layout =
+        [
+            ("", 3, MediaKind.Photo), (@"shoot A\day 1", 40, MediaKind.Photo), (@"shoot A\day 2", 25, MediaKind.Photo), (@"shoot A\day 2", 5, MediaKind.Video),
+            ("shoot B", 12, MediaKind.Video), ("shoot B", 8, MediaKind.Audio), (@"deep\only\chain\here", 6, MediaKind.Photo)
+        ];
+        var number = 0;
+        model.ClearFiltersCommand.Execute(null);
+        model.SelectedAsset = null;
+        model.Assets.Clear();
+        model.Assets.AddRange(layout.SelectMany(entry => Enumerable.Range(0, entry.Count).Select(_ =>
+            new AssetViewModel(photo.Asset with { RelativePath = Path.Combine(entry.Folder, $"file{++number}.bin"), Kind = entry.Kind }, false) { FolderKey = FolderTree.Normalize(entry.Folder) })));
+        model.RebuildFolderTree();
+        model.MainTab = 0;
+        var view = (System.Windows.Data.ListCollectionView)model.LibraryView;
+        Require(model.IsLibraryTab && model.ShowLibraryMap, "The Library tab should show the folder map once media has been found.");
+        Require(model.FolderRows.Count == 4 && model.FolderRows[0].Node.Total == 99, "The folder tree should list the root and its three top-level folders with totals that include subfolders.");
+        Require(model.FolderRows.Any(row => row.Name == @"deep\only\chain\here" && row.Node.Total == 6), "Folders that only lead to one subfolder should collapse into a single row.");
+        Require(model.ChartNodes.Count == 4 && model.ChartNodes[^1].Total == 3, "The graph should chart each top-level folder plus the files directly in the root.");
+        model.SelectFolder("shoot A");
+        Require(model.HasFolderFilter && view.Count == 70 && model.ChartNodes.Count == 2, "Selecting a folder must narrow the filmstrip to it and chart its subfolders.");
+        model.ToggleFolderRowCommand.Execute(model.SelectedFolderRow);
+        Require(model.FolderRows.Count == 6 && model.SelectedFolderRow?.Node.Path == "shoot A", "Opening a folder should reveal its subfolders and keep it selected.");
+        model.ChartSelectedPath = @"shoot A\day 2";
+        Require(view.Count == 30 && model.SelectedFolderRow?.Node.Path == @"shoot A\day 2" && model.ChartSelectedPath is null, "Clicking a graph bar should go into that folder.");
+        model.SelectFolder("shoot A");
+        Render(window, Path.Combine(dataDirectory, "workspace-library.png"));
+        Require(model.VisibleCount == "70 of 99 files in shoot A" && window.VisibleCountText.ActualWidth > 100, $"The file count should name the folder being shown: {model.VisibleCount}");
+        model.ClearFiltersCommand.Execute(null);
+        Require(!model.HasFolderFilter && view.Count == 99, "Clear filters should also clear the folder filter.");
+
+        window.StartTour();
+        Require(window.IsTourActive && window.TourLayer.Visibility == Visibility.Visible, "The tour overlay should appear.");
+        for (var index = 0; index < MainWindow.TourSteps.Count; index++)
+            Require(window.ShowTourStep(index), $"Tour step {index + 1} names an element that does not exist: {MainWindow.TourSteps[index].Target}");
+        Require(MainWindow.TourSteps.Select(step => step.Target).Distinct().Count() == MainWindow.TourSteps.Count, "Each tour step should explain a different element.");
+        window.ShowTourStep(MainWindow.TourSteps.ToList().FindIndex(step => step.Target == "FolderTreePanel"));
+        Render(window, Path.Combine(dataDirectory, "tour.png"));
+        window.EndTour();
+        Require(!window.IsTourActive && window.TourLayer.Visibility == Visibility.Collapsed && model.IsLibraryTab, "Ending the tour should remove the overlay and restore the previous view.");
     }
 
     private static async Task WaitUntilAsync(Func<bool> ready, CancellationToken cancellationToken)
@@ -97,9 +148,15 @@ internal static partial class DesktopSmokeTest
         var content = (FrameworkElement)window.Content;
         var width = window is MainWindow ? 1440 : 780;
         var height = window is MainWindow ? 900 : 540;
-        content.Measure(new Size(width, height));
-        content.Arrange(new Rect(0, 0, width, height));
-        content.UpdateLayout();
+        // Two passes: an offscreen tree has no dispatcher-driven layout loop, so auto-sized columns whose content
+        // and visibility changed together only settle on the second pass. A shown window does this by itself.
+        for (var pass = 0; pass < 2; pass++)
+        {
+            content.InvalidateMeasure();
+            content.Measure(new Size(width, height));
+            content.Arrange(new Rect(0, 0, width, height));
+            content.UpdateLayout();
+        }
         CheckControlSurfaces(content);
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(content);
@@ -111,56 +168,8 @@ internal static partial class DesktopSmokeTest
 
     private static void CheckDarkTheme(Window window)
     {
-        Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(16, 19, 27), "The main window lost its dark canvas background.");
-        Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(237, 241, 247), "The main window lost its readable foreground.");
-    }
-
-    private static void CheckPathPickers(string dataDirectory, string mediaDirectory)
-    {
-        var directoryPicker = new PathPickerWindow(PathPickerMode.Folder, "Choose a media folder", mediaDirectory);
-        CheckDarkTheme(directoryPicker);
-        Require(directoryPicker.ResolveSelection() == mediaDirectory, "The folder picker did not select its current directory.");
-        directoryPicker.Navigate(dataDirectory);
-        directoryPicker.Entries.SelectedItem = directoryPicker.Entries.Items.Cast<object>()
-            .Single(entry => (string?)entry.GetType().GetProperty("FullPath")?.GetValue(entry) == mediaDirectory);
-        Require(directoryPicker.ResolveSelection() == mediaDirectory, "The folder picker ignored the selected child folder.");
-        directoryPicker.Address.Text = "not the current folder";
-        ExpectPickerError(directoryPicker, "An uncommitted typed address must not select the old folder.");
-        directoryPicker.Navigate(mediaDirectory);
-        Render(directoryPicker, Path.Combine(dataDirectory, "folder-picker.png"));
-
-        var jsonPath = Path.Combine(mediaDirectory, "favorites.json");
-        File.WriteAllText(jsonPath, "{}");
-        var openPicker = new PathPickerWindow(PathPickerMode.OpenFavorites, "Import favorites", mediaDirectory);
-        CheckDarkTheme(openPicker);
-        Require(openPicker.Entries.Items.Count == 1, "The favorites picker should filter out non-JSON media files.");
-        ExpectPickerError(openPicker, "Opening favorites without a selection must fail.");
-        openPicker.Entries.SelectedIndex = 0;
-        Require(openPicker.ResolveSelection() == jsonPath, "The favorites picker did not select its JSON file.");
-
-        var savePicker = new PathPickerWindow(PathPickerMode.SaveFavorites, "Export favorites", mediaDirectory);
-        CheckDarkTheme(savePicker);
-        ExpectPickerError(savePicker, "Existing favorites must not be overwritten without confirmation.");
-        savePicker.Overwrite.IsChecked = true;
-        Require(savePicker.ResolveSelection() == jsonPath, "Explicit file replacement should be allowed.");
-        savePicker.FileName.Text = "new-favorites";
-        Require(savePicker.Overwrite.IsChecked == false, "Changing a filename must clear replacement confirmation.");
-        Require(savePicker.ResolveSelection() == Path.Combine(mediaDirectory, "new-favorites.json"), "Saving must add a JSON extension.");
-        savePicker.FileName.Text = "../outside.json";
-        ExpectPickerError(savePicker, "The filename field must not allow folder traversal.");
-        savePicker.FileName.Text = "new-favorites.json";
-        Render(savePicker, Path.Combine(dataDirectory, "favorites-picker.png"));
-        var errorWindow = new StartupErrorWindow("Synthetic startup error for theme verification.");
-        CheckDarkTheme(errorWindow);
-        Render(errorWindow, Path.Combine(dataDirectory, "startup-dialog.png"));
-    }
-
-    private static void ExpectPickerError(PathPickerWindow picker, string message)
-    {
-        try { picker.ResolveSelection(); }
-        catch (IOException) { return; }
-        catch (InvalidOperationException) { return; }
-        throw new InvalidOperationException(message);
+        Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(35, 33, 28), "The main window lost its dark canvas background.");
+        Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(243, 238, 227), "The main window lost its readable foreground.");
     }
 
     private static void CheckControlSurfaces(DependencyObject parent)

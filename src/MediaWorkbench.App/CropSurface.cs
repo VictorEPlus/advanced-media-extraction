@@ -20,7 +20,7 @@ public sealed class CropSurface : FrameworkElement
 
     protected override void OnRender(DrawingContext context)
     {
-        context.DrawRectangle(new SolidColorBrush(Color.FromRgb(8, 12, 18)), null, new Rect(RenderSize));
+        context.DrawRectangle(Tokens.Brush("MonitorBrush", Color.FromRgb(20, 19, 16)), null, new Rect(RenderSize));
         if (Source is not { } image || ActualWidth <= 0 || ActualHeight <= 0) return;
         var scale = Math.Min(ActualWidth / image.PixelWidth, ActualHeight / image.PixelHeight);
         var bounds = new Rect((ActualWidth - image.PixelWidth * scale) / 2, (ActualHeight - image.PixelHeight * scale) / 2, image.PixelWidth * scale, image.PixelHeight * scale);
@@ -30,7 +30,7 @@ public sealed class CropSurface : FrameworkElement
             var selected = new Rect(bounds.X + crop.X * scale, bounds.Y + crop.Y * scale, crop.Width * scale, crop.Height * scale);
             var shade = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(bounds), new RectangleGeometry(selected));
             context.DrawGeometry(new SolidColorBrush(Color.FromArgb(145, 0, 0, 0)), null, shade);
-            context.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromRgb(236, 169, 140)), 2), selected);
+            context.DrawRectangle(null, new Pen(Tokens.Brush("AccentBrush", Color.FromRgb(235, 188, 69)), 2), selected);
         }
         Cursor = IsCropping ? Cursors.Cross : Cursors.Arrow;
     }

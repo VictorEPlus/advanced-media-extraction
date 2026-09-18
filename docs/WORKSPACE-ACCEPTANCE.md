@@ -16,4 +16,8 @@ For hands-on validation on your hardware:
 8. Open a long video: the first frame and metadata should appear before the index finishes, then the timeline enables. Drag the playhead, step with comma/period, and confirm the previous frame stays visible (dimmed, labelled) while the next decodes. Reopen the same file: indexing should be instant.
 9. Type a search that hides the selected file: it should stay open with a "Hidden by filters" note; clear the search and the filmstrip highlight returns. Drop a folder and then a single file onto the window; the file should be selected in its folder. Check recent folders under Sources and the Inspector toggle.
 
+10. Open a folder with several levels of subfolders. The Library tab should list every subfolder that holds media with sensible counts. Open and close folders, click one and confirm the filmstrip and the file count narrow to it, click a graph bar to go deeper, then Clear filters. Select a file: the centre switches to Preview; click Library to go back.
+11. Click Tour the UI and step through it on your screen size and scaling. Every outline should sit on the control it describes and the callout should never cover it. Esc should end the tour and put the panels back as they were.
+12. Open folder, Browse folder, favorites export/import and Load JSON should all open the normal Windows dialogs.
+
 Native playback/GPU behavior, actual clipboard interoperability, huge libraries, filesystem/network latency, and all DPI/monitor combinations still require interactive verification.

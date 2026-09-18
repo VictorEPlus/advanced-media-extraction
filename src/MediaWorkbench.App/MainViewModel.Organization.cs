@@ -36,15 +36,15 @@ public sealed partial class MainViewModel
     public string CopyLabel => HasCrop ? "Copy crop" : IsVideo ? "Copy frame" : "Copy image";
     public string ExportLabel => IsPhoto ? "Export PNG" : "Export frame";
     public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.AspectRatio(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
-    public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString().ToUpperInvariant() ?? "NO SELECTION";
+    public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString() ?? "No selection";
     public string SourceSummary => virtualSource ? SourceName : LibraryRoot;
-    public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files";
+    public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files" + (HasFolderFilter ? $" in {folderFilter}" : "");
     public bool IsCollectionView => activeCollectionPath is not null;
     public double ThumbnailWidth => ThumbnailHeight * 1.6;
     public double FilmstripHeight => ThumbnailHeight + 48;
     /// <summary>The inspected file is still selected but no longer passes the filters. It is kept rather than torn down.</summary>
     public bool IsSelectionHidden => SelectedAsset is { } selected && !FilterAsset(selected);
-    public bool HasActiveFilters => !string.IsNullOrWhiteSpace(SearchText) || MediaFilter != "All media" || FavoritesOnly || !string.IsNullOrWhiteSpace(TagFilter);
+    public bool HasActiveFilters => !string.IsNullOrWhiteSpace(SearchText) || MediaFilter != "All media" || FavoritesOnly || !string.IsNullOrWhiteSpace(TagFilter) || HasFolderFilter;
     public string StageFilteredLabel => $"Stage {visibleCount:N0} filtered";
     public bool HasSource => hasSource;
     public string EmptyTitle => !hasSource ? "Open a folder to begin"
@@ -119,7 +119,7 @@ public sealed partial class MainViewModel
 
     private void NotifyEmptyState()
     {
-        foreach (var property in new[] { nameof(EmptyTitle), nameof(EmptyText), nameof(ShowEmptyOpenFolder), nameof(ShowEmptyClearFilters), nameof(HasSource), nameof(ShowEmptyState) })
+        foreach (var property in new[] { nameof(EmptyTitle), nameof(EmptyText), nameof(ShowEmptyOpenFolder), nameof(ShowEmptyClearFilters), nameof(HasSource), nameof(ShowEmptyState), nameof(ShowLibraryEmpty), nameof(ShowLibraryMap) })
             OnPropertyChanged(property);
     }
 
@@ -323,7 +323,7 @@ public sealed partial class MainViewModel
     {
         try
         {
-            var path = PathPickerWindow.Select(PathPickerMode.OpenCollection, "Load collection JSON", dataDirectory);
+            var path = NativeDialogs.OpenJson("Load collection JSON", settings.ExportDirectory);
             if (path is null) return;
             var collection = collectionStore.Load(path);
             var local = Path.Combine(dataDirectory, "collections", Guid.NewGuid().ToString("N") + ".json");
@@ -357,6 +357,7 @@ public sealed partial class MainViewModel
         Assets.Clear();
         virtualSource = true;
         hasSource = true;
+        ResetFolderTree();
         SourceName = name;
         OnPropertyChanged(nameof(IsCollectionView));
         UpdateVisibleCount();
@@ -390,6 +391,7 @@ public sealed partial class MainViewModel
         finally
         {
             if (scanCancellation == cancellation) { scanCancellation = null; IsScanning = false; }
+            RebuildFolderTree();
             RefreshView();
             OnPropertyChanged(nameof(LibraryLabel));
         }
@@ -402,7 +404,7 @@ public sealed partial class MainViewModel
         await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             token.ThrowIfCancellationRequested();
-            Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.FullPath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []) }));
+            Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.FullPath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []), FolderKey = FolderKeyOf(asset) }));
             AfterBatchAdded();
         }, System.Windows.Threading.DispatcherPriority.Background, token);
     }
@@ -415,6 +417,7 @@ public sealed partial class MainViewModel
         FavoritesOnly = false;
         TagFilter = "";
         SelectedKnownTag = null;
+        if (HasFolderFilter) SelectFolder("");
     }
 
     [RelayCommand]
@@ -477,15 +480,15 @@ public sealed partial class MainViewModel
             Metadata.Add(new MetadataRow("Aspect ratio", MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)));
             Metadata.Add(new MetadataRow("Megapixels", $"{image.PixelWidth * (double)image.PixelHeight / 1000000:0.##} MP"));
             Metadata.Add(new MetadataRow("Orientation", image.PixelWidth == image.PixelHeight ? "Square" : image.PixelWidth > image.PixelHeight ? "Landscape" : "Portrait"));
-            MediaSummary = $"{image.PixelWidth:N0} x {image.PixelHeight:N0} / {MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)} / {asset.Length / 1048576.0:N1} MB";
+            MediaSummary = $"{image.PixelWidth:N0} × {image.PixelHeight:N0}, {MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)}, {asset.Length / 1048576.0:N1} MB";
         }
         if (mediaInfo is { Duration: > 0 } info)
         {
             Metadata.Add(new MetadataRow("Duration", $"{info.Duration:0.###} s"));
             Metadata.Add(new MetadataRow("Audio tracks", info.AudioTracks.Count.ToString()));
-            if (IsAudio) MediaSummary = $"{info.Duration:0.###} s / {info.AudioTracks.Count} tracks / {asset.Length / 1048576.0:N1} MB";
+            if (IsAudio) MediaSummary = $"{info.Duration:0.###} s, {info.AudioTracks.Count} tracks, {asset.Length / 1048576.0:N1} MB";
             else if (PreviewImage is null && values.TryGetValue("width", out var width) && values.TryGetValue("height", out var height))
-                MediaSummary = $"{width} x {height} / {info.Duration:0.###} s / {asset.Length / 1048576.0:N1} MB";
+                MediaSummary = $"{width} × {height}, {info.Duration:0.###} s, {asset.Length / 1048576.0:N1} MB";
         }
         var names = new Dictionary<string, string>
         {

@@ -33,14 +33,18 @@ public sealed class FrameTimeline : FrameworkElement
     private const double TrackTop = 24;
     private const double TrackHeight = 6;
     private const double HandleReach = 7;
-    private static readonly Brush TrackBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x30, 0x39, 0x4A)));
-    private static readonly Brush SelectionBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x55, 0xEC, 0xA9, 0x8C)));
-    private static readonly Brush AccentBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xEC, 0xA9, 0x8C)));
-    private static readonly Brush PlayheadBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xED, 0xF1, 0xF7)));
-    private static readonly Brush MutedBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x9C, 0xAA, 0xC1)));
-    private static readonly Brush LiveBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x6F, 0xC3, 0x8E)));
-    private static readonly Brush LabelBackground = Freeze(new SolidColorBrush(Color.FromArgb(0xE6, 0x10, 0x17, 0x22)));
-    private static readonly Typeface LabelTypeface = new("Segoe UI");
+    private const double RulerTop = TrackTop + TrackHeight + 4;
+    private static readonly int[] TickSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+    // Colours come from the App.xaml tokens so the timeline follows the palette.
+    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xEB, 0xBC, 0x45));
+    private static readonly Brush TrackBrush = Tokens.Brush("BorderBrush", Color.FromRgb(0x56, 0x50, 0x43));
+    private static readonly Brush SelectionBrush = Tokens.WithAlpha(AccentBrush, 0x55);
+    private static readonly Brush PlayheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF3, 0xEE, 0xE3));
+    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xB9, 0xB1, 0x9E));
+    private static readonly Brush TickBrush = Tokens.WithAlpha(MutedBrush, 0x80);
+    private static readonly Brush LiveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x7C, 0xB8, 0x6A));
+    private static readonly Brush LabelBackground = Tokens.WithAlpha(Tokens.Brush("PanelBrush", Color.FromRgb(0x2E, 0x2B, 0x25)), 0xEB);
+    private static readonly Typeface LabelTypeface = Tokens.Display;
 
     private enum DragTarget { None, Playhead, In, Out }
     private DragTarget drag;
@@ -50,7 +54,7 @@ public sealed class FrameTimeline : FrameworkElement
     public FrameTimeline()
     {
         Focusable = true;
-        MinHeight = 48;
+        MinHeight = 60;
         IsEnabledChanged += (_, _) => InvalidateVisual();
     }
 
@@ -71,6 +75,7 @@ public sealed class FrameTimeline : FrameworkElement
         context.DrawRoundedRectangle(TrackBrush, null, new Rect(TrackLeft, TrackTop, TrackWidth, TrackHeight), 3, 3);
         if (enabled)
         {
+            DrawRuler(context);
             var inX = XOf(InFrame);
             var outX = XOf(OutFrame);
             if (outX >= inX)
@@ -93,6 +98,31 @@ public sealed class FrameTimeline : FrameworkElement
             }
         }
         context.Pop();
+    }
+
+    /// <summary>A frame ruler under the track: minor ticks at the smallest step that keeps them apart, numbered major ticks every fifth step.</summary>
+    private void DrawRuler(DrawingContext context)
+    {
+        if (Maximum <= 0) return;
+        var pixelsPerFrame = TrackWidth / Maximum;
+        var minor = TickSteps.FirstOrDefault(step => step * pixelsPerFrame >= 6, TickSteps[^1]);
+        var major = minor * 5;
+        var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var labelEvery = major;
+        while (labelEvery * pixelsPerFrame < 48) labelEvery *= 2;
+        for (var frame = 0; frame <= Maximum; frame += minor)
+        {
+            var isMajor = frame % major == 0;
+            var x = Math.Round(XOf(frame)) + 0.5;
+            context.DrawRectangle(isMajor ? MutedBrush : TickBrush, null, new Rect(x - 0.5, RulerTop, 1, isMajor ? 7 : 4));
+            if (isMajor && frame % labelEvery == 0 && frame != Maximum)
+            {
+                var text = new FormattedText(frame.ToString("N0", CultureInfo.CurrentCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, LabelTypeface, 10, MutedBrush, pixelsPerDip);
+                context.DrawText(text, new Point(x + 3, RulerTop + 7));
+            }
+        }
+        var end = new FormattedText(Maximum.ToString("N0", CultureInfo.CurrentCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, LabelTypeface, 10, MutedBrush, pixelsPerDip);
+        context.DrawText(end, new Point(XOf(Maximum) - end.Width, RulerTop + 7));
     }
 
     private string LabelFor(int frame)

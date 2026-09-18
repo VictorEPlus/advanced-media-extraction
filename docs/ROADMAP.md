@@ -32,6 +32,15 @@
 - [x] Recent folders, drag-and-drop of folders/files, inspector collapse, focus-aware arrow keys and comma/period stepping.
 - [x] Sources panel reorganised around folders, collections and tagged files; Details tab leads with a summary and makes metadata tagging an explicit mode.
 
+## Library map, tour and native dialogs
+
+- [x] Centre tabs: Library while nothing is selected, Preview for the selected file.
+- [x] Folder tree of every subfolder with media, with descendant counts, natural order and collapsed single-child chains; clicking a folder filters the filmstrip.
+- [x] Folder graph: files per subfolder split into photos, videos and audio, with legend, hover details and click-to-open.
+- [x] Tour the UI: a guided overlay that explains every panel and the main buttons; offered once on first launch.
+- [x] Native Windows folder and file dialogs replace the in-app picker.
+- [x] Lighter, more clearly layered dark palette; sliders, progress bars and checkboxes follow the app accent.
+
 ## Next milestones
 
 - [ ] Interactive usability testing with representative user footage and large libraries.

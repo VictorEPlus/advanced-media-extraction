@@ -12,6 +12,8 @@ public sealed partial class AssetViewModel(MediaAsset asset, bool favorite) : Ob
     public string FavoriteLabel => IsFavorite ? "★" : "☆";
     public string Placeholder => Asset.Kind == MediaKind.Audio ? "♫" : Asset.Kind == MediaKind.Video ? "▶" : "▧";
     public bool ThumbnailRequested { get; set; }
+    /// <summary>Normalized folder this file lives in, relative to the library root (or the full folder for collections and tag searches).</summary>
+    public string FolderKey { get; init; } = "";
 
     public string TagSummary => string.Join(", ", Tags);
     [ObservableProperty]

@@ -25,7 +25,7 @@ public sealed class UiSourceTests
     [InlineData("ToggleFavoriteCommand", "\u2605 Favorite")]
     [InlineData("OpenExportsCommand", "Open exports \u2197")]
     [InlineData("ExportFavoritesCommand", "Export favorites\u2026")]
-    [InlineData("TogglePlaybackCommand", "\u25B6 / \u2161 Play")]
+    [InlineData("TogglePlaybackCommand", "\u25B6 Play / pause")]
     public void XamlDecodesSymbolsExactly(string command, string expected)
     {
         var document = XDocument.Load(Path.Combine(SourceDirectory, "MainWindow.xaml"));
@@ -35,7 +35,6 @@ public sealed class UiSourceTests
 
     [Theory]
     [InlineData("MainWindow.xaml")]
-    [InlineData("PathPickerWindow.xaml")]
     [InlineData("StartupErrorWindow.xaml")]
     public void DarkThemeIsExplicitRatherThanInheritedFromWindows(string filename)
     {
@@ -47,16 +46,31 @@ public sealed class UiSourceTests
     }
 
     [Fact]
-    public void AppDialogsDoNotUseLightSystemPickers()
+    public void FolderAndFilePickersAreTheNativeWindowsDialogs()
     {
-        foreach (var filename in new[] { "MainViewModel.cs", "App.xaml.cs" })
+        // Product decision (2026-09-18): use the built-in Explorer dialogs, not an in-app picker.
+        var dialogs = File.ReadAllText(Path.Combine(SourceDirectory, "NativeDialogs.cs"));
+        Assert.Contains("new OpenFolderDialog", dialogs);
+        Assert.Contains("new OpenFileDialog", dialogs);
+        Assert.Contains("new SaveFileDialog", dialogs);
+        Assert.Contains("OverwritePrompt = true", dialogs);
+        foreach (var filename in new[] { "MainViewModel.cs", "MainViewModel.Organization.cs", "MainViewModel.Library.cs", "App.xaml.cs" })
         {
             var text = File.ReadAllText(Path.Combine(SourceDirectory, filename));
-            Assert.DoesNotContain("new OpenFolderDialog", text);
-            Assert.DoesNotContain("new OpenFileDialog", text);
-            Assert.DoesNotContain("new SaveFileDialog", text);
+            Assert.DoesNotContain("PathPickerWindow", text);
             Assert.DoesNotContain("MessageBox.Show", text);
         }
+    }
+
+    [Fact]
+    public void EveryTourStepTargetsANamedElementInTheMainWindow()
+    {
+        var names = XDocument.Load(Path.Combine(SourceDirectory, "MainWindow.xaml")).Descendants()
+            .Select(element => (string?)element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2006/xaml"))).Where(name => name is not null).ToHashSet();
+        var tour = File.ReadAllText(Path.Combine(SourceDirectory, "MainWindow.Tour.cs"));
+        var targets = System.Text.RegularExpressions.Regex.Matches(tour, "new\\(\"([A-Za-z]+)\", \"").Select(match => match.Groups[1].Value).ToArray();
+        Assert.True(targets.Length >= 50, "The tour should cover every panel and the main buttons.");
+        Assert.All(targets, target => Assert.Contains(target, names));
     }
 
     [Fact]
