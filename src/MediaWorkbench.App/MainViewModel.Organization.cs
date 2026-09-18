@@ -35,7 +35,7 @@ public sealed partial class MainViewModel
     public bool CanCopy => PreviewImage is BitmapSource && !IsFrameLoading && !ShowPlayback;
     public string CopyLabel => HasCrop ? "Copy crop" : IsVideo ? "Copy frame" : "Copy image";
     public string ExportLabel => IsPhoto ? "Export PNG" : "Export frame";
-    public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.AspectRatio(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
+    public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.DescribeAspect(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
     public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString() ?? "No selection";
     public string SourceSummary => virtualSource ? SourceName : LibraryRoot;
     public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files" + (HasFolderFilter ? $" in {folderFilter}" : "");
@@ -445,7 +445,7 @@ public sealed partial class MainViewModel
     }
 
     [RelayCommand]
-    private void ToggleCrop() { IsCropping = !IsCropping; }
+    private void ToggleCrop() { if (!IsCropping) IsFraming = false; IsCropping = !IsCropping; }
     [RelayCommand]
     private void ResetCrop() { CropSelection = null; IsCropping = false; }
     [RelayCommand]
@@ -470,41 +470,48 @@ public sealed partial class MainViewModel
     private void ShowMetadata(MediaAsset asset, IReadOnlyDictionary<string, string> values)
     {
         Metadata.Clear();
-        Metadata.Add(new MetadataRow("Filename", asset.Name, false));
-        Metadata.Add(new MetadataRow("Path", asset.FullPath, false));
-        Metadata.Add(new MetadataRow("Media type", asset.Kind.ToString()));
-        Metadata.Add(new MetadataRow("Extension", Path.GetExtension(asset.Name).TrimStart('.').ToLowerInvariant()));
+        // The file name is in the header above the preview and the kind is this tab's heading, so neither is repeated here.
+        Metadata.Add(new MetadataRow("Folder", Path.GetDirectoryName(asset.FullPath) ?? "", false));
+        Metadata.Add(new MetadataRow("Type", $"{asset.Kind}, {Path.GetExtension(asset.Name).TrimStart('.').ToLowerInvariant()}"));
         Metadata.Add(new MetadataRow("File size", $"{asset.Length / 1048576.0:N2} MB ({asset.Length:N0} bytes)", false));
         Metadata.Add(new MetadataRow("Modified", new DateTime(asset.ModifiedTicks, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")));
         // The header line under the file name carries the frame rate too; the large readout beside the frame counter is the measured one.
         var headerRate = IsVideo && (FrameRateInfo.FromRatio(values.GetValueOrDefault("avg_frame_rate")) ?? FrameRateInfo.FromRatio(values.GetValueOrDefault("r_frame_rate"))) is { } rate ? $", {rate.Number} fps" : "";
         if (PreviewImage is BitmapSource image)
         {
-            Metadata.Add(new MetadataRow("Dimensions", $"{image.PixelWidth} x {image.PixelHeight}"));
-            Metadata.Add(new MetadataRow("Aspect ratio", MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)));
-            Metadata.Add(new MetadataRow("Megapixels", $"{image.PixelWidth * (double)image.PixelHeight / 1000000:0.##} MP"));
-            Metadata.Add(new MetadataRow("Orientation", image.PixelWidth == image.PixelHeight ? "Square" : image.PixelWidth > image.PixelHeight ? "Landscape" : "Portrait"));
-            MediaSummary = $"{image.PixelWidth:N0} × {image.PixelHeight:N0}, {MediaDimensions.AspectRatio(image.PixelWidth, image.PixelHeight)}{headerRate}, {asset.Length / 1048576.0:N1} MB";
+            Metadata.Add(new MetadataRow("Dimensions", $"{image.PixelWidth} × {image.PixelHeight}, {(image.PixelWidth == image.PixelHeight ? "square" : image.PixelWidth > image.PixelHeight ? "landscape" : "portrait")}, {image.PixelWidth * (double)image.PixelHeight / 1000000:0.##} MP"));
+            Metadata.Add(new MetadataRow("Aspect ratio", MediaDimensions.DescribeAspect(image.PixelWidth, image.PixelHeight)));
+            MediaSummary = $"{image.PixelWidth:N0} × {image.PixelHeight:N0}, {MediaDimensions.DescribeAspect(image.PixelWidth, image.PixelHeight)}{headerRate}, {asset.Length / 1048576.0:N1} MB";
         }
         if (mediaInfo is { Duration: > 0 } info)
         {
-            Metadata.Add(new MetadataRow("Duration", $"{info.Duration:0.###} s"));
-            Metadata.Add(new MetadataRow("Audio tracks", info.AudioTracks.Count.ToString()));
+            Metadata.Add(new MetadataRow("Duration", info.Duration >= 60 ? $"{WaveformView.FormatTime(info.Duration)} ({info.Duration:0.###} s)" : $"{info.Duration:0.###} s"));
+            Metadata.Add(new MetadataRow("Sound", info.AudioTracks.Count == 0 ? "none" : string.Join("; ", info.AudioTracks.Select(track => track.Label))));
             if (IsAudio) MediaSummary = $"{info.Duration:0.###} s, {info.AudioTracks.Count} tracks, {asset.Length / 1048576.0:N1} MB";
             else if (PreviewImage is null && values.TryGetValue("width", out var width) && values.TryGetValue("height", out var height))
                 MediaSummary = $"{width} × {height}{headerRate}, {info.Duration:0.###} s, {asset.Length / 1048576.0:N1} MB";
         }
         var names = new Dictionary<string, string>
         {
-            ["format_name"] = "Container", ["bit_rate"] = "Bit rate (bits/s)", ["size"] = "Container size (bytes)",
+            ["format_name"] = "Container", ["bit_rate"] = "Bit rate", ["size"] = "Container size (bytes)",
             ["width"] = "Encoded width", ["height"] = "Encoded height", ["codec_name"] = "Video codec",
-            ["pix_fmt"] = "Pixel format", ["avg_frame_rate"] = "Average frame rate", ["r_frame_rate"] = "Nominal frame rate", ["display_aspect_ratio"] = "Display aspect ratio",
-            ["sample_aspect_ratio"] = "Pixel aspect ratio", ["color_space"] = "Color space", ["color_transfer"] = "Color transfer",
+            ["pix_fmt"] = "Pixel format", ["avg_frame_rate"] = "Frame rate", ["r_frame_rate"] = "Nominal rate", ["display_aspect_ratio"] = "Display aspect",
+            ["sample_aspect_ratio"] = "Pixel aspect", ["color_space"] = "Color space", ["color_transfer"] = "Color transfer",
             ["bits_per_raw_sample"] = "Bits per channel"
         };
+        // One row for the encoded size, one for the frame rate when both figures agree, and no second copy of the file size.
+        var skip = new HashSet<string> { "size", "width", "height" };
+        if (values.TryGetValue("width", out var encodedWidth) && values.TryGetValue("height", out var encodedHeight))
+            Metadata.Add(new MetadataRow("Encoded size", $"{encodedWidth} × {encodedHeight}"));
+        if (values.TryGetValue("avg_frame_rate", out var average) && values.GetValueOrDefault("r_frame_rate") == average)
+            skip.Add("r_frame_rate");
         foreach (var pair in values)
         {
+            if (skip.Contains(pair.Key))
+                continue;
             var value = pair.Value;
+            if (pair.Key == "bit_rate" && double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var bits))
+                value = bits >= 1_000_000 ? $"{bits / 1_000_000:0.##} Mbit/s" : $"{bits / 1000:0.#} kbit/s";
             if (pair.Key is "avg_frame_rate" or "r_frame_rate")
             {
                 var parts = value.Split('/');

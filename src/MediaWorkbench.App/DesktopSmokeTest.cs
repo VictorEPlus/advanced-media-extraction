@@ -15,7 +15,7 @@ internal static partial class DesktopSmokeTest
     {
         CheckDarkTheme(window);
         Render(window, Path.Combine(dataDirectory, "desktop-empty.png"));
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(150));
         var tools = ToolPaths.Resolve();
         await tools.CheckAsync(timeout.Token);
         var mediaDirectory = Path.Combine(dataDirectory, "synthetic-media");
@@ -82,6 +82,9 @@ internal static partial class DesktopSmokeTest
         await CheckInstantPreviewAsync(viewModel, window, photoItem, videoItem, dataDirectory, timeout.Token);
         await CheckWorkspaceAsync(viewModel, window, dataDirectory, mediaDirectory, photoItem, videoItem, timeout.Token);
         await CheckAudioFileAsync(viewModel, window, dataDirectory, tools, timeout.Token);
+        await CheckVideoCropAsync(viewModel, window, dataDirectory, tools, timeout.Token);
+        await CheckCompactLayoutAsync(viewModel, window, dataDirectory, tools, timeout.Token);
+        await CheckZoomAndFocusAsync(viewModel, window, dataDirectory, timeout.Token);
         Require(viewModel.Notifications.All(notification => notification.Kind != NotificationKind.Error),
             "The scenario raised an unexpected error notification: " + string.Join(" | ", viewModel.Notifications.Where(notification => notification.Kind == NotificationKind.Error).Select(notification => notification.Message)));
         CheckLibraryAndTour(viewModel, window, dataDirectory, photoItem);

@@ -42,6 +42,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private int inFlightFrame = -1;
     private long playbackStart;
     private long? stopPlaybackAt;
+    private string? playerMediaPath;
+    private bool verifyStartPending;
+    private bool holdingVideoSurface;
+    private int holdVersion;
     private string? pendingSelectionPath;
     private int armedExportCount = -1;
     private static readonly TimeSpan SlowDecodeDelay = TimeSpan.FromMilliseconds(350);
@@ -190,6 +194,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         NotifyFrameState();
         OnPropertyChanged(nameof(ShowInstantLayer));
         OnPropertyChanged(nameof(ShowEmptyState));
+        NotifyFraming();
     }
     partial void OnIsFrameLoadingChanged(bool value) => NotifyFrameState();
     partial void OnIsIndexingChanged(bool value) { NotifyFrameState(); NotifyIndexing(); }
@@ -427,6 +432,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         armedExportCount = -1;
         stopPlaybackAt = null;
         Player.Stop();
+        playerMediaPath = null;
+        ReleaseVideoSurface();
         ShowPlayback = false;
         PreviewImage = null;
         CropSelection = null;
@@ -448,6 +455,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AudioStart = 0;
         AudioEnd = 0;
         ResetAudioView();
+        ResetFraming();
         ResetPreviewStrip();
         IsIndexing = false;
         IsFrameLoading = item is not null;
@@ -585,6 +593,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         frameCancellation?.Cancel();
         if (Player.IsPlaying)
             Player.Pause();
+        if (ShowPlayback)
+            HoldVideoSurface();
         ShowPlayback = false;
         if (frameMemory.TryGet(index, out var readyBytes, out var readyImage))
         {
@@ -635,6 +645,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 inFlightFrame = -1;
                 slowDecode = false;
                 IsFrameLoading = false;
+                // Decoded or failed, the paused video picture has done its job.
+                ReleaseVideoSurface();
                 NotifyFrameState();
             }
         }
@@ -715,6 +727,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         PreviewImage = image;
         displayedFrameBytes = bytes;
         DisplayedFrame = index;
+        if (index == CurrentFrame)
+            ReleaseVideoSurface();
         OnPropertyChanged(nameof(CanExportFrame));
         OnPropertyChanged(nameof(CanCopy));
         OnPropertyChanged(nameof(RangeLabel));
@@ -751,6 +765,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void NextFrame() => StepFrame(1);
 
+    /// <summary>Moves by whole frames, for the mouse wheel over the preview and the timeline.</summary>
+    public void StepFrames(int delta) => StepFrame(delta);
+
     private void StepFrame(int delta) => Guard(() =>
     {
         if (!HasFrames)
@@ -766,11 +783,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var time = Player.Time / 1000.0;
         stopPlaybackAt = null;
         Player.SetPause(true);
+        // Keep the paused video picture up until the exact still of that moment is ready, instead of flashing the
+        // still from before playback started and then jumping to the right one.
+        HoldVideoSurface();
         ShowPlayback = false;
         if (HasFrames)
-            CurrentFrame = FrameAtTime(time);
+        {
+            var frame = FrameAtTime(time);
+            if (frame == CurrentFrame)
+                _ = SeekFrameAsync();
+            else
+                CurrentFrame = frame;
+            if (frameCancellation is null && DisplayedFrame == CurrentFrame)
+                ReleaseVideoSurface();
+        }
         else
+        {
             AudioPosition = Math.Max(0, time);
+            ReleaseVideoSurface();
+        }
     }
 
     /// <summary>Last indexed frame whose timestamp is at or before <paramref name="seconds"/>; binary search over the sorted index.</summary>
@@ -831,23 +862,40 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         frameCancellation?.Cancel();
         playbackStart = startMs;
         stopPlaybackAt = stopMs;
-        using var media = new Media(libVlc, SelectedAsset!.Asset.FullPath, FromType.FromPath);
+        var path = SelectedAsset!.Asset.FullPath;
         ShowPlayback = true;
+        ReleaseVideoSurface();
+        // Resuming the file that is already open and paused: move to the place and carry on. Opening it again for every
+        // Play made the picture go black, start from the beginning and then jump, which showed as flicker and stutter.
+        if (playerMediaPath == path && Player.State == VLCState.Paused)
+        {
+            verifyStartPending = false;
+            if (Math.Abs(Player.Time - startMs) > 40)
+                Player.Time = startMs;
+            Player.SetPause(false);
+            return;
+        }
+        using var media = new Media(libVlc, path, FromType.FromPath);
+        // Start at the right moment from the first picture, rather than starting at zero and seeking once it plays.
+        media.AddOption(":start-time=" + (startMs / 1000.0).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+        playerMediaPath = path;
+        verifyStartPending = startMs > 0;
         if (!Player.Play(media))
+        {
+            playerMediaPath = null;
             throw new InvalidOperationException("VLC could not play this media file.");
+        }
     }
 
-    private void OnPlaying(object? sender, EventArgs args) => Application.Current.Dispatcher.BeginInvoke(() =>
-    {
-        if (!disposed && ShowPlayback)
-            Player.Time = playbackStart;
-    });
+    private void OnPlaying(object? sender, EventArgs args) { }
 
     private void OnEndReached(object? sender, EventArgs args) => Application.Current.Dispatcher.BeginInvoke(() =>
     {
         if (disposed)
             return;
         stopPlaybackAt = null;
+        playerMediaPath = null;
+        ReleaseVideoSurface();
         ShowPlayback = false;
         if (!HasFrames) AudioPosition = 0;
         Status = "Playback finished.";
@@ -860,6 +908,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (disposed || !ShowPlayback)
                 return;
+            if (verifyStartPending)
+            {
+                // A container that ignored the start option begins at zero: one corrective seek, only then.
+                verifyStartPending = false;
+                if (playbackStart - time > 1500)
+                {
+                    Player.Time = playbackStart;
+                    return;
+                }
+            }
             AudioPosition = time / 1000.0;
             if (HasFrames)
                 PlaybackFrame = FrameAtTime(time / 1000.0);
@@ -979,7 +1037,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var selectedFrames = frames;
         var selectedEngine = engine;
         var directory = settings.ExportDirectory;
-        QueueExport($"Trim of {asset.Name}", (progress, token) => selectedEngine.TrimVideoAsync(asset, range, selectedFrames, info, directory, progress, token));
+        var transform = HasVideoTransform ? CurrentTransform : null;
+        var (width, height) = FrameSize;
+        QueueExport(transform is null ? $"Trim of {asset.Name}" : $"Cropped/rotated trim of {asset.Name}", (progress, token) => selectedEngine.TrimVideoAsync(asset, range, selectedFrames, info, directory, progress, token, transform, width, height));
     });
 
     [RelayCommand]
@@ -1194,6 +1254,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         NotifyAudioState();
         NotifyFrameRate();
         NotifyInstant();
+        NotifyFraming();
     }
 
     private void Guard(Action action)

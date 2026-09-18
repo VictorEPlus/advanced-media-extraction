@@ -107,4 +107,39 @@ public static class MediaDimensions
         while (remainder != 0) (divisor, remainder) = (remainder, divisor % remainder);
         return $"{width / divisor}:{height / divisor}";
     }
+
+    /// <summary>The shapes people name, landscape and portrait, widest last in each half.</summary>
+    private static readonly (int Width, int Height)[] CommonRatios =
+    [
+        (1, 1), (5, 4), (4, 3), (3, 2), (16, 10), (16, 9), (2, 1), (21, 9),
+        (4, 5), (3, 4), (2, 3), (10, 16), (9, 16), (1, 2), (9, 21)
+    ];
+
+    /// <summary>The everyday ratio closest in shape to width:height, compared in proportion so 9:16 and 16:9 are treated alike.</summary>
+    public static string NearestCommonRatio(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return "Unknown";
+        var best = Nearest(width, height);
+        return $"{best.Width}:{best.Height}";
+    }
+
+    private static (int Width, int Height) Nearest(int width, int height)
+    {
+        var shape = Math.Log((double)width / height);
+        return CommonRatios.MinBy(ratio => Math.Abs(Math.Log((double)ratio.Width / ratio.Height) - shape));
+    }
+
+    /// <summary>
+    /// The exact reduced ratio, followed by the closest everyday ratio when the exact one is not already an everyday one:
+    /// "16:9", "683:384 (about 16:9)", "88:115 (about 3:4)".
+    /// </summary>
+    public static string DescribeAspect(int width, int height)
+    {
+        var exact = AspectRatio(width, height);
+        if (width <= 0 || height <= 0) return exact;
+        var best = Nearest(width, height);
+        var nearest = $"{best.Width}:{best.Height}";
+        // 1280 x 800 reduces to 8:5, which everyone calls 16:10: when the shape is exactly an everyday one, use its everyday name.
+        return (long)width * best.Height == (long)height * best.Width ? nearest : $"{exact} (about {nearest})";
+    }
 }

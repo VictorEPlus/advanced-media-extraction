@@ -142,6 +142,47 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task BlackBordersAreDetectedAndTheWholeVideoIsCroppedAndTurned()
+    {
+        using var output = new TemporaryDirectory();
+        var path = output.FilePath("letterboxed.mkv");
+        // A 160 x 120 picture inside a 240 x 160 black frame, with sound, 3 seconds at 10 fps.
+        await new ProcessRunner().RunAsync(fixture.Tools.Ffmpeg,
+            ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=10:duration=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+             "-vf", "pad=240:160:40:20:black", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", path]);
+        var asset = fixture.Asset(path);
+        var info = await fixture.Engine.ProbeAsync(path);
+        var frames = await fixture.Engine.IndexFramesAsync(path, info);
+        Assert.Equal(30, frames.Count);
+
+        var bounds = await fixture.Engine.DetectContentBoundsAsync(asset, info, 240, 160);
+        Assert.NotNull(bounds);
+        Assert.InRange(bounds.X, 38, 42);
+        Assert.InRange(bounds.Y, 18, 22);
+        Assert.InRange(bounds.X + bounds.Width, 198, 202);
+        Assert.InRange(bounds.Y + bounds.Height, 138, 142);
+
+        var transform = new VideoTransform(new PixelCrop(40, 20, 160, 120), 90);
+        var whole = await fixture.Engine.ExportTransformedVideoAsync(asset, info, transform, 240, 160, output.Path);
+        Assert.EndsWith("letterboxed_edit.mp4", whole);
+        var edited = await fixture.Engine.ProbeAsync(whole);
+        Assert.Equal("120", edited.Metadata["width"]);
+        Assert.Equal("160", edited.Metadata["height"]);
+        Assert.Single(edited.AudioTracks);
+        Assert.Equal(30, (await fixture.Engine.IndexFramesAsync(whole, edited)).Count);
+        // The turned picture has no black border left: detection on the result finds the whole frame.
+        Assert.Equal(new PixelCrop(0, 0, 120, 160), await fixture.Engine.DetectContentBoundsAsync(fixture.Asset(whole), edited, 120, 160));
+
+        var trimmed = await fixture.Engine.TrimVideoAsync(asset, new FrameRange(5, 14), frames, info, output.Path, transform: new VideoTransform(new PixelCrop(40, 20, 101, 51), 0), frameWidth: 240, frameHeight: 160);
+        var trimmedInfo = await fixture.Engine.ProbeAsync(trimmed);
+        Assert.Equal("100", trimmedInfo.Metadata["width"]);
+        Assert.Equal("50", trimmedInfo.Metadata["height"]);
+        Assert.Equal(10, (await fixture.Engine.IndexFramesAsync(trimmed, trimmedInfo)).Count);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.Engine.ExportTransformedVideoAsync(asset, info, new VideoTransform(null, 0), 240, 160, output.Path));
+    }
+
+    [Fact]
     public async Task IndexingReportsHowManyFramesHaveBeenReadAndStaysSilentWhenCached()
     {
         var engine = new MediaEngine(fixture.Tools, fixture.Temporary.FilePath("progress cache"));

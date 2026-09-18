@@ -81,6 +81,19 @@ public sealed class OrganizationTests
     [InlineData(0, 500, "Unknown")]
     public void AspectRatiosAreReduced(int width, int height, string expected) => Assert.Equal(expected, MediaDimensions.AspectRatio(width, height));
 
+    [Theory]
+    [InlineData(1920, 1080, "16:9")]
+    [InlineData(1080, 1920, "9:16")]
+    [InlineData(1280, 800, "16:10")]
+    [InlineData(2560, 1080, "64:27 (about 21:9)")]
+    [InlineData(1366, 768, "683:384 (about 16:9)")]
+    [InlineData(352, 460, "88:115 (about 3:4)")]
+    [InlineData(1080, 1350, "4:5")]
+    [InlineData(1000, 1490, "100:149 (about 2:3)")]
+    [InlineData(1001, 1000, "1001:1000 (about 1:1)")]
+    [InlineData(0, 10, "Unknown")]
+    public void TheClosestEverydayRatioIsNamedBesideTheExactOne(int width, int height, string expected) => Assert.Equal(expected, MediaDimensions.DescribeAspect(width, height));
+
     [Fact]
     public void TagsPersistAcrossRootsAndExportProvenanceWithoutTouchingMedia()
     {

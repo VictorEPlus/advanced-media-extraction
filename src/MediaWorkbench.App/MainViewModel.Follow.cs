@@ -113,3 +113,49 @@ public sealed partial class MainViewModel
             InstantPreview = thumbnail;
     }
 }
+
+// Portrait pictures get the action buttons beside the preview instead of under it, so the picture keeps its height.
+public sealed partial class MainViewModel
+{
+    private bool portraitLayout;
+
+    /// <summary>
+    /// True when the picture in the preview is taller than wide (as shown, so a video being turned counts as turned). The last
+    /// answer is kept while the next file loads, so browsing a folder of portrait files does not flip the layout back and forth.
+    /// </summary>
+    public bool IsPortraitLayout => portraitLayout;
+
+    private void UpdatePortraitLayout()
+    {
+        var value = portraitLayout;
+        if (SelectedAsset is null || IsAudio)
+            value = false;
+        else if (PreviewImage is System.Windows.Media.Imaging.BitmapSource image)
+        {
+            var turned = IsFraming && Core.VideoTransform.NormalizeRotation(VideoRotation) is 90 or 270;
+            value = turned ? image.PixelWidth > image.PixelHeight : image.PixelHeight > image.PixelWidth;
+        }
+        if (value == portraitLayout)
+            return;
+        portraitLayout = value;
+        OnPropertyChanged(nameof(IsPortraitLayout));
+    }
+}
+
+// Focus view: only the picture, the timeline and the buttons, for going through a video closely.
+public sealed partial class MainViewModel
+{
+    /// <summary>The window shows only the preview and its tools; panels, filters, tabs and the filmstrip are put away until it is switched off.</summary>
+    [ObservableProperty] private bool isFocusView;
+
+    partial void OnIsFocusViewChanged(bool value)
+    {
+        if (value) MainTab = 1;
+        Status = value
+            ? "Focus view: wheel over the picture zooms, drag moves it, double-click fits. Wheel over the timeline steps frames. F11 or Esc to leave."
+            : "Focus view closed.";
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void ToggleFocusView() => IsFocusView = !IsFocusView;
+}

@@ -41,6 +41,29 @@ public partial class MainWindow
         GlideTo((glideTarget ?? scroll.HorizontalOffset) - args.Delta * 1.5);
     }
 
+    private int frameWheelRemainder;
+
+    /// <summary>
+    /// Over the frame timeline or the sound under it, the wheel steps through the video: one frame per notch, ten with Shift,
+    /// towards you for the next frame. Over the picture the plain wheel zooms, so there it is Ctrl+wheel that steps frames. High-resolution wheels and touchpads send fractions of a notch, which add up.
+    /// </summary>
+    private void FrameWheel(object sender, MouseWheelEventArgs args)
+    {
+        if (!viewModel.IsVideo || !viewModel.HasFrames || IsTourActive)
+            return;
+        args.Handled = true;
+        frameWheelRemainder += args.Delta;
+        var notches = frameWheelRemainder / Mouse.MouseWheelDeltaForOneLine;
+        if (notches == 0)
+            return;
+        frameWheelRemainder -= notches * Mouse.MouseWheelDeltaForOneLine;
+        viewModel.StepFrames(-notches * ((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? 10 : 1));
+    }
+
+    /// <summary>For checks that cannot turn a real wheel.</summary>
+    internal void TurnFrameWheel(int delta) =>
+        FrameWheel(this, new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta) { RoutedEvent = MouseWheelEvent });
+
     /// <summary>Eases the filmstrip towards <paramref name="offset"/>; further wheel notches move the target, so fast spinning stays fluid.</summary>
     private void GlideTo(double offset)
     {
@@ -237,5 +260,39 @@ public partial class MainWindow
             if (viewModel.FollowFilmstrip && viewModel.SelectedAsset is { } selected && viewModel.IsVisible(selected))
                 RevealSelection(selected);
         });
+    }
+}
+
+// Focus view: everything except the preview and its tools is put away, and brought back exactly as it was.
+public partial class MainWindow
+{
+    private (bool Sources, bool Inspector)? focusRestore;
+
+    private void ApplyFocusView()
+    {
+        var focus = viewModel.IsFocusView;
+        if (focus && focusRestore is null)
+        {
+            focusRestore = (viewModel.ShowSources, viewModel.ShowInspector);
+            viewModel.ShowSources = false;
+            viewModel.ShowInspector = false;
+        }
+        var visibility = focus ? Visibility.Collapsed : Visibility.Visible;
+        HeaderBar.Visibility = visibility;
+        FilterBar.Visibility = visibility;
+        CenterHeader.Visibility = visibility;
+        FilmstripPanel.Visibility = visibility;
+        StatusRow.Visibility = visibility;
+        RootGrid.RowDefinitions[0].Height = RootGrid.RowDefinitions[1].Height = new GridLength(focus ? 0 : 44);
+        RootGrid.RowDefinitions[4].Height = new GridLength(focus ? 0 : 26);
+        CenterPanel.Margin = focus ? new Thickness(12, 10, 12, 10) : new Thickness(12, 0, 4, 0);
+        if (!focus && focusRestore is { } restore)
+        {
+            focusRestore = null;
+            viewModel.ShowSources = restore.Sources;
+            viewModel.ShowInspector = restore.Inspector;
+        }
+        if (focus)
+            PreviewSurface.Focus();
     }
 }

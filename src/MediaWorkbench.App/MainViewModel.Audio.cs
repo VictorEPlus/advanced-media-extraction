@@ -30,7 +30,7 @@ public sealed partial class MainViewModel
     /// <summary>The waveform sits under the frame timeline for a video with sound and fills the preview for an audio file.</summary>
     public bool ShowVideoWaveform => IsVideo && HasAudio;
     public bool ShowAudioStage => IsAudio;
-    public bool ShowVideoSurface => ShowPlayback && !IsAudio;
+    public bool ShowVideoSurface => (ShowPlayback || holdingVideoSurface) && !IsAudio;
     public bool CanSnipAudio => HasAudio && mediaInfo is not null && AudioEnd > AudioStart;
     public bool CanPlayRange => CanPlay && (HasFrames || IsAudio && AudioEnd > AudioStart);
     public string PlayRangeLabel => IsAudio ? "Play selection" : "Play marked range";
@@ -278,5 +278,45 @@ public sealed partial class MainViewModel
             if (stripCancellation == cancellation)
                 stripCancellation = null;
         }
+    }
+}
+
+// Pausing: the paused video picture stays up until the exact still of that moment is ready.
+public sealed partial class MainViewModel
+{
+    /// <summary>The longest the paused video picture is kept waiting for its still; after that the still area shows whatever it has, with its usual "decoding" note.</summary>
+    private static readonly TimeSpan VideoSurfaceHoldLimit = TimeSpan.FromMilliseconds(1500);
+
+    private void HoldVideoSurface()
+    {
+        if (!IsVideo || holdingVideoSurface)
+            return;
+        holdingVideoSurface = true;
+        var version = ++holdVersion;
+        NotifyVideoSurface();
+        _ = ReleaseLaterAsync(version);
+    }
+
+    private void ReleaseVideoSurface()
+    {
+        if (!holdingVideoSurface)
+            return;
+        holdingVideoSurface = false;
+        holdVersion++;
+        NotifyVideoSurface();
+    }
+
+    private async Task ReleaseLaterAsync(int version)
+    {
+        try { await Task.Delay(VideoSurfaceHoldLimit, lifetime.Token); }
+        catch (OperationCanceledException) { return; }
+        if (version == holdVersion)
+            ReleaseVideoSurface();
+    }
+
+    private void NotifyVideoSurface()
+    {
+        OnPropertyChanged(nameof(ShowVideoSurface));
+        OnPropertyChanged(nameof(ShowInstantLayer));
     }
 }

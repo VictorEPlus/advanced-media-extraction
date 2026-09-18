@@ -28,6 +28,24 @@ The view model separates the requested frame (`CurrentFrame`, what the timeline 
 
 `MediaEngine.GetPreviewStripAsync` makes about 120 small JPEGs along a video, packed into one cached `*.strip.bin` per file identity. It is built after the frame index lands and never blocks stepping. Two passes keep it cheap and honest. The first decodes **key frames only** (`-skip_frame nokey`), thinned by time, which takes seconds even for an hour of video; `showinfo` logs each picture's timestamp and it is kept only if that timestamp equals an indexed frame's (same tolerance as the verified seek), so every picture knows its ordinal. If that yields fewer than 40 pictures and the video has at most 9,000 frames, a second pass decodes from the start and keeps every Nth frame, where the ordinal is exact by counting. An integration test requires both passes to produce byte-identical pictures for the same ordinals. `FrameTimeline` shows the nearest picture in a popup and captions the frame it really shows. These pictures are a browsing aid only: the preview, clipboard and exports never use them.
 
+## Playback hand-over
+
+VLC plays; stills are decoded separately, so every pause and resume is a hand-over between two surfaces. Three rules keep it from flickering. Resuming a file that is already open and paused moves the player to the place and unpauses it; the media is only opened again for another file or after it has ended. A fresh open carries `:start-time`, so the first picture is already the right one; a corrective seek happens only if the first reported time shows the option was ignored. On pause (and when a frame is requested during playback) `ShowPlayback` goes false at once, so all logic behaves as before, but the VLC surface is held on screen (`holdingVideoSurface`) until the exact still of the target frame is displayed, the decode fails, or 1.5 s pass; the still from before playback is never flashed.
+
+## Zoom and focus view
+
+`CropSurface` keeps a zoom factor (1 = fit, up to 32) and the point of the picture, as fractions, that sits at the centre of the view. One method, `Fit`, turns those into the rectangle the picture is drawn in, and everything else (drawing, the clipboard crop drag, the video crop edges and grabbers) maps through it, so all of them work at any zoom. Zooming keeps the picture point under the pointer fixed; the picture is never allowed to leave empty space on a side it could fill. The state lives in the control, not the view model: a new frame of the same video is just a new `Source` of the same size and keeps the view, while a change of `ViewKey` (the selected file) or of picture size resets it. Exports, Copy and the crop all work in source pixels and are unaffected by zoom.
+
+Focus view is window state (`ApplyFocusView`): it collapses the header, filter bar, tab row, filmstrip and status row, zeroes their grid rows, hides both side panels after remembering whether they were open, and undoes all of it on exit. The tour leaves focus view before it starts.
+
+## Crop and rotate for whole videos
+
+`VideoTransform` (Core) is a crop in source pixels plus a clockwise quarter-turn rotation applied after the crop. It produces the FFmpeg filters (`crop=w:h:x:y`, then `transpose` or `hflip,vflip`), floors the crop to even width and height so 4:2:0 H.264 never needs a padded black line, and converts a crop to and from the turned frame (`ToRotated`, `FromRotated`). The preview draws the picture turned and `CropSurface` edits the crop in that turned space, converting back on every change, so "left edge" always means the edge seen on the left. `MoveEdge` clamps an edge to the frame and to 16 pixels short of the opposite edge. "Source pixels" are those of the decoded preview frame, which is what FFmpeg's filters see after it applies any rotation stored in the file.
+
+`DetectContentBoundsAsync` runs `cropdetect` on a dozen frames at five moments spread along the video (one for very short videos) and joins the results, so a dark scene at one moment cannot shrink the answer. `ExportTransformedVideoAsync` re-encodes the whole video (`-fps_mode vfr`, so variable frame rates keep their timing) with the first audio track; `TrimVideoAsync` takes the same transform after its frame-exact `trim`. Integration tests detect the bars of a generated letterboxed video, check the turned output size and frame count, and confirm that detection on the result finds no border left.
+
+The video crop is separate from the clipboard crop (`CropSelection`), which stays transient and never reaches a file. The two modes switch each other off.
+
 ## Instant preview and following the filmstrip
 
 Selecting a file first shows its filmstrip thumbnail, already in memory, scaled up in the preview (`InstantPreview`), and the real picture replaces it when decoded. The stand-in is a separate layer: `PreviewImage`, copy and export never see it.

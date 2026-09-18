@@ -63,6 +63,13 @@
                 </ControlTemplate>
             </Setter.Value></Setter>
         </Style>
+        <!-- Buttons under the preview. For a portrait picture they move into a column beside it, one full-width button per row. -->
+        <Style x:Key="ActionRowButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
+            <Style.Triggers><DataTrigger Binding="{Binding DataContext.IsPortraitLayout, RelativeSource={RelativeSource AncestorType=Window}}" Value="True"><Setter Property="MinWidth" Value="168" /><Setter Property="Margin" Value="0,0,0,6" /></DataTrigger></Style.Triggers>
+        </Style>
+        <Style x:Key="ActionRowAccentButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
+            <Style.Triggers><DataTrigger Binding="{Binding DataContext.IsPortraitLayout, RelativeSource={RelativeSource AncestorType=Window}}" Value="True"><Setter Property="MinWidth" Value="168" /><Setter Property="Margin" Value="0,0,0,6" /></DataTrigger></Style.Triggers>
+        </Style>
         <Style x:Key="Hint" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="FontSize" Value="11" />
@@ -178,7 +185,7 @@
             <Grid x:Name="CenterPanel" Grid.Column="1" Margin="12,0,4,0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <!-- One row: the folder tabs on the left, the selected file with Favorite and Stage on the right. -->
-                <Grid x:Name="CenterHeader" Margin="0,0,0,10">
+                <Grid x:Name="CenterHeader" Margin="0,0,0,8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{StaticResource BorderBrush}" SnapsToDevicePixels="True" />
                     <StackPanel x:Name="MainTabs" Orientation="Horizontal" VerticalAlignment="Bottom">
@@ -196,7 +203,8 @@
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
                             <Button x:Name="FavoriteButton" Content="&#x2605; Favorite" Command="{Binding ToggleFavoriteCommand}" ToolTip="Toggle favorite (F)" />
-                            <Button x:Name="StageButton" Content="Stage" Command="{Binding StageSelectedCommand}" ToolTip="Add this file to the selected staging collection (S)" Margin="0" />
+                            <Button x:Name="StageButton" Content="Stage" Command="{Binding StageSelectedCommand}" ToolTip="Add this file to the selected staging collection (S)" />
+                            <Button x:Name="FocusViewButton" Content="Focus view" Command="{Binding ToggleFocusViewCommand}" Margin="0" ToolTip="Shows only the picture, the timeline and the buttons (F11). Wheel over the picture zooms, drag moves it, double-click fits." />
                         </StackPanel>
                     </Grid>
                 </Grid>
@@ -262,10 +270,11 @@
 
                 <!-- Preview tab: the selected file and its tools -->
                 <Grid x:Name="PreviewTab" Grid.Row="1" Visibility="{Binding IsPreviewTab, Converter={StaticResource BoolVisibility}}">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Border x:Name="PreviewMonitor" Grid.Row="1" Background="{StaticResource MonitorBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" ClipToBounds="True">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Border x:Name="PreviewMonitor" Grid.Row="1" MouseWheel="FrameWheel" Background="{StaticResource MonitorBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" ClipToBounds="True">
                         <Grid>
-                            <local:CropSurface x:Name="PreviewSurface" Source="{Binding PreviewImage}" Selection="{Binding CropSelection}" IsCropping="{Binding IsCropping}" />
+                            <local:CropSurface x:Name="PreviewSurface" Source="{Binding PreviewImage}" ViewKey="{Binding SelectedAsset}" Selection="{Binding CropSelection}" IsCropping="{Binding IsCropping}" EdgeSelection="{Binding VideoCrop}" IsEdgeEditing="{Binding ShowFramingTools}" Rotation="{Binding VideoRotation}" SelectedEdge="{Binding SelectedCropEdge}" />
                             <Border Background="#66141310" IsHitTestVisible="False" Visibility="{Binding IsPreviewStale, Converter={StaticResource BoolVisibility}}" />
                             <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Background="#EB2E2B25" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10,6" IsHitTestVisible="False" Visibility="{Binding ShowPendingOverlay, Converter={StaticResource BoolVisibility}}">
                                 <StackPanel><TextBlock Text="{Binding PendingLabel}" /><ProgressBar Height="3" IsIndeterminate="True" Margin="0,6,0,0" Visibility="{Binding IsPreviewBusy, Converter={StaticResource BoolVisibility}}" /></StackPanel>
@@ -290,61 +299,102 @@
                             <ItemsControl ItemsSource="{Binding Notifications}" ItemTemplate="{StaticResource NotificationTemplate}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12" MaxWidth="440" AutomationProperties.Name="Notifications" />
                         </Grid>
                     </Border>
-                    <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,6,0,0">
+                        <!-- Crop and rotate for the whole video: shown while the tools are open. -->
+                        <Border x:Name="FramingTools" Background="{StaticResource PanelBrush}" CornerRadius="3" Padding="10,6,10,0" Margin="0,0,0,6" Visibility="{Binding ShowFramingTools, Converter={StaticResource BoolVisibility}}">
+                            <StackPanel>
+                                <DockPanel>
+                                    <Button x:Name="ExportWholeVideoButton" DockPanel.Dock="Right" Content="Export whole video" Command="{Binding ExportWholeVideoCommand}" IsEnabled="{Binding HasVideoTransform}" Style="{StaticResource AccentButton}" Margin="10,0,0,6" VerticalAlignment="Top" ToolTip="Saves a new MP4 of the entire video with this crop and rotation. The original is not changed." />
+                                    <WrapPanel>
+                                        <Button x:Name="AutoFitButton" Command="{Binding AutoFitCropCommand}" IsEnabled="{Binding CanAutoFit}" Margin="0,0,6,6" ToolTip="Finds black bars around the picture at several moments of the video and puts the four edges on the picture">
+                                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Content" Value="Auto-fit edges" /><Style.Triggers><DataTrigger Binding="{Binding IsAutoFitting}" Value="True"><Setter Property="Content" Value="Looking for borders&#x2026;" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                                        </Button>
+                                        <Button x:Name="RotateLeftButton" Content="&#x21BA; Turn left" Command="{Binding RotateVideoLeftCommand}" Margin="0,0,6,6" ToolTip="Turn the video a quarter turn anticlockwise" />
+                                        <Button x:Name="RotateRightButton" Content="Turn right &#x21BB;" Command="{Binding RotateVideoRightCommand}" Margin="0,0,6,6" ToolTip="Turn the video a quarter turn clockwise" />
+                                        <Button x:Name="ResetFramingButton" Content="Reset" Command="{Binding ResetVideoTransformCommand}" IsEnabled="{Binding HasVideoTransform}" Margin="0,0,6,6" ToolTip="Back to the whole frame, not turned" />
+                                        <Button Content="Done" Command="{Binding ToggleFramingCommand}" Margin="0,0,6,6" ToolTip="Close these tools. The crop and rotation stay set for this video until you reset them or select another file." />
+                                    </WrapPanel>
+                                </DockPanel>
+                                <TextBlock x:Name="FramingSummaryText" Text="{Binding FramingSummary}" Style="{StaticResource Readout}" FontSize="12.5" TextWrapping="Wrap" Margin="0,0,0,2" />
+                                <TextBlock Text="{Binding FramingEdgeHint}" Style="{StaticResource Hint}" Margin="0,0,0,6" />
+                            </StackPanel>
+                        </Border>
+                        <DockPanel x:Name="TransformReminder" Margin="0,0,0,6" Visibility="{Binding ShowTransformReminder, Converter={StaticResource BoolVisibility}}">
+                            <Button DockPanel.Dock="Right" Content="Reset" Command="{Binding ResetVideoTransformCommand}" Margin="6,0,0,0" />
+                            <Button DockPanel.Dock="Right" Content="Export whole video" Command="{Binding ExportWholeVideoCommand}" Margin="10,0,0,0" />
+                            <Border Width="3" CornerRadius="1" Background="{StaticResource AccentBrush}" Margin="0,2,10,2" />
+                            <TextBlock Text="{Binding FramingSummary}" Style="{StaticResource Readout}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="This crop and rotation apply to Export whole video and to Trim selection to MP4. Frame PNGs and Copy are not affected." />
+                        </DockPanel>
                         <StackPanel x:Name="VideoTimeline" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}">
-                            <DockPanel x:Name="FrameReadout" Margin="0,0,0,2" ToolTip="{Binding FrameLabel}">
-                                <TextBlock DockPanel.Dock="Right" Text="{Binding RangeSummary}" Style="{StaticResource Hint}" VerticalAlignment="Bottom" Margin="0,0,0,4" />
+                            <DockPanel x:Name="FrameReadout" Margin="0,0,0,0" ToolTip="{Binding FrameLabel}">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding RangeSummary}" Style="{StaticResource Hint}" VerticalAlignment="Bottom" Margin="0,0,0,3" />
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding FrameNumberText}" Style="{StaticResource Readout}" FontSize="30" VerticalAlignment="Bottom" AutomationProperties.Name="Current frame" />
-                                    <TextBlock Text="{Binding FrameTotalText}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="6,0,0,5" />
-                                    <StackPanel x:Name="IndexingIndicator" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="6,0,0,5" Background="Transparent" Visibility="{Binding ShowIndexing, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding IndexingNote}" AutomationProperties.Name="{Binding IndexingText}" AutomationProperties.LiveSetting="Polite">
-                                        <TextBlock FontSize="15" VerticalAlignment="Center" Foreground="{StaticResource BorderBrush}"><Run Text="{Binding IndexDotsLead, Mode=OneWay}" /><Run Text="{Binding IndexDotsLit, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" /><Run Text="{Binding IndexDotsTail, Mode=OneWay}" /></TextBlock>
-                                        <TextBlock Text="{Binding IndexingText}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                    <TextBlock Text="{Binding FrameNumberText}" Style="{StaticResource Readout}" FontSize="21" VerticalAlignment="Bottom" AutomationProperties.Name="Current frame" />
+                                    <TextBlock Text="{Binding FrameTotalText}" Style="{StaticResource Readout}" FontSize="12" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="5,0,0,3" />
+                                    <StackPanel x:Name="IndexingIndicator" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="5,0,0,3" Background="Transparent" Visibility="{Binding ShowIndexing, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding IndexingNote}" AutomationProperties.Name="{Binding IndexingText}" AutomationProperties.LiveSetting="Polite">
+                                        <TextBlock FontSize="13" VerticalAlignment="Center" Foreground="{StaticResource BorderBrush}"><Run Text="{Binding IndexDotsLead, Mode=OneWay}" /><Run Text="{Binding IndexDotsLit, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" /><Run Text="{Binding IndexDotsTail, Mode=OneWay}" /></TextBlock>
+                                        <TextBlock Text="{Binding IndexingText}" Style="{StaticResource Readout}" FontSize="12" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0" />
                                     </StackPanel>
-                                    <TextBlock Text="{Binding FrameTimeText}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="18,0,0,5" />
-                                    <StackPanel x:Name="FrameRateReadout" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="22,0,0,0" Background="Transparent" Visibility="{Binding HasFrameRate, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding FrameRateNote}">
-                                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="0,8,22,6" />
-                                        <TextBlock Text="{Binding FrameRateText}" Style="{StaticResource Readout}" FontSize="30" VerticalAlignment="Bottom" AutomationProperties.Name="Frames per second" />
-                                        <TextBlock Text="{Binding FrameRateUnit}" Style="{StaticResource Readout}" FontSize="14" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="6,0,0,5" />
+                                    <TextBlock Text="{Binding FrameTimeText}" Style="{StaticResource Readout}" FontSize="12" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="14,0,0,3" />
+                                    <StackPanel x:Name="FrameRateReadout" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="16,0,0,0" Background="Transparent" Visibility="{Binding HasFrameRate, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding FrameRateNote}">
+                                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="0,6,16,4" />
+                                        <TextBlock Text="{Binding FrameRateText}" Style="{StaticResource Readout}" FontSize="21" VerticalAlignment="Bottom" AutomationProperties.Name="Frames per second" />
+                                        <TextBlock Text="{Binding FrameRateUnit}" Style="{StaticResource Readout}" FontSize="12" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Bottom" Margin="5,0,0,3" />
                                     </StackPanel>
                                 </StackPanel>
                             </DockPanel>
-                            <Grid Margin="0,0,0,4">
+                            <Grid x:Name="TimelineArea" Margin="0,0,0,4" Background="Transparent" MouseWheel="FrameWheel">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                <Button x:Name="MarkInButton" Content="Mark in (I)" Command="{Binding MarkInCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive in point at the current frame" VerticalAlignment="Top" Margin="0,8,6,0" />
-                                <Button x:Name="MarkOutButton" Grid.Column="2" Content="Mark out (O)" Command="{Binding MarkOutCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive out point at the current frame" Margin="6,8,0,0" VerticalAlignment="Top" />
-                                <local:FrameTimeline x:Name="Timeline" Grid.Column="1" Thumbnails="{Binding TimelineThumbnails}" Maximum="{Binding MaximumFrame}" Value="{Binding CurrentFrame, Mode=TwoWay}" InFrame="{Binding InFrame, Mode=TwoWay}" OutFrame="{Binding OutFrame, Mode=TwoWay}" Frames="{Binding FrameList}" DisplayedFrame="{Binding DisplayedFrame}" LivePosition="{Binding PlaybackFrame}" IsEnabled="{Binding HasFrames}" Height="60" AutomationProperties.Name="Exact frame position" />
-                                <local:WaveformView x:Name="VideoWaveform" Grid.Row="1" Grid.Column="1" Height="72" Margin="0,2,0,0" Visibility="{Binding ShowVideoWaveform, Converter={StaticResource BoolVisibility}}" Waveform="{Binding Waveform}" Duration="{Binding WaveformDuration}" Position="{Binding AudioPosition}" IsLive="{Binding ShowPlayback}" SelectionStart="{Binding AudioStart}" SelectionEnd="{Binding AudioEnd}" Message="{Binding WaveformMessage}" IsEnabled="{Binding HasFrames}" SelectionRequested="OnAudioSelectionRequested" SeekRequested="OnAudioSeekRequested" AutomationProperties.Name="Audio waveform" />
-                                <TextBlock Grid.Row="1" Text="Sound" Style="{StaticResource Hint}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,8,0" Visibility="{Binding ShowVideoWaveform, Converter={StaticResource BoolVisibility}}" />
+                                <Button x:Name="MarkInButton" Content="Mark in (I)" Command="{Binding MarkInCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive in point at the current frame" VerticalAlignment="Top" Margin="0,6,6,0" />
+                                <Button x:Name="MarkOutButton" Grid.Column="2" Content="Mark out (O)" Command="{Binding MarkOutCommand}" IsEnabled="{Binding HasFrames}" ToolTip="Set the inclusive out point at the current frame" Margin="6,6,0,0" VerticalAlignment="Top" />
+                                <local:FrameTimeline x:Name="Timeline" Grid.Column="1" Thumbnails="{Binding TimelineThumbnails}" Maximum="{Binding MaximumFrame}" Value="{Binding CurrentFrame, Mode=TwoWay}" InFrame="{Binding InFrame, Mode=TwoWay}" OutFrame="{Binding OutFrame, Mode=TwoWay}" Frames="{Binding FrameList}" DisplayedFrame="{Binding DisplayedFrame}" LivePosition="{Binding PlaybackFrame}" IsEnabled="{Binding HasFrames}" Height="54" AutomationProperties.Name="Exact frame position" />
+                                <local:WaveformView x:Name="VideoWaveform" Grid.Row="1" Grid.Column="1" Height="38" ShowRuler="False" Margin="0,0,0,0" Visibility="{Binding ShowVideoWaveform, Converter={StaticResource BoolVisibility}}" Waveform="{Binding Waveform}" Duration="{Binding WaveformDuration}" Position="{Binding AudioPosition}" IsLive="{Binding ShowPlayback}" SelectionStart="{Binding AudioStart}" SelectionEnd="{Binding AudioEnd}" Message="{Binding WaveformMessage}" IsEnabled="{Binding HasFrames}" SelectionRequested="OnAudioSelectionRequested" SeekRequested="OnAudioSeekRequested" AutomationProperties.Name="Audio waveform" />
+                                <TextBlock Grid.Row="1" Text="Sound" Style="{StaticResource Hint}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="{Binding ShowVideoWaveform, Converter={StaticResource BoolVisibility}}" />
                             </Grid>
                         </StackPanel>
-                        <DockPanel x:Name="AudioTools" Margin="0,0,0,6" Visibility="{Binding HasAudio, Converter={StaticResource BoolVisibility}}">
-                            <Button x:Name="SnipAudioButton" DockPanel.Dock="Right" Content="Snip selection to WAV" Command="{Binding ExportAudioCommand}" IsEnabled="{Binding CanSnipAudio}" ToolTip="Saves only the selected section of sound as a WAV file in the export folder. The original is not changed." Margin="10,0,0,0" />
-                            <TextBlock x:Name="AudioSelectionReadout" Text="{Binding AudioSelectionText}" Style="{StaticResource Readout}" FontSize="14" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding AudioHint}" />
-                        </DockPanel>
-                        <DockPanel x:Name="ActionRow" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
-                            <Button x:Name="ExportFrameButton" DockPanel.Dock="Right" Content="{Binding ExportLabel}" Command="{Binding ExportFrameCommand}" IsEnabled="{Binding CanExportFrame}" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding ExportDestination}" Margin="10,0,0,6" VerticalAlignment="Top" />
-                            <WrapPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,10,6">
-                                    <Button x:Name="PlaybackButton" Content="&#x25B6; Play / pause" Command="{Binding TogglePlaybackCommand}" IsEnabled="{Binding CanPlay}" ToolTip="Play or pause (Space)">
-                                        <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding IsPhoto}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
-                                    </Button>
-                                    <Button x:Name="PlayRangeButton" Content="{Binding PlayRangeLabel}" Command="{Binding PlaySelectionCommand}" IsEnabled="{Binding CanPlayRange}" Visibility="{Binding CanPlay, Converter={StaticResource BoolVisibility}}" ToolTip="Play only the marked section and pause at its end" />
-                                    <Button x:Name="PreviousFrameButton" Content="&#x25C0; Frame" Command="{Binding PreviousFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Previous frame (Left in the preview, or comma)" />
-                                    <Button x:Name="NextFrameButton" Content="Frame &#x25B6;" Command="{Binding NextFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Next frame (Right in the preview, or period)" Margin="0" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}">
-                                    <Button x:Name="CopyButton" Content="{Binding CopyLabel}" Command="{Binding CopyPreviewCommand}" IsEnabled="{Binding CanCopy}" Style="{StaticResource AccentButton}" ToolTip="Copy full-resolution pixels (Ctrl+C)" />
-                                    <Button x:Name="CropButton" Command="{Binding ToggleCropCommand}" IsEnabled="{Binding CanCopy}" ToolTip="Drag on the preview to choose pixels (C). Esc clears.">
-                                        <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Content" Value="Crop" /><Style.Triggers><DataTrigger Binding="{Binding IsCropping}" Value="True"><Setter Property="Content" Value="Cropping on" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
-                                    </Button>
-                                    <Button Content="Reset crop" Command="{Binding ResetCropCommand}" Visibility="{Binding HasCrop, Converter={StaticResource BoolVisibility}}" Margin="0" />
-                                </StackPanel>
-                            </WrapPanel>
-                        </DockPanel>
+                        <TextBlock x:Name="AudioSelectionReadout" Text="{Binding AudioSelectionText}" Style="{StaticResource Readout}" FontSize="12" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,0,0,4" Visibility="{Binding IsAudio, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding AudioHint}" />
                         <TextBlock Text="{Binding CropLabel}" Style="{StaticResource Hint}" Visibility="{Binding IsCropping, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,4" />
                     </StackPanel>
+                    <!-- Under the preview for landscape pictures; beside it for portrait ones, where the width is free and the height is precious. -->
+                    <DockPanel x:Name="ActionRow" Visibility="{Binding HasSelection, Converter={StaticResource BoolVisibility}}">
+                        <DockPanel.Resources><Style TargetType="Button" BasedOn="{StaticResource ActionRowButton}" /></DockPanel.Resources>
+                        <DockPanel.Style><Style TargetType="DockPanel">
+                            <Setter Property="Grid.Row" Value="3" /><Setter Property="Grid.ColumnSpan" Value="2" />
+                            <Style.Triggers><DataTrigger Binding="{Binding IsPortraitLayout}" Value="True">
+                                <Setter Property="Grid.Row" Value="1" /><Setter Property="Grid.Column" Value="1" /><Setter Property="Grid.ColumnSpan" Value="1" /><Setter Property="Width" Value="178" /><Setter Property="Margin" Value="10,0,0,0" />
+                            </DataTrigger></Style.Triggers>
+                        </Style></DockPanel.Style>
+                        <Button x:Name="ExportFrameButton" Content="{Binding ExportLabel}" Command="{Binding ExportFrameCommand}" IsEnabled="{Binding CanExportFrame}" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding ExportDestination}" VerticalAlignment="Top">
+                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="DockPanel.Dock" Value="Right" /><Setter Property="Margin" Value="10,0,0,6" /><Style.Triggers><DataTrigger Binding="{Binding IsPortraitLayout}" Value="True"><Setter Property="DockPanel.Dock" Value="Top" /><Setter Property="Margin" Value="0,0,10,12" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                        </Button>
+                        <WrapPanel VerticalAlignment="Top">
+                            <WrapPanel Margin="0,0,10,6">
+                                <Button x:Name="PlaybackButton" Content="&#x25B6; Play / pause" Command="{Binding TogglePlaybackCommand}" IsEnabled="{Binding CanPlay}" ToolTip="Play or pause (Space)">
+                                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionRowButton}"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding IsPhoto}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                                </Button>
+                                <Button x:Name="PlayRangeButton" Content="{Binding PlayRangeLabel}" Command="{Binding PlaySelectionCommand}" IsEnabled="{Binding CanPlayRange}" Visibility="{Binding CanPlay, Converter={StaticResource BoolVisibility}}" ToolTip="Play only the marked section and pause at its end" />
+                                <Button x:Name="PreviousFrameButton" Content="&#x25C0; Frame" Command="{Binding PreviousFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Previous frame (Left in the preview, comma, or the mouse wheel over the timeline)" />
+                                <Button x:Name="NextFrameButton" Content="Frame &#x25B6;" Command="{Binding NextFrameCommand}" IsEnabled="{Binding HasFrames}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Next frame (Right in the preview, period, or the mouse wheel over the timeline)" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,0,10,6" Visibility="{Binding IsVisual, Converter={StaticResource BoolVisibility}}">
+                                <Button x:Name="CopyButton" Content="{Binding CopyLabel}" Command="{Binding CopyPreviewCommand}" IsEnabled="{Binding CanCopy}" Style="{StaticResource ActionRowAccentButton}" ToolTip="Copy full-resolution pixels (Ctrl+C)" />
+                                <Button x:Name="CropButton" Command="{Binding ToggleCropCommand}" IsEnabled="{Binding CanCopy}" ToolTip="Drag on the preview to choose pixels (C). Esc clears.">
+                                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionRowButton}"><Setter Property="Content" Value="Crop" /><Style.Triggers><DataTrigger Binding="{Binding IsCropping}" Value="True"><Setter Property="Content" Value="Cropping on" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                                </Button>
+                                <Button Content="Reset crop" Command="{Binding ResetCropCommand}" Visibility="{Binding HasCrop, Converter={StaticResource BoolVisibility}}" />
+                                <Button x:Name="FramingButton" Command="{Binding ToggleFramingCommand}" IsEnabled="{Binding CanFrame}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Crop and rotate the entire video: adjust four edges with grabbers or the arrow keys, turn it in quarter turns, then export a new MP4">
+                                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionRowButton}"><Setter Property="Content" Value="Crop &amp; rotate video" /><Style.Triggers><DataTrigger Binding="{Binding IsFraming}" Value="True"><Setter Property="Content" Value="Crop &amp; rotate on" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                                </Button>
+                            </WrapPanel>
+                            <WrapPanel Margin="0,0,0,6" Visibility="{Binding HasAudio, Converter={StaticResource BoolVisibility}}">
+                                <Button x:Name="SnipAudioButton" Content="Snip sound to WAV" Command="{Binding ExportAudioCommand}" IsEnabled="{Binding CanSnipAudio}" ToolTip="Saves only the marked section of sound as a WAV file in the export folder. The original is not changed." />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,0,0,6" Visibility="{Binding IsFocusView, Converter={StaticResource BoolVisibility}}">
+                                <Button x:Name="ExitFocusButton" Content="Exit focus view (F11)" Command="{Binding ToggleFocusViewCommand}" BorderBrush="{StaticResource AccentBrush}" ToolTip="Brings back the panels, filters and filmstrip exactly as they were. Esc does the same." />
+                            </WrapPanel>
+                        </WrapPanel>
+                    </DockPanel>
                 </Grid>
 
             </Grid>
@@ -353,21 +403,28 @@
                 <TabControl x:Name="InspectorTabs" SelectedIndex="{Binding InspectorTab}" Background="Transparent" BorderThickness="0" Padding="0,8,0,0">
                     <TabItem Header="Details">
                         <DockPanel x:Name="DetailsTabContent">
-                            <StackPanel DockPanel.Dock="Top" Margin="0,0,16,8">
-                                <DockPanel><TextBlock Text="{Binding SelectedKindLabel}" Style="{StaticResource SectionTitle}" Margin="0,4,0,8" /><Button x:Name="RevealFileButton" Content="Reveal file" Command="{Binding RevealFileCommand}" HorizontalAlignment="Right" Margin="0" IsEnabled="{Binding HasSelection}" /></DockPanel>
-                                <TextBlock Text="{Binding MediaSummary}" FontFamily="{StaticResource DisplayFont}" FontSize="15" TextWrapping="Wrap" />
-                                <Button x:Name="MetadataTagModeButton" Command="{Binding ToggleMetadataTagModeCommand}" IsEnabled="{Binding HasSelection}" HorizontalAlignment="Left" Margin="0,10,0,0">
-                                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Content" Value="Create tags from metadata&#x2026;" /><Style.Triggers><DataTrigger Binding="{Binding IsMetadataTagMode}" Value="True"><Setter Property="Content" Value="Stop choosing" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
-                                </Button>
-                                <TextBlock Text="Check the metadata values to turn into tags. Nothing is added until you confirm." Style="{StaticResource Hint}" Margin="0,8,0,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,16,6">
+                                <DockPanel Margin="0,2,0,4">
+                                    <Button x:Name="RevealFileButton" DockPanel.Dock="Right" Content="Reveal file" Command="{Binding RevealFileCommand}" Margin="0" IsEnabled="{Binding HasSelection}" />
+                                    <Button x:Name="MetadataTagModeButton" DockPanel.Dock="Right" Command="{Binding ToggleMetadataTagModeCommand}" IsEnabled="{Binding HasSelection}" ToolTip="Choose values from the list below to turn into tags">
+                                        <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Content" Value="Tag from details&#x2026;" /><Style.Triggers><DataTrigger Binding="{Binding IsMetadataTagMode}" Value="True"><Setter Property="Content" Value="Stop choosing" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                                    </Button>
+                                    <TextBlock Text="{Binding SelectedKindLabel}" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding MediaSummary}" FontFamily="{StaticResource DisplayFont}" FontSize="14" TextWrapping="Wrap" />
+                                <TextBlock Text="Check the values to turn into tags. Nothing is added until you confirm." Style="{StaticResource Hint}" Margin="0,6,0,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
                             </StackPanel>
                             <Button DockPanel.Dock="Bottom" Content="Add checked values as tags" Command="{Binding ConfirmMetadataTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,8,16,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
                             <ScrollViewer x:Name="MetadataList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl ItemsSource="{Binding Metadata}" Margin="0,0,16,0"><ItemsControl.ItemTemplate><DataTemplate>
-                                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                    <Border BorderBrush="#405A5447" BorderThickness="0,0,0,1" Padding="0,3">
                                         <DockPanel>
                                             <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsSelected}" IsEnabled="{Binding CanTag}" Margin="0,0,8,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding Name}" Visibility="{Binding DataContext.IsMetadataTagMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisibility}}" />
-                                            <StackPanel><TextBlock Text="{Binding Name}" Style="{StaticResource Hint}" /><TextBlock Text="{Binding Value}" TextWrapping="Wrap" Margin="0,3,0,0" ToolTip="{Binding Value}" /></StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="96" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Hint}" Margin="0,2,8,0" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="12.5" TextWrapping="Wrap" ToolTip="{Binding Value}" />
+                                            </Grid>
                                         </DockPanel>
                                     </Border>
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -406,7 +463,7 @@
                                 <TextBlock Text="Video selection" Style="{StaticResource SectionTitle}" />
                                 <UniformGrid Columns="2" Margin="0,0,0,8"><TextBox Text="{Binding InFrame}" AutomationProperties.Name="In frame inclusive" Margin="0,0,6,0" ToolTip="In frame (inclusive)" /><TextBox Text="{Binding OutFrame}" AutomationProperties.Name="Out frame inclusive" Margin="0" ToolTip="Out frame (inclusive)" /></UniformGrid>
                                 <TextBlock Text="{Binding RangeLabel}" Style="{StaticResource Hint}" Margin="0,0,0,8" />
-                                <Button x:Name="TrimButton" Content="Trim selection to MP4" Command="{Binding TrimVideoCommand}" IsEnabled="{Binding HasFrames}" Margin="0,0,0,8" ToolTip="Frame-accurate H.264/AAC re-encode of the in/out range" />
+                                <Button x:Name="TrimButton" Content="{Binding TrimLabel}" Command="{Binding TrimVideoCommand}" IsEnabled="{Binding HasFrames}" Margin="0,0,0,8" ToolTip="Frame-accurate H.264/AAC re-encode of the in/out range" />
                                 <UniformGrid x:Name="FrameExportButtons" Columns="2" Margin="0,0,0,8"><Button Content="{Binding SelectedFramesLabel}" Command="{Binding ExportSelectedFramesCommand}" IsEnabled="{Binding HasFrames}" ToolTip="One PNG per frame between the in and out markers" /><Button Content="{Binding AllFramesLabel}" Command="{Binding ExportAllFramesCommand}" IsEnabled="{Binding HasFrames}" Margin="0" ToolTip="One PNG per decoded frame of the whole video" /></UniformGrid>
                             </StackPanel>
                             <StackPanel x:Name="AudioExportPanel" Visibility="{Binding HasAudio, Converter={StaticResource BoolVisibility}}">
@@ -482,7 +539,7 @@
                 </Canvas>
             </Grid>
         </Border>
-        <DockPanel Grid.Row="4" Margin="12,0">
+        <DockPanel x:Name="StatusRow" Grid.Row="4" Margin="12,0">
             <CheckBox x:Name="FollowScrollBox" DockPanel.Dock="Right" Content="Preview follows scroll" IsChecked="{Binding FollowFilmstrip}" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="11" ToolTip="Scroll the filmstrip and the preview shows the file under the amber marker straight away. The file is opened fully when you stop scrolling." />
             <StackPanel x:Name="ThumbnailSizeControl" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0"><TextBlock Text="Thumbnail size" Style="{StaticResource Hint}" VerticalAlignment="Center" /><Slider Width="120" Minimum="56" Maximum="168" Value="{Binding ThumbnailHeight}" Margin="8,0,0,0" AutomationProperties.Name="Thumbnail size" /></StackPanel>
             <TextBlock x:Name="StatusText" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Status}" AutomationProperties.LiveSetting="Polite" />

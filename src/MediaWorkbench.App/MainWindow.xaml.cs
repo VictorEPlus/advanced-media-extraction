@@ -31,6 +31,7 @@ public partial class MainWindow : Window
             case nameof(MainViewModel.SelectedAsset): SyncFilmstripSelection(); break;
             case nameof(MainViewModel.ShowInspector): ApplyInspectorVisibility(); break;
             case nameof(MainViewModel.FollowFilmstrip): OnFollowFilmstripChanged(); break;
+            case nameof(MainViewModel.IsFocusView): ApplyFocusView(); break;
         }
     }
 
@@ -163,6 +164,11 @@ public partial class MainWindow : Window
             args.Handled = true;
             return;
         }
+        if (HandleFramingKey(args, focused))
+        {
+            args.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers != ModifierKeys.None) return;
         // Arrow keys mean "next file" in the filmstrip and "next frame" in the preview; controls with their own arrow handling keep it.
         if (args.Key is Key.Left or Key.Right && focused is Slider or TabItem or FrameTimeline)
@@ -184,6 +190,8 @@ public partial class MainWindow : Window
             Key.PageDown => viewModel.NextAssetCommand,
             Key.S => viewModel.StageSelectedCommand,
             Key.C => viewModel.ToggleCropCommand,
+            Key.F11 => viewModel.ToggleFocusViewCommand,
+            Key.Escape when viewModel.IsFocusView && !viewModel.HasCrop && !viewModel.IsCropping => viewModel.ToggleFocusViewCommand,
             Key.Escape => viewModel.ResetCropCommand,
             Key.I when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkInCommand,
             Key.O when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkOutCommand,
@@ -194,6 +202,40 @@ public partial class MainWindow : Window
             return;
         command.Execute(null);
         args.Handled = true;
+    }
+
+    /// <summary>
+    /// While the video crop tools are open: Tab and Shift+Tab choose an edge, the arrow keys move the chosen edge by one source
+    /// pixel (ten with Shift), and Esc lets go of the edge, then closes the tools. Without a chosen edge the arrows step frames as usual.
+    /// </summary>
+    private bool HandleFramingKey(KeyEventArgs args, DependencyObject? focused)
+    {
+        if (!viewModel.ShowFramingTools || Keyboard.Modifiers is not (ModifierKeys.None or ModifierKeys.Shift))
+            return false;
+        var inFilmstrip = focused is Visual visual && (ReferenceEquals(visual, Filmstrip) || Filmstrip.IsAncestorOf(visual));
+        var onPreview = ReferenceEquals(focused, PreviewSurface);
+        var shift = Keyboard.Modifiers == ModifierKeys.Shift;
+        switch (args.Key)
+        {
+            case Key.Tab when onPreview:
+                PreviewSurface.CycleEdge(shift ? -1 : 1);
+                return true;
+            case Key.Escape when !shift:
+                if (viewModel.SelectedCropEdge != Core.CropEdge.None) viewModel.SelectedCropEdge = Core.CropEdge.None;
+                else viewModel.ToggleFramingCommand.Execute(null);
+                return true;
+            case Key.Left or Key.Right or Key.Up or Key.Down when viewModel.SelectedCropEdge != Core.CropEdge.None && !inFilmstrip && focused is not (Slider or TabItem or FrameTimeline):
+                var horizontal = viewModel.SelectedCropEdge is Core.CropEdge.Left or Core.CropEdge.Right;
+                var step = shift ? 10 : 1;
+                if (horizontal && args.Key is Key.Left or Key.Right)
+                    PreviewSurface.Nudge(args.Key == Key.Left ? -step : step);
+                else if (!horizontal && args.Key is Key.Up or Key.Down)
+                    PreviewSurface.Nudge(args.Key == Key.Up ? -step : step);
+                // The other pair of arrows does nothing here, rather than stepping a frame by surprise.
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void OnDrop(object sender, DragEventArgs args)

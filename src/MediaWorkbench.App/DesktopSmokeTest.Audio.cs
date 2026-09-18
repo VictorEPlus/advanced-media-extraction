@@ -22,7 +22,7 @@ internal static partial class DesktopSmokeTest
         Require(model.CurrentFrame == 3 && model.DisplayedFrame == 3 && Math.Abs(model.AudioPosition - 0.5) < 0.002, "Clicking the sound should go to the frame showing at that moment.");
         Layout(window);
         var root = (UIElement)window.Content;
-        Require(Shown(window.FrameRateReadout) && Shown(window.VideoWaveform) && window.VideoWaveform.ActualHeight >= 60 && Shown(window.SnipAudioButton) && window.SnipAudioButton.IsEnabled, "The frame rate, the waveform and the snip button should be visible for a video with sound.");
+        Require(Shown(window.FrameRateReadout) && Shown(window.VideoWaveform) && window.VideoWaveform.ActualHeight >= 30 && Shown(window.SnipAudioButton) && window.SnipAudioButton.IsEnabled, "The frame rate, the waveform and the snip button should be visible for a video with sound.");
         var timelineLeft = window.Timeline.TranslatePoint(new Point(0, 0), root).X;
         var waveformLeft = window.VideoWaveform.TranslatePoint(new Point(0, 0), root).X;
         Require(Math.Abs(timelineLeft - waveformLeft) < 0.5 && Math.Abs(window.Timeline.ActualWidth - window.VideoWaveform.ActualWidth) < 0.5, "The waveform must line up with the frame timeline above it.");

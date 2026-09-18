@@ -68,7 +68,7 @@ public sealed class FrameTimeline : FrameworkElement
     public FrameTimeline()
     {
         Focusable = true;
-        MinHeight = 60;
+        MinHeight = 52;
         IsEnabledChanged += (_, _) => { InvalidateVisual(); UpdatePreview(); };
         previewCaption.Foreground = MutedBrush;
         previewCaption.FontFamily = LabelTypeface.FontFamily;

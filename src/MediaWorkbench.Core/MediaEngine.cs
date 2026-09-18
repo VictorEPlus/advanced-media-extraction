@@ -478,8 +478,13 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         return output;
     }
 
+    /// <summary>The crop and rotation with the size of the frame they apply to; null size or identity means "leave the picture alone".</summary>
+    private static string TransformFilter(VideoTransform? transform, int frameWidth, int frameHeight) =>
+        transform is null || frameWidth <= 0 || frameHeight <= 0 || transform.Filter(frameWidth, frameHeight) is not { Length: > 0 } filter ? "" : filter + ",";
+
     public async Task<string> TrimVideoAsync(MediaAsset asset, FrameRange range, IReadOnlyList<VideoFrame> frames, MediaInfo info,
-        string directory, IProgress<ExportProgress>? progress = null, CancellationToken cancellationToken = default)
+        string directory, IProgress<ExportProgress>? progress = null, CancellationToken cancellationToken = default,
+        VideoTransform? transform = null, int frameWidth = 0, int frameHeight = 0)
     {
         var times = range.ToTimeRange(frames, info.Duration);
         using var output = OutputReservation.Create(directory, Path.GetFileNameWithoutExtension(asset.Name) + "_trim", ".mp4");
@@ -487,7 +492,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         {
             "-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0",
             // Pad odd dimensions to even so 4:2:0 H.264 encoding never fails on odd-sized sources; even sizes are unchanged.
-            "-vf", $"trim=start_frame={range.Start}:end_frame={range.EndInclusive + 1},setpts=PTS-STARTPTS,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-vf", $"trim=start_frame={range.Start}:end_frame={range.EndInclusive + 1},setpts=PTS-STARTPTS,{TransformFilter(transform, frameWidth, frameHeight)}pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-fps_mode", "vfr", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"
         };
         if (info.AudioTracks.Count > 0)
@@ -496,6 +501,74 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         await runner.RunAsync(tools.Ffmpeg, arguments, line => ReportTimeProgress(line, times.Duration, progress), cancellationToken);
         output.Complete();
         return output.Path;
+    }
+
+    /// <summary>
+    /// Re-encodes the whole video with a crop and a quarter-turn rotation. Every frame is kept with its own timing (variable frame
+    /// rate passes through) and the first audio track is carried along. The source file is never changed.
+    /// </summary>
+    public async Task<string> ExportTransformedVideoAsync(MediaAsset asset, MediaInfo info, VideoTransform transform, int frameWidth, int frameHeight,
+        string directory, IProgress<ExportProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        if (frameWidth <= 0 || frameHeight <= 0)
+            throw new ArgumentException("The frame size is not known yet. Wait for the first frame to appear.");
+        if (transform.IsIdentity(frameWidth, frameHeight))
+            throw new ArgumentException("Set a crop or a rotation first; there is nothing to change.");
+        using var output = OutputReservation.Create(directory, Path.GetFileNameWithoutExtension(asset.Name) + "_edit", ".mp4");
+        var arguments = new List<string>
+        {
+            "-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0",
+            "-vf", $"{TransformFilter(transform, frameWidth, frameHeight)}pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-fps_mode", "vfr", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"
+        };
+        if (info.AudioTracks.Count > 0)
+            arguments.AddRange(["-map", $"0:{info.AudioTracks[0].StreamIndex}", "-c:a", "aac"]);
+        arguments.AddRange(["-movflags", "+faststart", "-progress", "pipe:1", "-nostats", output.Path]);
+        await runner.RunAsync(tools.Ffmpeg, arguments, line => ReportTimeProgress(line, Math.Max(0.001, info.Duration), progress), cancellationToken);
+        output.Complete();
+        return output.Path;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex CropDetectLine = new(@"\bcrop=(\d+):(\d+):(\d+):(\d+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Finds the picture inside black borders (letterbox or pillarbox bars). A few moments spread along the video are examined and the
+    /// results are joined, so a dark scene at one of them cannot shrink the answer. Returns null when no usable picture area was found.
+    /// </summary>
+    public async Task<PixelCrop?> DetectContentBoundsAsync(MediaAsset asset, MediaInfo info, int frameWidth, int frameHeight, CancellationToken cancellationToken = default)
+    {
+        if (frameWidth <= 0 || frameHeight <= 0)
+            return null;
+        int left = int.MaxValue, top = int.MaxValue, right = int.MinValue, bottom = int.MinValue;
+        foreach (var fraction in info.Duration > 2 ? new[] { 0.1, 0.3, 0.5, 0.7, 0.9 } : new[] { 0.0 })
+        {
+            PixelCrop? last = null;
+            var arguments = new List<string> { "-v", "info", "-hide_banner", "-nostats", "-nostdin" };
+            if (fraction > 0)
+                arguments.AddRange(["-ss", MediaNumber.Format(info.Duration * fraction)]);
+            // round=2 keeps every detected pixel; reset=0 joins the frames of one sample.
+            arguments.AddRange(["-i", asset.FullPath, "-map", "0:v:0", "-an", "-vf", "cropdetect=limit=24:round=2:reset=0", "-frames:v", "12", "-f", "null", "-"]);
+            try
+            {
+                await runner.RunAsync(tools.Ffmpeg, arguments, errorOutput: line =>
+                {
+                    var match = CropDetectLine.Match(line);
+                    if (match.Success && int.TryParse(match.Groups[1].Value, out var width) && int.TryParse(match.Groups[2].Value, out var height)
+                        && int.TryParse(match.Groups[3].Value, out var x) && int.TryParse(match.Groups[4].Value, out var y)
+                        && width > 0 && height > 0 && x >= 0 && y >= 0 && x + width <= frameWidth && y + height <= frameHeight)
+                        last = new PixelCrop(x, y, width, height);
+                }, cancellationToken: cancellationToken);
+            }
+            catch (InvalidOperationException) { }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (last is not { } found)
+                continue;
+            left = Math.Min(left, found.X);
+            top = Math.Min(top, found.Y);
+            right = Math.Max(right, found.X + found.Width);
+            bottom = Math.Max(bottom, found.Y + found.Height);
+        }
+        return right - left >= VideoTransform.MinimumSize && bottom - top >= VideoTransform.MinimumSize ? new PixelCrop(left, top, right - left, bottom - top) : null;
     }
 
     public async Task<string> ExportAudioAsync(MediaAsset asset, MediaInfo info, AudioTrack track, int? channel, TimeRange range,

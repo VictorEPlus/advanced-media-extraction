@@ -31,6 +31,7 @@ public sealed class WaveformView : FrameworkElement
     public static readonly DependencyProperty IsLiveProperty = DependencyProperty.Register(nameof(IsLive), typeof(bool), typeof(WaveformView), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty SelectionStartProperty = DependencyProperty.Register(nameof(SelectionStart), typeof(double), typeof(WaveformView), new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty SelectionEndProperty = DependencyProperty.Register(nameof(SelectionEnd), typeof(double), typeof(WaveformView), new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty ShowRulerProperty = DependencyProperty.Register(nameof(ShowRuler), typeof(bool), typeof(WaveformView), new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender, (d, _) => ((WaveformView)d).outline = null));
     public static readonly DependencyProperty MessageProperty = DependencyProperty.Register(nameof(Message), typeof(string), typeof(WaveformView), new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsRender));
 
     public Waveform? Waveform { get => (Waveform?)GetValue(WaveformProperty); set => SetValue(WaveformProperty, value); }
@@ -41,6 +42,8 @@ public sealed class WaveformView : FrameworkElement
     public bool IsLive { get => (bool)GetValue(IsLiveProperty); set => SetValue(IsLiveProperty, value); }
     public double SelectionStart { get => (double)GetValue(SelectionStartProperty); set => SetValue(SelectionStartProperty, value); }
     public double SelectionEnd { get => (double)GetValue(SelectionEndProperty); set => SetValue(SelectionEndProperty, value); }
+    /// <summary>The time ruler under the picture. Off when the control sits under a timeline that already has one.</summary>
+    public bool ShowRuler { get => (bool)GetValue(ShowRulerProperty); set => SetValue(ShowRulerProperty, value); }
     /// <summary>Shown instead of the picture while it is being read, or when there is nothing to draw.</summary>
     public string Message { get => (string)GetValue(MessageProperty); set => SetValue(MessageProperty, value); }
 
@@ -76,7 +79,7 @@ public sealed class WaveformView : FrameworkElement
 
     public WaveformView()
     {
-        MinHeight = 48;
+        MinHeight = 28;
         ClipToBounds = true;
         IsEnabledChanged += (_, _) => InvalidateVisual();
     }
@@ -84,7 +87,7 @@ public sealed class WaveformView : FrameworkElement
     private bool HasPicture => Waveform is { Count: > 0 } && Duration > 0;
     private double PlotLeft => SidePadding;
     private double PlotWidth => Math.Max(1, ActualWidth - 2 * SidePadding);
-    private double PlotHeight => Math.Max(8, ActualHeight - RulerHeight);
+    private double PlotHeight => Math.Max(8, ActualHeight - (ShowRuler ? RulerHeight : 0));
     private double XOf(double seconds) => Duration <= 0 ? PlotLeft : PlotLeft + PlotWidth * Math.Clamp(seconds / Duration, 0, 1);
     private double TimeAt(double x) => Duration <= 0 ? 0 : Math.Clamp((x - PlotLeft) / PlotWidth, 0, 1) * Duration;
 
@@ -132,7 +135,8 @@ public sealed class WaveformView : FrameworkElement
             DrawEdge(context, startX, true);
             DrawEdge(context, endX, false);
         }
-        DrawRuler(context);
+        if (ShowRuler)
+            DrawRuler(context);
         if (Position >= 0)
         {
             var x = XOf(Position);
