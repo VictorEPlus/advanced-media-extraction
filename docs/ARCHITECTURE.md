@@ -2,9 +2,9 @@
 
 ## Project boundaries
 
-- `MediaWorkbench.Core` (.NET 10): media models, recursive scanner, SQLite catalog, atomic settings, tool discovery, process execution, disk cache and FFmpeg-based extraction. No WPF or VLC dependency.
-- `MediaWorkbench.App` (.NET 10 / WPF / x64): MVVM state, native LibVLCSharp playback, gallery/filmstrip UI, settings, keyboard shortcuts and a bounded serial export queue.
-- `MediaWorkbench.Tests`: xUnit tests of core behavior and generated-media integrations. The verification script separately checks WPF construction and native dependencies using `--smoke-test`.
+- `MediaWorkbench.Core` (.NET 10): media models, recursive scanner, folder tree, SQLite catalog, atomic settings, tool discovery, process execution (text and binary output), disk cache, FFmpeg-based extraction, waveform reduction, timeline preview strips, frame-rate measurement, and the crop and rotation maths. No WPF or VLC dependency.
+- `MediaWorkbench.App` (.NET 10 / WPF / x64): MVVM state, native LibVLCSharp playback, gallery/filmstrip UI, settings, keyboard shortcuts and a bounded serial export queue. The view model is one class split by concern into partial files (`MainViewModel.cs`, `.Organization`, `.Library`, `.Audio`, `.Follow`, `.VideoCrop`); the window likewise (`MainWindow.xaml.cs`, `.Tour`, `.Filmstrip`). Custom-drawn controls: `FrameTimeline`, `WaveformView`, `CropSurface`, `FolderChart`.
+- `MediaWorkbench.Tests`: xUnit tests of core behavior and generated-media integrations. The verification script separately runs the app with `--smoke-test`, which builds the real window without showing it and drives the view model and controls through scripted scenarios (`DesktopSmokeTest*.cs`), saving renders under `artifacts/smoke-*`. A hidden window cannot play video, receive real mouse input or open popups, so those paths have test hooks where possible and the acceptance checklist where not.
 
 ## Frame correctness
 

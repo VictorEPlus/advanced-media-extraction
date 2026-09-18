@@ -41,10 +41,8 @@
 - [x] Native Windows folder and file dialogs replace the in-app picker.
 - [x] Lighter, more clearly layered dark palette; sliders, progress bars and checkboxes follow the app accent.
 
-## Next milestones
+## Video tools, sound and viewing
 
-- [ ] Interactive usability testing with representative user footage and large libraries.
-- [ ] Zoomable video-thumbnail timeline distinct from the folder filmstrip.
 - [x] Audio waveform under the frame timeline and as the preview of audio files; drag to select (frame-snapped for video), click to seek, play the selection, snip it to WAV.
 - [x] Frame rate readout beside the frame counter, measured from the frame index, with variable-frame-rate detection.
 - [x] Folder-style centre tabs with the selected-file header on the same row.
@@ -56,9 +54,14 @@
 - [x] Mouse wheel steps frames over the timeline and sound (Ctrl+wheel over the picture). Compact tools under the preview (smaller readout, slim sound strip without its own ruler, snip button in the action row) and a side column of buttons for portrait pictures.
 - [x] Preview follows scroll: a filmstrip marker, instant thumbnail stand-in in the preview, the file opened when scrolling settles, and a gliding mouse wheel.
 - [x] Dotted loading bar with a percentage beside the frame counter while a video is being indexed.
-- [ ] Waveform zoom for placing cuts in long recordings; per-channel waveforms.
 - [x] Verified seek for deep cache misses, in-memory frame cache with directional read-ahead, decode overlay only for slow decodes.
 - [x] Percentages in the folder tree and graph; filmstrip header removed and its height given to the thumbnails; side-panel scrollbars at the panel edge.
+
+## Next milestones
+
+- [ ] Interactive usability testing with representative user footage and large libraries.
+- [ ] Zoomable video-thumbnail timeline distinct from the folder filmstrip.
+- [ ] Waveform zoom for placing cuts in long recordings; per-channel waveforms.
 - [ ] Long-lived sequential decoder for sustained playback-speed stepping.
 - [ ] Fast stream-copy cuts clearly distinguished from frame-accurate re-encodes.
 - [ ] Arbitrary multi-selection, batch favorite/stage, session undo for favorites/tags/collections, and saved reusable ranges.

@@ -1,6 +1,6 @@
 # Workspace acceptance checklist
 
-**Status: UNVERIFIED - hands-on user acceptance is still pending.** Automated tests and synthetic desktop smoke checks passed during implementation, but they do not establish that the redesigned UI and workflows are correct on real user media and hardware. This commit is a work-in-progress checkpoint, not a verified release.
+**Status: not formally signed off.** This checklist has not been walked end to end in one sitting. Automated tests and the hidden-window checks pass, but they cannot play video, move a real mouse or judge how something feels, so the items below are what only a person can confirm. Steps 13 onwards cover the newest features and have had the least hands-on time.
 
 Run `scripts/Verify.ps1` first. It builds, runs unit/media tests, and exercises the UI with synthetic media in an isolated data directory. Screenshots are under `artifacts/smoke-*`; no personal media is used and the clipboard is not changed by automated tests.
 
