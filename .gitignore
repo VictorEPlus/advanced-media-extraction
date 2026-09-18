@@ -21,3 +21,6 @@ favorites.json
 *.log
 tools/motion-probe/.venv/
 __pycache__/
+# Windows shortcuts embed an absolute working directory and the creating machine's SID,
+# so they are never portable across clones. Use Launch.cmd instead.
+*.lnk
