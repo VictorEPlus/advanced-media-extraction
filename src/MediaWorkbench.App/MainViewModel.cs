@@ -44,6 +44,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private long? stopPlaybackAt;
     private string? pendingSelectionPath;
     private int armedExportCount = -1;
+    private static readonly TimeSpan SlowDecodeDelay = TimeSpan.FromMilliseconds(350);
+    private readonly FrameMemoryCache frameMemory = new();
+    private readonly object prefetchLock = new();
+    private CancellationTokenSource prefetchCancellation = new();
+    private Task? prefetchTask;
+    private int prefetchIndex;
+    private int prefetchDirection = 1;
+    private bool slowDecode;
     private bool disposed;
 
     public BatchCollection<AssetViewModel> Assets { get; } = [];
@@ -64,8 +72,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public int MaximumFrame => Math.Max(0, frames.Count - 1);
     public bool IsPreviewBusy => IsFrameLoading || IsIndexing;
     /// <summary>True while the visible still is not the requested frame: a decode is pending or failed.</summary>
-    public bool IsPreviewStale => IsVideo && PreviewImage is not null && (IsFrameLoading || DisplayedFrame != CurrentFrame);
-    public bool ShowPendingOverlay => IsVideo && PreviewImage is not null && !ShowPlayback && (IsFrameLoading || DisplayedFrame != CurrentFrame || (IsIndexing && !HasFrames));
+    public bool IsPreviewStale => IsVideo && PreviewImage is not null && (IsFrameLoading ? slowDecode : DisplayedFrame != CurrentFrame);
+    public bool ShowPendingOverlay => IsPreviewStale && !ShowPlayback;
+    /// <summary>The thin progress line under the preview; like the overlay it only appears for decodes that are actually slow.</summary>
+    public bool ShowFrameProgress => IsFrameLoading && (slowDecode || !IsVideo);
     public string PendingLabel => !IsVideo ? "" :
         IsFrameLoading ? $"Decoding frame {CurrentFrame:N0}…" :
         DisplayedFrame != CurrentFrame ? $"Showing frame {DisplayedFrame:N0}. Frame {CurrentFrame:N0} could not be decoded." :
@@ -403,6 +413,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         selectionCancellation = cancellation;
         loadedAsset = item;
+        ResetFrameMemory();
         armedExportCount = -1;
         stopPlaybackAt = null;
         Player.Stop();
@@ -483,7 +494,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             {
                 var bytes = await selectedEngine.GetFrameAsync(item.Asset, 0, cancellation.Token);
                 cancellation.Token.ThrowIfCancellationRequested();
-                SetDisplayedFrame(bytes, 0);
+                SetDisplayedFrame(DecodeImage(bytes), bytes, 0);
                 ShowMetadata(item.Asset, info.Metadata);
                 Status = "Image decoded with FFmpeg. Drag a crop and copy pixels, or tag/stage this file.";
             }
@@ -534,6 +545,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Shows the requested frame. Three speeds, fastest first: a frame already decoded in memory is shown at once with no loading state;
+    /// a frame on disk is read and decoded off the UI thread; anything else is decoded by FFmpeg (a verified seek when the index is ready).
+    /// The "decoding" overlay only appears when a decode is actually slow, so ordinary stepping never flashes a message.
+    /// </summary>
     private async Task SeekFrameAsync()
     {
         if (loadedAsset is not { Asset.Kind: MediaKind.Video } item || mediaInfo is null || loadedAsset != SelectedAsset)
@@ -544,22 +560,47 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (frameCancellation is null && DisplayedFrame == index && PreviewImage is not null)
             return;
         frameCancellation?.Cancel();
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        frameCancellation = cancellation;
-        inFlightFrame = index;
-        IsFrameLoading = true;
         if (Player.IsPlaying)
             Player.Pause();
         ShowPlayback = false;
+        if (frameMemory.TryGet(index, out var readyBytes, out var readyImage))
+        {
+            frameCancellation = null;
+            inFlightFrame = -1;
+            slowDecode = false;
+            IsFrameLoading = false;
+            SetDisplayedFrame(readyImage, readyBytes, index);
+            Status = $"Frame {index:N0}";
+            SchedulePrefetch(item, index);
+            return;
+        }
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        frameCancellation = cancellation;
+        inFlightFrame = index;
+        slowDecode = false;
+        IsFrameLoading = true;
         NotifyFrameState();
+        _ = RevealSlowDecodeAsync(cancellation);
         try
         {
-            Status = $"Decoding exact frame {index:N0}…";
-            await Task.Delay(70, cancellation.Token);
-            var bytes = await engine.GetFrameAsync(item.Asset, index, frames.Count, cancellation.Token);
+            var asset = item.Asset;
+            var selectedEngine = engine;
+            var generation = frameMemory.Generation;
+            var bytes = await Task.Run(() => selectedEngine.TryGetCachedFrame(asset, index), cancellation.Token);
+            if (bytes is null)
+            {
+                // Only real decodes are debounced, so holding an arrow key does not start a process per key repeat.
+                await Task.Delay(60, cancellation.Token);
+                bytes = HasFrames
+                    ? await selectedEngine.GetFrameAsync(asset, index, frames, mediaInfo, cancellation.Token)
+                    : await selectedEngine.GetFrameAsync(asset, index, cancellation.Token);
+            }
+            var image = await Task.Run(() => DecodeImage(bytes), cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
-            SetDisplayedFrame(bytes, index);
+            frameMemory.Add(generation, index, bytes, image);
+            SetDisplayedFrame(image, bytes, index);
             Status = $"Frame {index:N0} ready. Export saves this exact decoded image.";
+            SchedulePrefetch(item, index);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { if (frameCancellation == cancellation) ReportError(exception); }
@@ -569,15 +610,82 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             {
                 frameCancellation = null;
                 inFlightFrame = -1;
+                slowDecode = false;
                 IsFrameLoading = false;
                 NotifyFrameState();
             }
         }
     }
 
-    private void SetDisplayedFrame(byte[] bytes, int index)
+    private async Task RevealSlowDecodeAsync(CancellationTokenSource request)
     {
-        var image = DecodeImage(bytes);
+        try { await Task.Delay(SlowDecodeDelay, request.Token); }
+        catch (OperationCanceledException) { return; }
+        catch (ObjectDisposedException) { return; }
+        if (frameCancellation != request) return;
+        slowDecode = true;
+        Status = $"Decoding exact frame {inFlightFrame:N0}…";
+        NotifyFrameState();
+    }
+
+    /// <summary>
+    /// Keeps the frames around the current one decoded in memory, mostly in the direction of travel. One background loop serves all
+    /// requests and simply re-reads the latest target, so rapid stepping never cancels a window decode that is already under way.
+    /// </summary>
+    private void SchedulePrefetch(AssetViewModel item, int index)
+    {
+        if (!HasFrames || mediaInfo is null) return;
+        lock (prefetchLock)
+        {
+            prefetchDirection = index == prefetchIndex ? prefetchDirection : index > prefetchIndex ? 1 : -1;
+            prefetchIndex = index;
+            if (prefetchTask is { IsCompleted: false }) return;
+            var asset = item.Asset;
+            var selectedEngine = engine;
+            var list = frames;
+            var info = mediaInfo;
+            var generation = frameMemory.Generation;
+            var token = prefetchCancellation.Token;
+            var ahead = PreviewImage is BitmapSource shown ? Math.Clamp(FrameMemoryCache.CapacityFor(shown) / 2, 2, 12) : 6;
+            prefetchTask = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!token.IsCancellationRequested && generation == frameMemory.Generation)
+                    {
+                        int centre, direction;
+                        lock (prefetchLock) { centre = prefetchIndex; direction = prefetchDirection == 0 ? 1 : prefetchDirection; }
+                        var target = Enumerable.Range(1, ahead).Select(step => centre + direction * step)
+                            .Concat(Enumerable.Range(1, 2).Select(step => centre - direction * step))
+                            .Where(candidate => candidate >= 0 && candidate < list.Count)
+                            .Cast<int?>().FirstOrDefault(candidate => !frameMemory.Contains(candidate!.Value));
+                        if (target is not { } next) return;
+                        var bytes = await selectedEngine.GetFrameAsync(asset, next, list, info, token);
+                        var image = DecodeImage(bytes);
+                        frameMemory.Add(generation, next, bytes, image);
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception) { }
+            }, token);
+        }
+    }
+
+    private void ResetFrameMemory()
+    {
+        lock (prefetchLock)
+        {
+            prefetchCancellation.Cancel();
+            prefetchCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            prefetchTask = null;
+            prefetchIndex = 0;
+            prefetchDirection = 1;
+        }
+        frameMemory.Clear();
+    }
+
+    private void SetDisplayedFrame(BitmapSource image, byte[] bytes, int index)
+    {
         // Crops survive frame steps within the same video; only a crop that no longer fits is dropped.
         if (CropSelection is { } crop && (crop.X + crop.Width > image.PixelWidth || crop.Y + crop.Height > image.PixelHeight))
             CropSelection = null;
@@ -1011,7 +1119,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void NotifyFrameState()
     {
-        foreach (var property in new[] { nameof(IsPreviewStale), nameof(ShowPendingOverlay), nameof(PendingLabel), nameof(FrameLabel), nameof(FrameNumberText), nameof(FrameTotalText), nameof(FrameTimeText), nameof(IsPreviewBusy), nameof(CanExportFrame), nameof(CanCopy) })
+        foreach (var property in new[] { nameof(IsPreviewStale), nameof(ShowPendingOverlay), nameof(ShowFrameProgress), nameof(PendingLabel), nameof(FrameLabel), nameof(FrameNumberText), nameof(FrameTotalText), nameof(FrameTimeText), nameof(IsPreviewBusy), nameof(CanExportFrame), nameof(CanCopy) })
             OnPropertyChanged(property);
     }
 
@@ -1052,6 +1160,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             JobHistory.Insert(0, new ExportJobRecord(job.Title, "Interrupted", job.OutputPath, DateTimeOffset.Now));
         }
         Guard(() => jobHistoryStore.Save(JobHistory));
+        prefetchCancellation.Cancel();
         lifetime.Cancel();
         Player.Playing -= OnPlaying;
         Player.EndReached -= OnEndReached;

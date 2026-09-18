@@ -46,7 +46,9 @@
 - [ ] Interactive usability testing with representative user footage and large libraries.
 - [ ] Zoomable video-thumbnail timeline distinct from the folder filmstrip.
 - [ ] Audio waveform and mouse-based range selection/auditioning.
-- [ ] Keyframe-aware seek acceleration certified against the from-start decode; long-lived sequential decoder.
+- [x] Verified seek for deep cache misses, in-memory frame cache with directional read-ahead, decode overlay only for slow decodes.
+- [x] Percentages in the folder tree and graph; filmstrip header removed and its height given to the thumbnails; side-panel scrollbars at the panel edge.
+- [ ] Long-lived sequential decoder for sustained playback-speed stepping.
 - [ ] Fast stream-copy cuts clearly distinguished from frame-accurate re-encodes.
 - [ ] Arbitrary multi-selection, batch favorite/stage, session undo for favorites/tags/collections, and saved reusable ranges.
 - [ ] Paged catalog views, filesystem watching, tag remapping after file moves, and a graph UI.

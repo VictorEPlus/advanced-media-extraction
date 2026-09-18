@@ -60,6 +60,53 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task VerifiedSeekDecodesTheSameOrdinalsAsDecodingFromTheStart()
+    {
+        using var cache = new TemporaryDirectory();
+        using var output = new TemporaryDirectory();
+        var engine = new MediaEngine(fixture.Tools, cache.FilePath("cache")) { SeekMargin = 20 };
+        var asset = fixture.Asset(fixture.LongPath);
+        var info = await engine.ProbeAsync(asset.FullPath);
+        var frames = await engine.IndexFramesAsync(asset.FullPath, info);
+        Assert.Equal(300, frames.Count);
+        Assert.InRange(info.StartTime, 4.9, 5.1);
+        // 29/30/31 straddle a keyframe; 155 is mid-GOP; 299 is the last frame; 10 is too early to seek and must use the start path.
+        foreach (var (index, expectSeek) in new[] { (60, true), (155, true), (299, true), (10, false) })
+        {
+            var bytes = await engine.GetFrameAsync(asset, index, frames, info);
+            Assert.Equal(expectSeek, engine.LastWindowUsedSeek);
+            var path = await MediaEngine.SaveFrameAsync(asset, index, bytes, output.Path);
+            Assert.Equal(await RgbHashAsync(fixture.LongPath, index), await RgbHashAsync(path, 0));
+        }
+        foreach (var index in new[] { 55, 61, 75, 150, 170 })
+        {
+            var path = await MediaEngine.SaveFrameAsync(asset, index, await engine.GetFrameAsync(asset, index, frames, info), output.Path);
+            Assert.Equal(await RgbHashAsync(fixture.LongPath, index), await RgbHashAsync(path, 0));
+        }
+        Assert.Empty(Directory.GetDirectories(cache.FilePath("cache")));
+    }
+
+    [Fact]
+    public async Task SeekIsRejectedWhenTimestampsDoNotMatchTheIndexAndTheStartPathStillReturnsTheRightFrame()
+    {
+        using var cache = new TemporaryDirectory();
+        using var output = new TemporaryDirectory();
+        var engine = new MediaEngine(fixture.Tools, cache.FilePath("cache")) { SeekMargin = 20 };
+        var asset = fixture.Asset(fixture.LongPath);
+        var info = await engine.ProbeAsync(asset.FullPath);
+        var frames = await engine.IndexFramesAsync(asset.FullPath, info);
+        // An index that lost frame 100: every later ordinal now carries the next frame's timestamp. Trusting it would return the wrong picture.
+        var wrong = frames.Where(frame => frame.Index != 100).Select((frame, position) => frame with { Index = position }).ToArray();
+        var bytes = await engine.GetFrameAsync(asset, 120, wrong, info);
+        Assert.False(engine.LastWindowUsedSeek);
+        var path = await MediaEngine.SaveFrameAsync(asset, 120, bytes, output.Path);
+        Assert.Equal(await RgbHashAsync(fixture.LongPath, 120), await RgbHashAsync(path, 0));
+        // Once a file has failed verification it is not tried again in this session, even with a correct index.
+        await engine.GetFrameAsync(asset, 250, frames, info);
+        Assert.False(engine.LastWindowUsedSeek);
+    }
+
+    [Fact]
     public async Task FrameIndexIsPersistedPerFileIdentityAndReusedOnlyWhenValid()
     {
         using var cache = new TemporaryDirectory();

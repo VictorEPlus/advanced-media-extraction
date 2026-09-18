@@ -7,7 +7,7 @@ using MediaWorkbench.Core;
 namespace MediaWorkbench.App;
 
 /// <summary>One visible row of the folder tree. The tree is flattened so it can use the same list styling and virtualization as the rest of the app.</summary>
-public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool isExpanded) : ObservableObject
+public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool isExpanded, int parentTotal) : ObservableObject
 {
     public FolderNode Node { get; } = node;
     public int Depth { get; } = depth;
@@ -17,7 +17,9 @@ public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool 
     public string Glyph => !HasChildren ? "" : IsExpanded ? "▾" : "▸";
     public string Name => Node.Name;
     public string CountText => Node.Total.ToString("N0");
-    public string KindText => MainViewModel.DescribeKinds(Node.Photos, Node.Videos, Node.Audio);
+    public string KindText => MainViewModel.DescribeKinds(Node.Photos, Node.Videos, Node.Audio, percentages: true);
+    /// <summary>This folder as a share of its parent folder, for example 71%. Empty for the root.</summary>
+    public string ShareText => Depth == 0 ? "" : MainViewModel.Percent(Node.Total, parentTotal);
     public string ToolTipText => $"{(Node.Path.Length == 0 ? Node.Name : Node.Path)}\n{KindText}, {MainViewModel.DescribeSize(Node.Bytes)}\n{Node.DirectTotal:N0} directly in this folder";
 }
 
@@ -41,6 +43,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] private IReadOnlyList<FolderNode> chartNodes = [];
     [ObservableProperty] private string? chartSelectedPath;
     [ObservableProperty] private string chartTitle = "";
+    [ObservableProperty] private string chartSubtitle = "";
 
     public bool IsLibraryTab { get => MainTab == 0; set { if (value) MainTab = 0; } }
     public bool IsPreviewTab { get => MainTab == 1; set { if (value) MainTab = 1; } }
@@ -50,7 +53,7 @@ public sealed partial class MainViewModel
     public string FolderFilterLabel => HasFolderFilter ? "Folder: " + folderFilter : "";
     public string LibrarySummary => folderRoot is not { Total: > 0 } root ? "" :
         $"{root.Total:N0} files in {root.FolderCount + (root.DirectTotal > 0 ? 1 : 0):N0} {(root.FolderCount + (root.DirectTotal > 0 ? 1 : 0) == 1 ? "folder" : "folders")}, {DescribeSize(root.Bytes)}";
-    public string LibraryKindSummary => folderRoot is not { Total: > 0 } root ? "" : DescribeKinds(root.Photos, root.Videos, root.Audio);
+    public string LibraryKindSummary => folderRoot is not { Total: > 0 } root ? "" : DescribeKinds(root.Photos, root.Videos, root.Audio, percentages: true);
 
     partial void OnMainTabChanged(int value)
     {
@@ -141,6 +144,7 @@ public sealed partial class MainViewModel
         finally { suppressFolderSelection = false; }
         ChartNodes = [];
         ChartTitle = "";
+        ChartSubtitle = "";
         NotifyFolderFilter();
     }
 
@@ -172,24 +176,24 @@ public sealed partial class MainViewModel
         {
             FolderRows.Clear();
             if (folderRoot is not null)
-                AddRows(folderRoot, 0);
+                AddRows(folderRoot, 0, folderRoot.Total);
             SelectedFolderRow = FolderRows.FirstOrDefault(row => row.Node.Path.Equals(folderFilter, StringComparison.OrdinalIgnoreCase)) ?? FolderRows.FirstOrDefault();
         }
         finally { suppressFolderSelection = false; }
     }
 
-    private void AddRows(FolderNode node, int depth)
+    private void AddRows(FolderNode node, int depth, int parentTotal)
     {
         var expanded = node.Path.Length == 0 || expandedFolders.Contains(node.Path);
-        FolderRows.Add(new FolderRowViewModel(node, depth, expanded));
+        FolderRows.Add(new FolderRowViewModel(node, depth, expanded, parentTotal));
         if (!expanded) return;
         foreach (var child in node.Children)
-            AddRows(child, depth + 1);
+            AddRows(child, depth + 1, node.Total);
     }
 
     private void UpdateChart()
     {
-        if (folderRoot is null) { ChartNodes = []; ChartTitle = ""; return; }
+        if (folderRoot is null) { ChartNodes = []; ChartTitle = ""; ChartSubtitle = ""; return; }
         var node = FolderTree.Find(folderRoot, folderFilter) ?? folderRoot;
         var bars = new List<FolderNode>();
         var children = node.Children.OrderByDescending(child => child.Total).ThenBy(child => child.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -204,6 +208,7 @@ public sealed partial class MainViewModel
             });
         ChartNodes = bars;
         ChartTitle = children.Count == 0 ? $"Inside {node.Name}" : $"Subfolders of {node.Name}";
+        ChartSubtitle = $"{node.Total:N0} files: {DescribeKinds(node.Photos, node.Videos, node.Audio, percentages: true)}. Each bar shows its share of this folder.";
     }
 
     private static FolderNode Synthetic(string name, string path, IEnumerable<FolderNode> nodes)
@@ -221,13 +226,24 @@ public sealed partial class MainViewModel
     private string FolderKeyOf(MediaAsset asset) =>
         FolderTree.Normalize(virtualSource ? asset.Root : System.IO.Path.GetDirectoryName(asset.RelativePath));
 
-    public static string DescribeKinds(int photos, int videos, int audio)
+    public static string DescribeKinds(int photos, int videos, int audio, bool percentages = false)
     {
+        var total = photos + videos + audio;
+        string Share(int count) => percentages && total > 0 ? $" ({Percent(count, total)})" : "";
         var parts = new List<string>(3);
-        if (photos > 0) parts.Add($"{photos:N0} {(photos == 1 ? "photo" : "photos")}");
-        if (videos > 0) parts.Add($"{videos:N0} {(videos == 1 ? "video" : "videos")}");
-        if (audio > 0) parts.Add($"{audio:N0} audio");
+        if (photos > 0) parts.Add($"{photos:N0} {(photos == 1 ? "photo" : "photos")}{Share(photos)}");
+        if (videos > 0) parts.Add($"{videos:N0} {(videos == 1 ? "video" : "videos")}{Share(videos)}");
+        if (audio > 0) parts.Add($"{audio:N0} audio{Share(audio)}");
         return parts.Count == 0 ? "no media" : string.Join(", ", parts);
+    }
+
+    /// <summary>Whole-number percentage that never hides a small non-zero share and never rounds a partial share up to 100%.</summary>
+    public static string Percent(long part, long total)
+    {
+        if (total <= 0 || part <= 0) return "0%";
+        if (part >= total) return "100%";
+        var value = 100.0 * part / total;
+        return value < 1 ? "<1%" : value > 99 ? "99%" : $"{Math.Round(value):0}%";
     }
 
     public static string DescribeSize(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):N1} GB" : $"{bytes / 1048576.0:N1} MB";

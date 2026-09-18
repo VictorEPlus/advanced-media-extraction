@@ -54,9 +54,9 @@ public partial class MainWindow
 
         new("MainTabs", "Library and Preview tabs", "The centre of the window has two views. Library shows where your media lives. Preview shows the selected file. Selecting a file switches to Preview; with nothing selected you see Library. You can switch by hand at any time.", Library),
         new("LibrarySummaryBlock", "Library totals", "How many files were found, in how many folders, their total size, and the split between photos, videos and audio.", Library),
-        new("FolderTreePanel", "Folder tree", "Every subfolder that contains media, with file counts that include its subfolders. Click a folder to show only its files in the filmstrip. Double-click, or press Right and Left, to open and close it.", Library),
+        new("FolderTreePanel", "Folder tree", "Every subfolder that contains media, with file counts that include its subfolders, the split between photos, videos and audio, and the share of its parent folder as a percentage. Click a folder to show only its files in the filmstrip. Double-click, or press Right and Left, to open and close it.", Library),
         new("ExpandFoldersButton", "Expand all and Collapse all", "Open every level of the tree at once, or fold it back to the top-level folders.", Library),
-        new("FolderChartPanel", "Folder graph", "A bar for each subfolder of the folder you clicked in the tree. Length is the number of files; colours split photos, videos and audio. Hover a bar for exact numbers and size. Click a bar to go into that folder.", Library),
+        new("FolderChartPanel", "Folder graph", "A bar for each subfolder of the folder you clicked in the tree. Length is the number of files and the percentage is that folder's share; colours split photos, videos and audio. Hover a bar for exact numbers and size. Click a bar to go into that folder.", Library),
 
         new("SelectionHeader", "Selected file", "The name of the selected file with its size and dimensions. If a filter hides the file it stays open and a Hidden by filters note appears here.", Preview),
         new("FavoriteButton", "Favorite", "Stars or unstars the selected file. Favorites are remembered between sessions and marked with a star on the thumbnail. Shortcut: F.", Preview),
@@ -95,9 +95,8 @@ public partial class MainWindow
         new("SaveSettingsButton", "Check tools and save", "Confirms that FFmpeg works and saves these settings.", Inspector(3)),
         new("KeyboardHelp", "Keyboard shortcuts", "The full list of shortcuts is always here in Settings.", Inspector(3)),
 
-        new("FilmstripPanel", "The filmstrip", "Every file that passes the filters, as thumbnails. Click one to select it. The mouse wheel scrolls sideways. A star marks favorites."),
-        new("PreviousFileButton", "Previous and next file", "Moves the selection one file back or forward. Page Up and Page Down do the same from anywhere."),
-        new("ThumbnailSizeControl", "Thumbnail size", "Makes thumbnails larger or smaller so more or fewer fit."),
+        new("FilmstripPanel", "The filmstrip", "Every file that passes the filters, as thumbnails. Click one to select it, or use Page Up and Page Down to move one file at a time. The mouse wheel scrolls sideways. A star marks favorites."),
+        new("ThumbnailSizeControl", "Thumbnail size", "At the right of the status line. Makes thumbnails larger or smaller; the filmstrip grows and shrinks with them."),
         new("StatusText", "Status line", "A one-line description of what the app just did or is doing. Important results and errors also appear as messages over the centre panel."),
     ];
 

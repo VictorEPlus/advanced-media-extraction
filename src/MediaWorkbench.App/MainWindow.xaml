@@ -111,9 +111,9 @@
         </Grid>
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition x:Name="InspectorColumn" Width="324" MinWidth="304" MaxWidth="460" /></Grid.ColumnDefinitions>
-            <Border x:Name="SourcesPanel" Width="218" Background="{StaticResource PanelBrush}" Padding="12,10" Visibility="{Binding ShowSources, Converter={StaticResource BoolVisibility}}">
+            <Border x:Name="SourcesPanel" Width="226" Background="{StaticResource PanelBrush}" Padding="12,10,0,10" Visibility="{Binding ShowSources, Converter={StaticResource BoolVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel>
+                    <StackPanel Margin="0,0,16,0">
                         <StackPanel x:Name="CurrentSourceSection">
                             <TextBlock Text="Current source" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
                             <TextBlock Text="{Binding SourceName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" ToolTip="{Binding SourceSummary}" />
@@ -199,13 +199,14 @@
                                     </StackPanel>
                                     <TextBlock Text="Folders with media" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
                                 </DockPanel>
-                                <TextBlock DockPanel.Dock="Bottom" Text="Click a folder to show only its files in the filmstrip. Double-click or use Left/Right to open and close it. Counts include subfolders." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                <TextBlock DockPanel.Dock="Bottom" Text="Click a folder to show only its files in the filmstrip. Double-click or use Left/Right to open and close it. Counts include subfolders; the percentage is the share of the parent folder." Style="{StaticResource Hint}" Margin="0,8,0,0" />
                                 <ListBox x:Name="FolderTreeList" ItemsSource="{Binding FolderRows}" SelectedItem="{Binding SelectedFolderRow}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" KeyDown="FolderTreeKeyDown" MouseDoubleClick="FolderTreeDoubleClick" AutomationProperties.Name="Folders with media">
                                     <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource MediaListItem}"><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="4,3" /></Style></ListBox.ItemContainerStyle>
                                     <ListBox.ItemTemplate><DataTemplate>
                                         <DockPanel Margin="{Binding Indent}" ToolTip="{Binding ToolTipText}">
                                             <Border DockPanel.Dock="Left" Width="20" Background="Transparent" MouseLeftButtonDown="FolderToggleClicked" Cursor="Hand"><TextBlock Text="{Binding Glyph}" Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" FontFamily="{StaticResource DisplayFont}" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" Margin="10,0,2,0" />
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding ShareText}" FontFamily="{StaticResource DisplayFont}" Typography.NumeralAlignment="Tabular" Foreground="{StaticResource MutedBrush}" Width="42" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,2,0" ToolTip="Share of its parent folder" />
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" FontFamily="{StaticResource DisplayFont}" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" Margin="10,0,0,0" />
                                             <StackPanel>
                                                 <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{Binding KindText}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
@@ -218,7 +219,8 @@
                         <Border x:Name="FolderChartPanel" Grid.Row="1" Grid.Column="2" Background="{StaticResource PanelBrush}" CornerRadius="3" Padding="10">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Top" Text="{Binding ChartTitle}" Style="{StaticResource SectionTitle}" Margin="0,4,0,2" TextTrimming="CharacterEllipsis" />
-                                <TextBlock DockPanel.Dock="Bottom" Text="Bar length is the number of files, including subfolders. Click a bar to open that folder; hover for the exact split and size." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                <TextBlock DockPanel.Dock="Top" Text="{Binding ChartSubtitle}" Style="{StaticResource Hint}" FontSize="12" Margin="0,2,0,6" />
+                                <TextBlock DockPanel.Dock="Bottom" Text="Bar length is the number of files, including subfolders; the percentage is that folder's share. Click a bar to open the folder; hover for the split by type and size." Style="{StaticResource Hint}" Margin="0,8,0,0" />
                                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                     <local:FolderChart x:Name="FolderChartView" Nodes="{Binding ChartNodes}" SelectedPath="{Binding ChartSelectedPath, Mode=TwoWay}" CurrentPath="{Binding SelectedFolderRow.Node.Path, FallbackValue=''}" AutomationProperties.Name="Files per subfolder by media type" />
                                 </ScrollViewer>
@@ -259,7 +261,7 @@
                                 <Button Content="Clear filters" Command="{Binding ClearFiltersCommand}" HorizontalAlignment="Center" Margin="0,20,0,0" Visibility="{Binding ShowEmptyClearFilters, Converter={StaticResource BoolVisibility}}" />
                             </StackPanel>
                             <vlc:VideoView MediaPlayer="{Binding Player}" Visibility="{Binding ShowPlayback, Converter={StaticResource BoolVisibility}}" />
-                            <ProgressBar Height="3" VerticalAlignment="Bottom" IsIndeterminate="True" Visibility="{Binding IsFrameLoading, Converter={StaticResource BoolVisibility}}" />
+                            <ProgressBar Height="3" VerticalAlignment="Bottom" IsIndeterminate="True" Visibility="{Binding ShowFrameProgress, Converter={StaticResource BoolVisibility}}" />
                             <ItemsControl ItemsSource="{Binding Notifications}" ItemTemplate="{StaticResource NotificationTemplate}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12" MaxWidth="440" AutomationProperties.Name="Notifications" />
                         </Grid>
                     </Border>
@@ -305,11 +307,11 @@
 
             </Grid>
             <GridSplitter x:Name="InspectorSplitter" Grid.Column="2" Width="4" HorizontalAlignment="Center" Background="{StaticResource BorderBrush}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize the inspector" />
-            <Border x:Name="InspectorPanel" Grid.Column="3" Background="{StaticResource PanelBrush}" Padding="10,0,10,10">
+            <Border x:Name="InspectorPanel" Grid.Column="3" Background="{StaticResource PanelBrush}" Padding="10,0,0,10">
                 <TabControl x:Name="InspectorTabs" SelectedIndex="{Binding InspectorTab}" Background="Transparent" BorderThickness="0" Padding="0,8,0,0">
                     <TabItem Header="Details">
                         <DockPanel x:Name="DetailsTabContent">
-                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,16,8">
                                 <DockPanel><TextBlock Text="{Binding SelectedKindLabel}" Style="{StaticResource SectionTitle}" Margin="0,4,0,8" /><Button x:Name="RevealFileButton" Content="Reveal file" Command="{Binding RevealFileCommand}" HorizontalAlignment="Right" Margin="0" IsEnabled="{Binding HasSelection}" /></DockPanel>
                                 <TextBlock Text="{Binding MediaSummary}" FontFamily="{StaticResource DisplayFont}" FontSize="15" TextWrapping="Wrap" />
                                 <Button x:Name="MetadataTagModeButton" Command="{Binding ToggleMetadataTagModeCommand}" IsEnabled="{Binding HasSelection}" HorizontalAlignment="Left" Margin="0,10,0,0">
@@ -317,9 +319,9 @@
                                 </Button>
                                 <TextBlock Text="Check the metadata values to turn into tags. Nothing is added until you confirm." Style="{StaticResource Hint}" Margin="0,8,0,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
                             </StackPanel>
-                            <Button DockPanel.Dock="Bottom" Content="Add checked values as tags" Command="{Binding ConfirmMetadataTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,8,0,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
+                            <Button DockPanel.Dock="Bottom" Content="Add checked values as tags" Command="{Binding ConfirmMetadataTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,8,16,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
                             <ScrollViewer x:Name="MetadataList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding Metadata}"><ItemsControl.ItemTemplate><DataTemplate>
+                                <ItemsControl ItemsSource="{Binding Metadata}" Margin="0,0,16,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
                                         <DockPanel>
                                             <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsSelected}" IsEnabled="{Binding CanTag}" Margin="0,0,8,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding Name}" Visibility="{Binding DataContext.IsMetadataTagMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisibility}}" />
@@ -331,7 +333,7 @@
                         </DockPanel>
                     </TabItem>
                     <TabItem Header="Tags">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="TagsTabContent">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="TagsTabContent" Margin="0,0,16,0">
                             <TextBlock Text="Organize this file" Style="{StaticResource SectionTitle}" />
                             <TextBox x:Name="TagBox" Text="{Binding TagText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Comma separated tags" ToolTip="Comma-separated tags" Margin="0,0,0,8" />
                             <Button x:Name="AddTagsButton" Content="Add tags" Command="{Binding AddTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,0,0,8" />
@@ -349,7 +351,7 @@
                         </StackPanel></ScrollViewer>
                     </TabItem>
                     <TabItem Header="{Binding ExportBadge}">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ExportTabContent">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ExportTabContent" Margin="0,0,16,0">
                             <StackPanel x:Name="DestinationSection">
                                 <TextBlock Text="Destination" Style="{StaticResource SectionTitle}" />
                                 <DockPanel Margin="0,0,0,8">
@@ -398,7 +400,7 @@
                         </StackPanel></ScrollViewer>
                     </TabItem>
                     <TabItem Header="Settings">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="SettingsTabContent">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="SettingsTabContent" Margin="0,0,16,0">
                             <TextBlock Text="Default export destination" Style="{StaticResource SectionTitle}" />
                             <TextBox x:Name="ExportDirectoryBox" Text="{Binding ExportDirectory}" AutomationProperties.Name="Default export folder" ToolTip="{Binding ExportDirectory}" Margin="0,0,0,8" />
                             <Button x:Name="BrowseExportButton" Content="Browse folder" Command="{Binding BrowseExportDirectoryCommand}" Margin="0,0,0,16" />
@@ -413,12 +415,8 @@
                 </TabControl>
             </Border>
         </Grid>
-        <Border x:Name="FilmstripPanel" Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,8" Margin="0,8,0,0">
+        <Border x:Name="FilmstripPanel" Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,8,12,4" Margin="0,8,0,0">
             <DockPanel>
-                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                    <StackPanel x:Name="ThumbnailSizeControl" DockPanel.Dock="Right" Orientation="Horizontal"><TextBlock Text="Thumbnail size" Style="{StaticResource Hint}" VerticalAlignment="Center" /><Slider Width="100" Minimum="56" Maximum="128" Value="{Binding ThumbnailHeight}" Margin="8,0,0,0" AutomationProperties.Name="Thumbnail size" /></StackPanel>
-                    <StackPanel Orientation="Horizontal"><Button x:Name="PreviousFileButton" Content="&#x25C0; File" Command="{Binding PreviousAssetCommand}" Padding="8,0" ToolTip="Previous file (Page Up, or Left while the filmstrip has focus)" /><Button x:Name="NextFileButton" Content="File &#x25B6;" Command="{Binding NextAssetCommand}" Padding="8,0" ToolTip="Next file (Page Down, or Right while the filmstrip has focus)" /><TextBlock Text="{Binding SourceName}" FontFamily="{StaticResource DisplayFont}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="500" Margin="6,0" /></StackPanel>
-                </DockPanel>
                 <ListBox x:Name="Filmstrip" Height="{Binding FilmstripHeight}" ItemsSource="{Binding LibraryView}"
                          ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel" VirtualizingPanel.CacheLength="1,1" VirtualizingPanel.CacheLengthUnit="Page"
@@ -438,7 +436,10 @@
                 </ListBox>
             </DockPanel>
         </Border>
-        <TextBlock x:Name="StatusText" Grid.Row="4" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="12,0" ToolTip="{Binding Status}" AutomationProperties.LiveSetting="Polite" />
+        <DockPanel Grid.Row="4" Margin="12,0">
+            <StackPanel x:Name="ThumbnailSizeControl" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0"><TextBlock Text="Thumbnail size" Style="{StaticResource Hint}" VerticalAlignment="Center" /><Slider Width="120" Minimum="56" Maximum="168" Value="{Binding ThumbnailHeight}" Margin="8,0,0,0" AutomationProperties.Name="Thumbnail size" /></StackPanel>
+            <TextBlock x:Name="StatusText" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Status}" AutomationProperties.LiveSetting="Polite" />
+        </DockPanel>
 
         <!-- Tour the UI: dims the window, outlines one control at a time and explains it. -->
         <Canvas x:Name="TourLayer" Grid.RowSpan="5" Visibility="Collapsed" Background="Transparent" ClipToBounds="True">

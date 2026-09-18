@@ -47,7 +47,7 @@ public sealed class FolderChart : FrameworkElement
     }
 
     private double LabelWidth => Math.Clamp(ActualWidth * 0.34, 90, 240);
-    private double CountWidth => 64;
+    private double CountWidth => 112;
     private bool IsClickable(FolderNode node) => !node.Path.Equals(CurrentPath ?? "", StringComparison.OrdinalIgnoreCase);
 
     protected override Size MeasureOverride(Size availableSize)
@@ -68,6 +68,7 @@ public sealed class FolderChart : FrameworkElement
             return;
         }
         var maximum = Math.Max(1, nodes.Max(node => node.Total));
+        var total = nodes.Sum(node => (long)node.Total);
         var barLeft = LabelWidth + 10;
         var barWidth = Math.Max(20, ActualWidth - barLeft - CountWidth);
         for (var index = 0; index < nodes.Count; index++)
@@ -92,8 +93,11 @@ public sealed class FolderChart : FrameworkElement
                 x += width;
             }
             context.Pop();
-            var countText = Text(node.Total.ToString("N0", CultureInfo.CurrentCulture), 12, InkBrush, dpi, CountWidth - 8);
-            context.DrawText(countText, new Point(barLeft + barWidth + 8, top + (RowHeight - countText.Height) / 2));
+            // Count then share of the charted folder, both in text colours: identity comes from the legend, not from coloured numbers.
+            var countText = Text(node.Total.ToString("N0", CultureInfo.CurrentCulture), 12, InkBrush, dpi, 56);
+            context.DrawText(countText, new Point(barLeft + barWidth + 8 + (48 - Math.Min(48, countText.Width)), top + (RowHeight - countText.Height) / 2));
+            var shareText = Text(MainViewModel.Percent(node.Total, total), 12, MutedBrush, dpi, 44);
+            context.DrawText(shareText, new Point(barLeft + barWidth + 64 + (40 - Math.Min(40, shareText.Width)), top + (RowHeight - shareText.Height) / 2));
         }
     }
 
@@ -132,7 +136,8 @@ public sealed class FolderChart : FrameworkElement
         if (row >= 0 && Nodes is { } nodes)
         {
             var node = nodes[row];
-            ToolTip = $"{node.Name}\n{MainViewModel.DescribeKinds(node.Photos, node.Videos, node.Audio)}, {MainViewModel.DescribeSize(node.Bytes)}" + (IsClickable(node) ? "\nClick to open this folder" : "");
+            var all = nodes.Sum(item => (long)item.Total);
+            ToolTip = $"{node.Name}\n{node.Total:N0} files, {MainViewModel.Percent(node.Total, all)} of this folder\n{MainViewModel.DescribeKinds(node.Photos, node.Videos, node.Audio, percentages: true)}\n{MainViewModel.DescribeSize(node.Bytes)}" + (IsClickable(node) ? "\nClick to open this folder" : "");
             Cursor = IsClickable(node) ? Cursors.Hand : Cursors.Arrow;
         }
         else

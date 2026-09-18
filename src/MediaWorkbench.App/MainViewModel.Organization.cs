@@ -84,7 +84,8 @@ public sealed partial class MainViewModel
         ReloadTags();
         RefreshCollections();
         SortMethod = SortOptions.Contains(settings.SortMethod) ? settings.SortMethod : SortOptions[0];
-        ThumbnailHeight = settings.ThumbnailHeight;
+        // One-time: the filmstrip header row is gone, so its height goes to the thumbnails.
+        ThumbnailHeight = settings.LayoutVersion < 2 ? Math.Min(168, settings.ThumbnailHeight + 32) : settings.ThumbnailHeight;
         ShowSources = settings.ShowSources;
         ShowInspector = settings.ShowInspector;
         ApplySort();
@@ -512,5 +513,5 @@ public sealed partial class MainViewModel
         }
     }
 
-    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector };
+    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector, LayoutVersion = 2 };
 }

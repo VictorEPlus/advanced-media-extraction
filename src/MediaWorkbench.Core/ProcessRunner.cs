@@ -5,7 +5,7 @@ namespace MediaWorkbench.Core;
 
 public sealed class ProcessRunner
 {
-    public async Task RunAsync(string executable, IEnumerable<string> arguments, Action<string>? output = null, CancellationToken cancellationToken = default)
+    public async Task RunAsync(string executable, IEnumerable<string> arguments, Action<string>? output = null, CancellationToken cancellationToken = default, Action<string>? errorOutput = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable)
@@ -42,6 +42,7 @@ public sealed class ProcessRunner
         {
             while (await process.StandardError.ReadLineAsync() is { } line)
             {
+                errorOutput?.Invoke(line);
                 errors.AppendLine(line);
                 if (errors.Length > 8192)
                     errors.Remove(0, errors.Length - 8192);

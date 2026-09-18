@@ -16,6 +16,8 @@ public sealed record AppSettings
     public bool ShowInspector { get; init; } = true;
     /// <summary>Set once the first-run "Tour the UI" invitation has been shown, so it is not repeated.</summary>
     public bool TourOffered { get; init; }
+    /// <summary>Bumped when a layout change needs a one-time adjustment of saved sizes. 2 = the filmstrip header row was removed and its height given to the thumbnails.</summary>
+    public int LayoutVersion { get; init; }
     public string[] RecentLibraries { get; init; } = [];
 
     /// <summary>Returns settings with <paramref name="root"/> moved to the front of the recent list, bounded and de-duplicated.</summary>
@@ -30,7 +32,7 @@ public sealed record AppSettings
     public bool Equals(AppSettings? other) => other is not null
         && ExportDirectory == other.ExportDirectory && FfmpegDirectory == other.FfmpegDirectory && LastLibrary == other.LastLibrary
         && CacheMegabytes == other.CacheMegabytes && SortMethod == other.SortMethod && ThumbnailHeight.Equals(other.ThumbnailHeight)
-        && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && TourOffered == other.TourOffered
+        && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && TourOffered == other.TourOffered && LayoutVersion == other.LayoutVersion
         && RecentLibraries.SequenceEqual(other.RecentLibraries, StringComparer.Ordinal);
 
     public override int GetHashCode() => HashCode.Combine(ExportDirectory, FfmpegDirectory, LastLibrary, CacheMegabytes, SortMethod, ThumbnailHeight,
@@ -72,8 +74,8 @@ public sealed class SettingsStore(string path)
             throw new InvalidDataException("Export directory must be an absolute path.");
         if (settings.CacheMegabytes is < 64 or > 8192)
             throw new InvalidDataException("Cache size must be between 64 and 8192 MB.");
-        if (!double.IsFinite(settings.ThumbnailHeight) || settings.ThumbnailHeight is < 56 or > 128)
-            throw new InvalidDataException("Thumbnail height must be between 56 and 128 pixels.");
+        if (!double.IsFinite(settings.ThumbnailHeight) || settings.ThumbnailHeight is < 56 or > 168)
+            throw new InvalidDataException("Thumbnail height must be between 56 and 168 pixels.");
         if (settings.RecentLibraries is null || settings.RecentLibraries.Length > AppSettings.RecentLibraryLimit || settings.RecentLibraries.Any(item => string.IsNullOrWhiteSpace(item) || !Path.IsPathFullyQualified(item)))
             throw new InvalidDataException("Recent libraries must be a short list of absolute folder paths.");
     }

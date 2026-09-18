@@ -12,8 +12,15 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     /// <summary>Frames decoded after the requested ordinal when a cache miss triggers a window decode.</summary>
     public const int WindowAfter = 15;
 
+    /// <summary>How many frames before a window a verified seek lands, so the frames that are kept are well clear of the seek point.</summary>
+    public int SeekMargin { get; init; } = 48;
+
+    private static readonly System.Text.RegularExpressions.Regex ShowInfoLine = new(@"\bn:\s*(\d+)\s+pts:\s*-?\d+\s+pts_time:(-?[0-9.]+)", System.Text.RegularExpressions.RegexOptions.Compiled);
     private readonly ProcessRunner runner = new();
+    // Frames and thumbnails queue separately so a folder full of video thumbnails can never hold up frame stepping.
     private readonly SemaphoreSlim cacheGate = new(2);
+    private readonly SemaphoreSlim thumbnailGate = new(2);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> seekUnsafe = new();
     private readonly object trimLock = new();
 
     public async Task<MediaInfo> ProbeAsync(string path, CancellationToken cancellationToken = default)
@@ -126,7 +133,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     public Task<byte[]> GetThumbnailAsync(MediaAsset asset, CancellationToken cancellationToken = default) => CachedAsync(
         asset.Identity + "|thumbnail-v2", temporary => runner.RunAsync(tools.Ffmpeg,
             ["-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0", "-frames:v", "1", "-vf", "thumbnail=24,scale=224:224:force_original_aspect_ratio=decrease", "-f", "image2", temporary],
-            cancellationToken: cancellationToken), cancellationToken);
+            cancellationToken: cancellationToken), cancellationToken, thumbnailGate);
 
     public Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, CancellationToken cancellationToken = default)
     {
@@ -140,7 +147,25 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     /// Returns the exact frame at <paramref name="frameIndex"/>. On a cache miss this decodes a window of neighbouring
     /// ordinals in one pass so that stepping forward or backward hits the cache. Frame identity stays the decoded ordinal.
     /// </summary>
-    public async Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, int frameCount, CancellationToken cancellationToken = default)
+    public Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, int frameCount, CancellationToken cancellationToken = default) =>
+        GetFrameAsync(asset, frameIndex, frameCount, null, null, cancellationToken);
+
+    /// <summary>
+    /// As above, but when the frame index is supplied a cache miss deep in the file jumps to a point <see cref="SeekMargin"/> frames
+    /// before the window and decodes from there instead of from the start. Every frame decoded after the jump must report exactly
+    /// the timestamp the index holds for its ordinal; if any does not, the result is discarded, the file is marked unsafe for
+    /// seeking and the window is decoded from the start. Frame identity therefore stays the decoded ordinal.
+    /// </summary>
+    public Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, IReadOnlyList<VideoFrame> frames, MediaInfo info, CancellationToken cancellationToken = default) =>
+        GetFrameAsync(asset, frameIndex, frames.Count, frames, info, cancellationToken);
+
+    /// <summary>True when the frame's PNG is already in the disk cache, so showing it needs no decode.</summary>
+    public byte[]? TryGetCachedFrame(MediaAsset asset, int frameIndex) => TryReadCached(CacheKey(FrameIdentity(asset, frameIndex)));
+
+    /// <summary>Whether the last window for this file was decoded with a verified seek (true) or from the start (false). For diagnostics and tests.</summary>
+    public bool LastWindowUsedSeek { get; private set; }
+
+    private async Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, int frameCount, IReadOnlyList<VideoFrame>? frames, MediaInfo? info, CancellationToken cancellationToken)
     {
         if (frameCount <= 0)
             return await GetFrameAsync(asset, frameIndex, cancellationToken);
@@ -158,9 +183,13 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
             if (TryReadCached(key) is { } cachedMeanwhile)
                 return cachedMeanwhile;
             Directory.CreateDirectory(window);
-            await runner.RunAsync(tools.Ffmpeg,
-                ["-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0", "-vf", $"select=between(n\\,{start}\\,{end})", "-frames:v", (end - start + 1).ToString(CultureInfo.InvariantCulture), "-fps_mode", "passthrough", "-start_number", start.ToString(CultureInfo.InvariantCulture), Path.Combine(window.Replace("%", "%%", StringComparison.Ordinal), "frame_%08d.png")],
-                cancellationToken: cancellationToken);
+            var pattern = Path.Combine(window.Replace("%", "%%", StringComparison.Ordinal), "frame_%08d.png");
+            var usedSeek = frames is not null && info is not null && await TrySeekWindowAsync(asset, start, end, frames, info, window, pattern, cancellationToken);
+            LastWindowUsedSeek = usedSeek;
+            if (!usedSeek)
+                await runner.RunAsync(tools.Ffmpeg,
+                    ["-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0", "-vf", $"select=between(n\\,{start}\\,{end})", "-frames:v", (end - start + 1).ToString(CultureInfo.InvariantCulture), "-fps_mode", "passthrough", "-start_number", start.ToString(CultureInfo.InvariantCulture), pattern],
+                    cancellationToken: cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             byte[]? result = null;
             foreach (var file in Directory.EnumerateFiles(window, "frame_*.png"))
@@ -189,6 +218,54 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
             catch (UnauthorizedAccessException) { }
             cacheGate.Release();
         }
+    }
+
+    /// <summary>
+    /// Decodes [start, end] after an input seek and verifies it. The seek lands on the frame <see cref="SeekMargin"/> ordinals before
+    /// <paramref name="start"/>; showinfo logs the timestamp of every frame that reaches the filter graph, and each must equal the
+    /// indexed timestamp of the ordinal it is assumed to be. Returns false, leaving no files behind, when seeking is not applicable or not proven.
+    /// </summary>
+    private async Task<bool> TrySeekWindowAsync(MediaAsset asset, int start, int end, IReadOnlyList<VideoFrame> frames, MediaInfo info, string window, string pattern, CancellationToken cancellationToken)
+    {
+        var seekFrame = start - SeekMargin;
+        if (seekFrame <= 0 || end >= frames.Count || seekUnsafe.ContainsKey(asset.Identity))
+            return false;
+        var smallestGap = double.MaxValue;
+        for (var index = seekFrame; index <= end; index++)
+            smallestGap = Math.Min(smallestGap, frames[index].Time - frames[index - 1].Time);
+        if (!(smallestGap > 0.0001))
+            return false;
+        var tolerance = Math.Min(0.002, smallestGap / 4);
+        var seekTime = frames[seekFrame].Time - Math.Min(0.010, smallestGap / 2);
+        var first = start - seekFrame;
+        var last = end - seekFrame;
+        var logged = new Dictionary<int, double>();
+        try
+        {
+            await runner.RunAsync(tools.Ffmpeg,
+                ["-v", "info", "-hide_banner", "-nostats", "-nostdin", "-y", "-copyts", "-ss", MediaNumber.Format(seekTime), "-i", asset.FullPath, "-map", "0:v:0",
+                 "-vf", $"showinfo=checksum=0,select=between(n\\,{first}\\,{last})", "-frames:v", (end - start + 1).ToString(CultureInfo.InvariantCulture), "-fps_mode", "passthrough", "-start_number", start.ToString(CultureInfo.InvariantCulture), pattern],
+                errorOutput: line =>
+                {
+                    var match = ShowInfoLine.Match(line);
+                    if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var ordinal)
+                        && double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var time))
+                        logged.TryAdd(ordinal, time);
+                },
+                cancellationToken: cancellationToken);
+        }
+        catch (InvalidOperationException) { logged.Clear(); }
+        var proven = logged.Count > last;
+        for (var ordinal = 0; proven && ordinal <= last; ordinal++)
+            proven = logged.TryGetValue(ordinal, out var time) && Math.Abs(time - info.StartTime - frames[seekFrame + ordinal].Time) <= tolerance;
+        proven = proven && Directory.EnumerateFiles(window, "frame_*.png").Count() == end - start + 1;
+        if (proven)
+            return true;
+        cancellationToken.ThrowIfCancellationRequested();
+        seekUnsafe[asset.Identity] = true;
+        foreach (var file in Directory.EnumerateFiles(window))
+            File.Delete(file);
+        return false;
     }
 
     public async Task<string> ExportFrameAsync(MediaAsset asset, int frameIndex, string directory, CancellationToken cancellationToken = default)
@@ -287,12 +364,13 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         }
     }
 
-    private async Task<byte[]> CachedAsync(string identity, Func<string, Task> create, CancellationToken cancellationToken)
+    private async Task<byte[]> CachedAsync(string identity, Func<string, Task> create, CancellationToken cancellationToken, SemaphoreSlim? gate = null)
     {
         var key = CacheKey(identity);
         Directory.CreateDirectory(cacheDirectory);
         var path = CachePath(key);
-        await cacheGate.WaitAsync(cancellationToken);
+        gate ??= cacheGate;
+        await gate.WaitAsync(cancellationToken);
         var temporary = Path.Combine(cacheDirectory, key + "." + Guid.NewGuid().ToString("N") + ".tmp.png");
         try
         {
@@ -314,7 +392,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         {
             if (File.Exists(temporary))
                 File.Delete(temporary);
-            cacheGate.Release();
+            gate.Release();
         }
     }
 
