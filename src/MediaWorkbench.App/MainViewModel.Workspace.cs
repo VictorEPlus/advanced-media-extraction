@@ -66,13 +66,24 @@ public sealed partial class MainViewModel
         var added = new WorkspaceFolder(path, Workspace.Label(path, WorkspaceFolders.Select(folder => folder.Label)));
         WorkspaceFolders.Add(added);
         hasSource = true;
+        var reselect = MoveOutOfParents(added);
         var indexed = await Task.Run(() => catalog.ReadIndex(path), lifetime.Token);
         if (!WorkspaceFolders.Contains(added))
             return added;
+        indexed = indexed.Where(entry => !ClaimedElsewhere(added, entry.Asset)).ToList();
         Assets.AddRange(indexed.Select(entry => CreateItem(added, entry.Asset, entry.Favorite)));
         added.State = indexed.Count == 0 ? "Reading…" : $"{indexed.Count:N0} files";
         AfterAssetsChanged();
         if (show) ShowFolder(added.Label);
+        if (reselect is not null)
+        {
+            if (Assets.FirstOrDefault(item => item.Owner == added && string.Equals(item.Asset.FullPath, reselect, StringComparison.OrdinalIgnoreCase)) is { } again)
+            {
+                if (show) ShowFolder(again.FolderKey);
+                SelectedAsset = again;
+            }
+            else pendingSelectionPath = reselect;
+        }
         SaveWorkspace();
         Watch(added);
         _ = ScanFolderAsync(added, firstTime: indexed.Count == 0);
@@ -93,6 +104,47 @@ public sealed partial class MainViewModel
         while (added.IsScanning || added.Scan is not null)
             await Task.Delay(20, lifetime.Token);
     }
+
+    /// <summary>
+    /// A folder added inside another workspace folder is moved out of it: from then on it shows only as its own entry, not also
+    /// under the folder around it, and tabs, hidden folders and the open file follow it. Nothing on disk moves. Returns the path of
+    /// the open file when it was inside, so it can be opened again from the new entry.
+    /// </summary>
+    private string? MoveOutOfParents(WorkspaceFolder added)
+    {
+        var parents = WorkspaceFolders.Where(folder => folder != added && !folder.IsVirtual && IsInside(added.Path, folder.Path)).ToList();
+        if (parents.Count == 0)
+            return null;
+        string? reselect = null;
+        if (SelectedAsset is { Owner: { } owner } selected && parents.Contains(owner) && IsInside(selected.Asset.FullPath, added.Path))
+        {
+            reselect = selected.Asset.FullPath;
+            SelectedAsset = null;
+        }
+        foreach (var parent in parents)
+        {
+            var key = Workspace.FolderKey(parent.Label, Path.GetRelativePath(parent.Path, added.Path));
+            foreach (var tab in Tabs.Where(tab => FolderTree.Contains(key, tab.Path)))
+                tab.Path = added.Label + tab.Path[key.Length..];
+            removedFolders.RemoveWhere(hidden => FolderTree.Contains(key, hidden));
+        }
+        NotifyFolderEdits();
+        Assets.RemoveWhere(item => item.Owner is { } itemOwner && parents.Contains(itemOwner) && IsInside(item.Asset.FullPath, added.Path));
+        Status = $"{added.Label} now has its own entry in the workspace and no longer shows inside {parents[^1].Label}. Nothing on disk was moved.";
+        return reselect;
+    }
+
+    /// <summary>True when the file is inside another workspace folder that is itself inside this one: that one shows it, this one does not.</summary>
+    private bool ClaimedElsewhere(WorkspaceFolder folder, MediaAsset asset) => IsClaimed(NestedRoots(folder), asset);
+
+    /// <summary>The workspace folders inside this one.</summary>
+    private string[] NestedRoots(WorkspaceFolder folder) => folder.IsVirtual ? []
+        : WorkspaceFolders.Where(other => other != folder && !other.IsVirtual && IsInside(other.Path, folder.Path)).Select(other => other.Path).ToArray();
+
+    private static bool IsClaimed(string[] nestedRoots, MediaAsset asset) => nestedRoots.Length > 0 && nestedRoots.Any(root => IsInside(asset.FullPath, root));
+
+    private static bool IsInside(string path, string folder) =>
+        path.Length > folder.Length && path.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && (path[folder.Length] == '\\' || folder.EndsWith('\\'));
 
     private AssetViewModel CreateItem(WorkspaceFolder folder, MediaAsset asset, bool favorite) =>
         new(asset, favorite)
@@ -122,6 +174,7 @@ public sealed partial class MainViewModel
         folder.ChangedWhileScanning = false;
         UpdateScanning();
         var root = folder.Path;
+        var nested = NestedRoots(folder);
         try
         {
             if (firstTime)
@@ -132,6 +185,7 @@ public sealed partial class MainViewModel
                     var batch = new List<MediaAsset>(500);
                     foreach (var asset in new LibraryScanner().Scan(root, cancellation.Token))
                     {
+                        if (IsClaimed(nested, asset)) continue;
                         batch.Add(asset);
                         if (batch.Count < 500) continue;
                         await AddScannedAsync(folder, batch.ToArray(), favorites, cancellation.Token);
@@ -147,7 +201,7 @@ public sealed partial class MainViewModel
                 var (added, changed, removed) = await Task.Run(() =>
                 {
                     var scanned = new LibraryScanner().Scan(root, cancellation.Token).ToList();
-                    var difference = Workspace.Diff(current, scanned);
+                    var difference = Workspace.Diff(current, scanned.Where(asset => !IsClaimed(nested, asset)).ToList());
                     catalog.Index(difference.Added.Concat(difference.Changed), cancellation.Token);
                     catalog.Prune(root, scanned.Select(asset => asset.RelativePath).ToList());
                     return difference;
@@ -157,7 +211,7 @@ public sealed partial class MainViewModel
                     var gone = new HashSet<string>(removed.Concat(changed.Select(asset => asset.RelativePath)), StringComparer.OrdinalIgnoreCase);
                     var favorites = changed.Count > 0 ? catalog.GetFavorites(root) : [];
                     Assets.RemoveWhere(item => item.Owner == folder && gone.Contains(item.Asset.RelativePath));
-                    Assets.AddRange(added.Concat(changed).Select(asset => CreateItem(folder, asset, favorites.Contains(asset.RelativePath))));
+                    Assets.AddRange(added.Concat(changed).Where(asset => !ClaimedElsewhere(folder, asset)).Select(asset => CreateItem(folder, asset, favorites.Contains(asset.RelativePath))));
                     AfterAssetsChanged();
                     Status = $"{folder.Label}: {added.Count:N0} new, {changed.Count:N0} changed, {removed.Count:N0} gone.";
                 }
@@ -196,7 +250,8 @@ public sealed partial class MainViewModel
         await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             token.ThrowIfCancellationRequested();
-            Assets.AddRange(batch.Select(asset => CreateItem(folder, asset, favorites.Contains(asset.RelativePath))));
+            // Checked again here: a folder may have been moved out while this one was being read.
+            Assets.AddRange(batch.Where(asset => !ClaimedElsewhere(folder, asset)).Select(asset => CreateItem(folder, asset, favorites.Contains(asset.RelativePath))));
             folder.State = $"Reading… {Assets.Count(item => item.Owner == folder):N0} files";
             AfterBatchAdded();
         }, DispatcherPriority.Background, token);
@@ -238,7 +293,20 @@ public sealed partial class MainViewModel
         if (row is null || FolderOf(row.Node.Path) is not { } folder)
             return;
         CloseFolder(folder, save: true);
-        Status = $"{folder.Label} is no longer in the workspace. Nothing on disk was changed.";
+        if (!WorkspaceFolders.Any(other => !other.IsVirtual && IsInside(folder.Path, other.Path)))
+            Status = $"{folder.Label} is no longer in the workspace. Nothing on disk was changed.";
+    }
+
+    /// <summary>A folder that was moved out of another one goes back into it when it leaves the workspace.</summary>
+    private void ReturnToParents(WorkspaceFolder folder)
+    {
+        if (folder.IsVirtual)
+            return;
+        foreach (var parent in WorkspaceFolders.Where(other => !other.IsVirtual && IsInside(folder.Path, other.Path)).ToArray())
+        {
+            _ = ScanFolderAsync(parent, firstTime: false);
+            Status = $"{folder.Label} is back inside {parent.Label}. Nothing on disk was changed.";
+        }
     }
 
     private void CloseFolder(WorkspaceFolder folder, bool save)
@@ -257,7 +325,11 @@ public sealed partial class MainViewModel
         hasSource = WorkspaceFolders.Count > 0;
         UpdateScanning();
         AfterAssetsChanged();
-        if (save) SaveWorkspace();
+        if (save)
+        {
+            SaveWorkspace();
+            ReturnToParents(folder);
+        }
     }
 
     /// <summary>Shows a collection or a tag search as one more entry in the workspace, beside the folders rather than instead of them.</summary>

@@ -11,7 +11,11 @@ public sealed partial class MetadataRow(string name, string value, bool canTag =
     [ObservableProperty] private bool isSelected;
 }
 
-public sealed record CollectionItem(string Name, string FilePath)
+/// <summary>A collection in the lists; kept as the same object while its file count changes, so lists never refill.</summary>
+public sealed partial class CollectionItem(string name, string filePath) : ObservableObject
 {
+    public string Name { get; } = name;
+    public string FilePath { get; } = filePath;
+    [ObservableProperty] private int count;
     public override string ToString() => Name;
 }

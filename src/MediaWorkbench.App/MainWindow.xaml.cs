@@ -26,6 +26,7 @@ public partial class MainWindow : Window
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         viewModel.TourRequested += OnTourRequested;
         viewModel.FolderTagRequested += OnFolderTagRequested;
+        viewModel.CollectionNameRequested += OnCollectionNameRequested;
         ApplyInspectorVisibility();
         ApplySourcesVisibility();
         SyncFilmstripSelection();
@@ -206,6 +207,9 @@ public partial class MainWindow : Window
     private void OnFolderTagRequested(object? sender, EventArgs args) =>
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => FolderTagBox.Focus());
 
+    private void OnCollectionNameRequested(object? sender, EventArgs args) =>
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => NewCollectionBox.Focus());
+
     private void FolderToggleClicked(object sender, MouseButtonEventArgs args)
     {
         if (sender is FrameworkElement { DataContext: FolderRowViewModel row })
@@ -367,6 +371,7 @@ public partial class MainWindow : Window
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         viewModel.TourRequested -= OnTourRequested;
         viewModel.FolderTagRequested -= OnFolderTagRequested;
+        viewModel.CollectionNameRequested -= OnCollectionNameRequested;
         StopGlide();
         settleTimer?.Stop();
         foreach (var image in thumbnailRequests.Keys.ToArray()) ReleaseThumbnail(image);

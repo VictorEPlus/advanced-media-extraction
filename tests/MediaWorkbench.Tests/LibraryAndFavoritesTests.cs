@@ -22,6 +22,21 @@ public sealed class LibraryAndFavoritesTests
     }
 
     [Fact]
+    public void ScanSkipsMacSidecarFilesButKeepsRealPicturesStartingWithADot()
+    {
+        using var temporary = new TemporaryDirectory();
+        File.WriteAllBytes(temporary.FilePath("photo.png"), [0x89, 0x50, 0x4E, 0x47]);
+        // What a Mac leaves next to photo.png on an exFAT or network drive.
+        File.WriteAllBytes(temporary.FilePath("._photo.png"), [0x00, 0x05, 0x16, 0x07, 0x00, 0x02, 0x00, 0x00]);
+        Directory.CreateDirectory(temporary.FilePath("__MACOSX"));
+        File.WriteAllBytes(temporary.FilePath("__MACOSX/._clip.mov"), [0x00, 0x05, 0x16, 0x07]);
+        File.WriteAllBytes(temporary.FilePath("._real.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]);
+        var names = new LibraryScanner().Scan(temporary.Path).Select(asset => asset.Name).Order().ToArray();
+        Assert.Equal(["._real.jpg", "photo.png"], names);
+        Assert.Null(LibraryScanner.ReadFile(temporary.FilePath("._photo.png")));
+    }
+
+    [Fact]
     public void ScanHonorsCancellation()
     {
         using var temporary = new TemporaryDirectory();

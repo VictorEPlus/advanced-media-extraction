@@ -7,7 +7,7 @@ public sealed class LibraryScanner
     public static MediaAsset? ReadFile(string path)
     {
         path = Path.GetFullPath(path);
-        if (!Extensions.TryGetValue(Path.GetExtension(path), out var kind) || !File.Exists(path)) return null;
+        if (!Extensions.TryGetValue(Path.GetExtension(path), out var kind) || !File.Exists(path) || IsMacSidecar(path)) return null;
         var file = new FileInfo(path);
         return new MediaAsset(Path.GetDirectoryName(path)!, file.Name, kind, file.Length, file.LastWriteTimeUtc.Ticks);
     }
@@ -28,7 +28,7 @@ public sealed class LibraryScanner
         foreach (var path in Directory.EnumerateFiles(root, "*", options))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!Extensions.TryGetValue(Path.GetExtension(path), out var kind))
+            if (!Extensions.TryGetValue(Path.GetExtension(path), out var kind) || IsMacSidecar(path))
                 continue;
             MediaAsset? asset = null;
             try
@@ -41,6 +41,25 @@ public sealed class LibraryScanner
             if (asset is not null)
                 yield return asset;
         }
+    }
+
+    /// <summary>
+    /// A macOS "._name" AppleDouble file: the Finder metadata a Mac writes next to each file it copies to a non-Mac drive. It
+    /// carries the picture's extension but holds no picture, so it is not media. Only "._" names are opened to check.
+    /// </summary>
+    public static bool IsMacSidecar(string path)
+    {
+        if (!Path.GetFileName(path).StartsWith("._", StringComparison.Ordinal))
+            return false;
+        try
+        {
+            Span<byte> header = stackalloc byte[4];
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            // 00 05 16 07 is AppleDouble, 00 05 16 00 AppleSingle.
+            return stream.ReadAtLeast(header, 4, throwOnEndOfStream: false) == 4 && header[0] == 0 && header[1] == 5 && header[2] == 0x16 && header[3] is 7 or 0;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
     }
 
     private static Dictionary<string, MediaKind> BuildExtensions()

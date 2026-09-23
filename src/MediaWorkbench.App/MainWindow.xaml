@@ -184,10 +184,10 @@
                         </local:SpacedPanel>
                         <TextBlock Text="&#x258D; WORKSPACE" Style="{StaticResource PanelTitle}" />
                     </DockPanel>
-                    <Border x:Name="FolderEditsBanner" DockPanel.Dock="Top" BorderBrush="{StaticResource TagBrush}" BorderThickness="1" Padding="8,3" Margin="0,0,6,8" Visibility="{Binding ShowFolderEdits, Converter={StaticResource BoolVisibility}}">
+                    <Border x:Name="FolderEditsBanner" DockPanel.Dock="Top" Padding="0" Margin="0,0,6,4" Visibility="{Binding ShowFolderEdits, Converter={StaticResource BoolVisibility}}">
                         <DockPanel>
                             <Button DockPanel.Dock="Right" Style="{StaticResource QuietIconButton}" Content="&#x21BA;" Command="{Binding ShowAllFoldersCommand}" ToolTip="Show all folders again. Nothing on disk was changed." />
-                            <TextBlock Text="{Binding FolderEditsLabel}" Style="{StaticResource Readout}" Foreground="{StaticResource TagBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding FolderEditsLabel}" Style="{StaticResource Readout}" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         </DockPanel>
                     </Border>
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,8,6,0">
@@ -196,18 +196,10 @@
                             <local:SpacedPanel Orientation="Vertical" Margin="0,4,0,8">
                                 <ItemsControl ItemsSource="{Binding Collections}"><ItemsControl.ItemTemplate><DataTemplate>
                                     <Button Style="{StaticResource ListRowButton}" Command="{Binding DataContext.OpenCollectionItemCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" ToolTip="Show this collection in the workspace, beside your folders">
-                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                        <DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding Count, StringFormat=N0}" Style="{StaticResource Readout}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" /><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DockPanel>
                                     </Button>
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-                                <DockPanel>
-                                    <TextBlock Text="STAGE TO" Style="{StaticResource PanelTitle}" Foreground="{StaticResource MutedBrush}" Width="70" />
-                                    <ComboBox x:Name="StageToBox" ItemsSource="{Binding Collections}" SelectedItem="{Binding SelectedCollection}" DisplayMemberPath="Name" AutomationProperties.Name="Staging collection" ToolTip="The collection that Stage (S) adds files to. Collections hold references; files stay where they are." />
-                                </DockPanel>
-                                <DockPanel x:Name="ManageCollectionsExpander">
-                                    <Button DockPanel.Dock="Right" Content="+ NEW" Command="{Binding CreateCollectionCommand}" Margin="6,0,0,0" />
-                                    <TextBox Text="{Binding CollectionName}" AutomationProperties.Name="New collection name" ToolTip="Name for a new collection" />
-                                </DockPanel>
-                                <Button Content="Remove current file from this collection" Command="{Binding RemoveFromCollectionCommand}" Visibility="{Binding IsCollectionView, Converter={StaticResource BoolVisibility}}" />
+                                <TextBlock Text="None yet. Open a file, press S, and name one in the Tags tab." Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="{Binding HasNoCollections, Converter={StaticResource BoolVisibility}}" />
                             </local:SpacedPanel>
                         </Expander>
                         <Expander x:Name="TaggedFilesSection" Header="TAGS">
@@ -227,11 +219,11 @@
                                     <DockPanel.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Open in a new tab" Command="{Binding PlacementTarget.Tag.OpenInNewTabCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
-                                            <MenuItem Header="Add as a workspace folder of its own" Command="{Binding PlacementTarget.Tag.AddSubfolderToWorkspaceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <MenuItem Header="Move out to its own workspace folder" ToolTip="Shows this folder as its own entry in the workspace and no longer inside this one. Nothing on disk moves; removing it from the workspace puts it back." Command="{Binding PlacementTarget.Tag.AddSubfolderToWorkspaceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Show in Explorer" Command="{Binding PlacementTarget.Tag.RevealFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Tag this folder&#x2026;" Command="{Binding PlacementTarget.Tag.TagFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" ToolTip="Tags that every file in this folder and its subfolders carries, including files added later" />
                                             <Separator />
-                                            <MenuItem Header="Hide this folder (or remove a workspace folder)" Command="{Binding PlacementTarget.Tag.RemoveFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
+                                            <MenuItem Header="Hide this folder (or remove a workspace folder)" ToolTip="Hides the folder here without touching anything on disk. A workspace folder is taken out of the workspace; one that was moved out goes back into its parent." Command="{Binding PlacementTarget.Tag.RemoveFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Show all folders" Command="{Binding PlacementTarget.Tag.ShowAllFoldersCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                                         </ContextMenu>
                                     </DockPanel.ContextMenu>
@@ -272,7 +264,7 @@
                     <DockPanel x:Name="SelectionHeader" Grid.Column="1" Margin="16,0,0,4" VerticalAlignment="Center" Visibility="{Binding IsPreviewTab, Converter={StaticResource BoolVisibility}}">
                         <local:SpacedPanel DockPanel.Dock="Right" Margin="10,0,0,0" Visibility="{Binding HasSelection, Converter={StaticResource BoolHidden}}">
                             <Button x:Name="FavoriteButton" Style="{StaticResource IconButton}" Content="&#x2605;" Command="{Binding ToggleFavoriteCommand}" ToolTip="Favorite on or off (F)" AutomationProperties.Name="Favorite" />
-                            <Button x:Name="StageButton" Content="STAGE" Command="{Binding StageSelectedCommand}" ToolTip="Add this file to the collection chosen under Stage to (S)" />
+                            <Button x:Name="StageButton" Width="150" Command="{Binding StageSelectedCommand}" ToolTip="{Binding StageButtonToolTip}" HorizontalContentAlignment="Left"><TextBlock Text="{Binding StageButtonLabel}" TextTrimming="CharacterEllipsis" /></Button>
                             <Button x:Name="FocusViewButton" Style="{StaticResource IconButton}" Content="&#x26F6;" Command="{Binding ToggleFocusViewCommand}" ToolTip="Focus view: only the picture, the timeline and the buttons (F11)" AutomationProperties.Name="Focus view" />
                         </local:SpacedPanel>
                         <Border x:Name="AspectChip" DockPanel.Dock="Left" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" Padding="6,0" Margin="0,0,10,0" MinWidth="44" VerticalAlignment="Center" Visibility="{Binding HasAspectHighlight, Converter={StaticResource BoolHidden}}" ToolTip="The shape of this picture. A tilde means the exact ratio is only close to this everyday one; Details has the exact figure.">
@@ -554,6 +546,29 @@
                                         <Button Style="{StaticResource QuietIconButton}" Content="&#x2715;" Height="20" Command="{Binding DataContext.RemoveTagCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" ToolTip="Remove this tag" /></StackPanel>
                                 </Border>
                             </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+
+                            <StackPanel x:Name="FileCollectionsSection">
+                                <TextBlock Text="IN COLLECTIONS" Style="{StaticResource SectionTitle}" Margin="0,4,0,6" />
+                                <TextBlock Text="Not in any collection." Style="{StaticResource Hint}" Margin="0,0,0,6" Visibility="{Binding IsInNoCollection, Converter={StaticResource BoolVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding FileCollections}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" Padding="2,0,2,0" Margin="0,0,6,6" Height="24">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Style="{StaticResource QuietIconButton}" Width="NaN" MaxWidth="220" Height="20" Padding="4,0" Command="{Binding DataContext.OpenCollectionItemCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" ToolTip="Show this collection in the workspace"><TextBlock Text="{Binding Name}" Style="{StaticResource Readout}" Foreground="{StaticResource AccentBrush}" TextTrimming="CharacterEllipsis" /></Button>
+                                            <Button Style="{StaticResource QuietIconButton}" Content="&#x2715;" Height="20" Command="{Binding DataContext.RemoveFileFromCollectionCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" ToolTip="Take this file out of the collection. The file itself is untouched." />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                <local:SpacedPanel Orientation="Vertical">
+                                    <DockPanel x:Name="StageToRow" Visibility="{Binding HasCollections, Converter={StaticResource BoolVisibility}}">
+                                        <Button DockPanel.Dock="Right" Width="60" Content="{Binding StageVerb}" Command="{Binding StageSelectedCommand}" IsEnabled="{Binding HasSelection}" Margin="6,0,0,0" ToolTip="{Binding StageButtonToolTip}" />
+                                        <ComboBox x:Name="StageToBox" ItemsSource="{Binding Collections}" SelectedItem="{Binding SelectedCollection}" DisplayMemberPath="Name" AutomationProperties.Name="Collection to add to" ToolTip="The collection that S and the button above the preview add to" />
+                                    </DockPanel>
+                                    <DockPanel x:Name="ManageCollectionsExpander">
+                                        <Button DockPanel.Dock="Right" Width="60" Content="+ NEW" Command="{Binding CreateCollectionCommand}" Margin="6,0,0,0" ToolTip="Make a collection with this name; the open file goes in it" />
+                                        <TextBox x:Name="NewCollectionBox" Text="{Binding CollectionName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New collection name" ToolTip="Name for a new collection. The open file goes in it." />
+                                    </DockPanel>
+                                </local:SpacedPanel>
+                            </StackPanel>
 
                             <StackPanel x:Name="InheritedTagsSection" Visibility="{Binding HasInheritedTags, Converter={StaticResource BoolVisibility}}">
                                 <TextBlock Text="FROM FOLDERS" Style="{StaticResource SectionTitle}" Margin="0,4,0,6" />

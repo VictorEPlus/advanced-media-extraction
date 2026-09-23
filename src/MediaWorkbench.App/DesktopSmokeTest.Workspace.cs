@@ -47,11 +47,18 @@ internal static partial class DesktopSmokeTest
         Require(model.SelectedTags.Contains("aspect ratio:16:9") && !aspect.IsSelected, "Metadata tag confirmation failed.");
         model.CollectionName = "Review staging";
         model.CreateCollectionCommand.Execute(null);
-        model.StageSelectedCommand.Execute(null);
-        model.StageSelectedCommand.Execute(null);
         var collectionPath = model.SelectedCollection!.FilePath;
         var store = new CollectionStore();
-        Require(store.Load(collectionPath).Paths.Length == 1, "Staging should deduplicate file references.");
+        Require(store.Load(collectionPath).Paths.Length == 1 && model.FileCollections.Count == 1 && model.IsInTargetCollection && model.StageButtonLabel.Contains("REVIEW STAGING"),
+            "A collection made from the Tags tab should start with the open file, list it under In collections and tick the header button: " + model.StageButtonLabel);
+        model.StageSelectedCommand.Execute(null);
+        await WaitUntilAsync(() => model.FileCollections.Count == 0, token);
+        Require(store.Load(collectionPath).Paths.Length == 0 && !model.IsInTargetCollection, "S on a file already in the collection should take it out.");
+        model.StageSelectedCommand.Execute(null);
+        Require(store.Load(collectionPath).Paths.Length == 1 && model.FileCollections.Count == 1 && model.Collections.Single(item => item.FilePath == collectionPath).Count == 1,
+            "S again should put it back, once, and the collection list should count it.");
+        model.InspectorTab = 1;
+        Render(window, Path.Combine(dataDirectory, "workspace-collections.png"));
         model.SelectedAsset = video;
         await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         Require(model.IsVideo && model.HasFrames && !model.IsPhoto && model.CanCopy, "Video actions were not restored.");

@@ -89,6 +89,7 @@ public sealed partial class MainViewModel
                 InheritedTags.Add(new InheritedTag(tag, folder));
         }
         OnPropertyChanged(nameof(HasInheritedTags));
+        ShowCollectionsOf(item);
     }
 
     private void ShowFolderTags()

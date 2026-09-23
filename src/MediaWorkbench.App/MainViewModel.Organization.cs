@@ -23,6 +23,23 @@ public sealed partial class MainViewModel
     public ObservableCollection<string> SelectedTags { get; } = [];
     public ObservableCollection<string> KnownTags { get; } = [];
     public ObservableCollection<CollectionItem> Collections { get; } = [];
+    /// <summary>The collections the open file is in, shown in the Tags tab.</summary>
+    public ObservableCollection<CollectionItem> FileCollections { get; } = [];
+    /// <summary>For each collection file, the files in it.</summary>
+    private readonly Dictionary<string, HashSet<string>> collectionMembers = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Asks the window to put the cursor in the new collection name box.</summary>
+    public event EventHandler? CollectionNameRequested;
+    public bool HasCollections => Collections.Count > 0;
+    public bool HasFileCollections => FileCollections.Count > 0;
+    public bool HasNoCollections => Collections.Count == 0;
+    public bool IsInNoCollection => FileCollections.Count == 0 && SelectedAsset is not null;
+    public string StageVerb => IsInTargetCollection ? "OUT" : "ADD";
+    public bool IsInTargetCollection => SelectedAsset is { } item && SelectedCollection is { } target
+        && collectionMembers.TryGetValue(target.FilePath, out var members) && members.Contains(item.Asset.FullPath);
+    /// <summary>The header button names the collection it adds to, and shows a tick when the file is already in it.</summary>
+    public string StageButtonLabel => SelectedCollection is not { } target ? "+ COLLECTION" : (IsInTargetCollection ? "\u2713 " : "+ ") + target.Name.ToUpperInvariant();
+    public string StageButtonToolTip => SelectedCollection is not { } target ? "Start a collection with this file: name it in the Tags tab (S)"
+        : IsInTargetCollection ? $"In {target.Name}. Click to take it out (S). The Tags tab lists every collection it is in." : $"Add this file to {target.Name} (S). Pick another collection in the Tags tab.";
     public string[] SortOptions { get; } = ["Name (natural)", "Name (reverse)", "Newest modified", "Oldest modified", "Largest first", "Smallest first", "Media type", "Favorites first", "Full path"];
     public bool HasSelection => SelectedAsset is not null;
     public bool IsPhoto => SelectedAsset?.Asset.Kind == MediaKind.Photo;
@@ -46,13 +63,13 @@ public sealed partial class MainViewModel
     public string StageFilteredLabel => $"Stage {visibleCount:N0} filtered";
     public bool HasSource => hasSource;
     public string EmptyTitle => !hasSource ? "Open a folder to begin"
-        : HasSelection ? (IsAudio ? "Audio file selected" : "Loading preview…")
+        : HasSelection ? (openFailure is not null ? "Can't open this file" : IsAudio ? "Audio file selected" : "Loading preview…")
         : IsScanning && Assets.Count == 0 ? "Scanning…"
         : Assets.Count == 0 ? "No supported media here"
         : visibleCount == 0 ? "Nothing matches the current filters"
         : "Select a file from the filmstrip";
     public string EmptyText => !hasSource ? "Browse local photos, videos and audio, or drop a folder onto this window. Originals are never modified; every edit is a separate export."
-        : HasSelection ? (IsAudio ? "Play it with Space, or pick a track, channel and time range in the Export tab." : "Decoding the first still image.")
+        : HasSelection ? (openFailure ?? (IsAudio ? "Play it with Space, or pick a track, channel and time range in the Export tab." : "Decoding the first still image."))
         : IsScanning && Assets.Count == 0 ? "Media files appear in the filmstrip as folders are read."
         : Assets.Count == 0 ? "Supported extensions include common photo, video and audio formats. Use Rescan after adding files."
         : visibleCount == 0 ? "Clear the search, media type, favorites or tag filters to see files again."
@@ -190,13 +207,67 @@ public sealed partial class MainViewModel
         var directory = Path.Combine(dataDirectory, "collections");
         Directory.CreateDirectory(directory);
         var selectedPath = SelectedCollection?.FilePath;
-        Collections.Clear();
+        var found = new List<string>();
         foreach (var path in Directory.EnumerateFiles(directory, "*.json").Order())
         {
-            try { Collections.Add(new CollectionItem(collectionStore.Load(path).Name, path)); }
+            try
+            {
+                var collection = collectionStore.Load(path);
+                collectionMembers[path] = new HashSet<string>(collection.Paths, StringComparer.OrdinalIgnoreCase);
+                var item = Collections.FirstOrDefault(existing => existing.FilePath == path);
+                if (item is null || item.Name != collection.Name)
+                {
+                    if (item is not null) Collections.Remove(item);
+                    item = new CollectionItem(collection.Name, path);
+                    Collections.Add(item);
+                }
+                item.Count = collection.Paths.Length;
+                found.Add(path);
+            }
             catch (Exception exception) when (exception is IOException or System.Text.Json.JsonException or InvalidDataException) { ReportError(exception); }
         }
+        foreach (var gone in Collections.Where(item => !found.Contains(item.FilePath)).ToArray())
+        {
+            Collections.Remove(gone);
+            collectionMembers.Remove(gone.FilePath);
+        }
         SelectedCollection = Collections.FirstOrDefault(item => item.FilePath == selectedPath) ?? Collections.FirstOrDefault();
+        OnPropertyChanged(nameof(HasCollections));
+        OnPropertyChanged(nameof(HasNoCollections));
+        ShowCollectionsOf(SelectedAsset);
+    }
+
+    /// <summary>Lists the collections the file is in, and brings the header button up to date.</summary>
+    private void ShowCollectionsOf(AssetViewModel? item)
+    {
+        var path = item?.Asset.FullPath;
+        var wanted = path is null ? [] : Collections.Where(collection => collectionMembers.TryGetValue(collection.FilePath, out var members) && members.Contains(path)).ToList();
+        if (!wanted.SequenceEqual(FileCollections))
+        {
+            FileCollections.Clear();
+            foreach (var collection in wanted) FileCollections.Add(collection);
+        }
+        OnPropertyChanged(nameof(HasFileCollections));
+        OnPropertyChanged(nameof(IsInNoCollection));
+        NotifyStageButton();
+    }
+
+    private void NotifyStageButton()
+    {
+        OnPropertyChanged(nameof(IsInTargetCollection));
+        OnPropertyChanged(nameof(StageButtonLabel));
+        OnPropertyChanged(nameof(StageButtonToolTip));
+        OnPropertyChanged(nameof(StageVerb));
+    }
+
+    partial void OnSelectedCollectionChanged(CollectionItem? value) => NotifyStageButton();
+
+    private void SaveCollection(CollectionItem target, StagingCollection collection)
+    {
+        collectionStore.Save(target.FilePath, collection);
+        collectionMembers[target.FilePath] = new HashSet<string>(collection.Paths, StringComparer.OrdinalIgnoreCase);
+        target.Count = collection.Paths.Length;
+        ShowCollectionsOf(SelectedAsset);
     }
 
     [RelayCommand]
@@ -204,17 +275,29 @@ public sealed partial class MainViewModel
     {
         if (string.IsNullOrWhiteSpace(CollectionName)) throw new ArgumentException("Enter a collection name.");
         var path = Path.Combine(dataDirectory, "collections", Guid.NewGuid().ToString("N") + ".json");
-        collectionStore.Save(path, new StagingCollection(1, CollectionName, []));
+        // Made from the Tags tab of a file, so the file goes straight in.
+        collectionStore.Save(path, new StagingCollection(1, CollectionName.Trim(), SelectedAsset is { } item ? [item.Asset.FullPath] : []));
         RefreshCollections();
-        SelectedCollection = Collections.Single(item => item.FilePath == path);
-        Status = "Collection created. Stage an item, or stage all filtered results; originals stay in place.";
+        SelectedCollection = Collections.Single(collection => collection.FilePath == path);
+        Status = SelectedAsset is { } added ? $"Made {SelectedCollection.Name} with {added.Name} in it. S adds more files to it." : $"Made {SelectedCollection.Name}. S adds the open file to it.";
+        CollectionName = "";
     });
 
+    /// <summary>S and the header button: into the chosen collection, or out of it when the file is already there.</summary>
     [RelayCommand]
     private void StageSelected() => Guard(() =>
     {
         if (SelectedAsset is not { } item) throw new InvalidOperationException("Select media to stage.");
-        StagePaths([item.Asset.FullPath]);
+        if (SelectedCollection is null)
+        {
+            ShowInspector = true;
+            InspectorTab = 1;
+            CollectionNameRequested?.Invoke(this, EventArgs.Empty);
+            Status = "Name a collection and press + NEW; this file goes in it.";
+            return;
+        }
+        if (IsInTargetCollection) _ = RemoveFileFromCollectionAsync(SelectedCollection);
+        else StagePaths([item.Asset.FullPath]);
     });
 
     [RelayCommand]
@@ -222,11 +305,27 @@ public sealed partial class MainViewModel
 
     private void StagePaths(string[] paths)
     {
-        if (SelectedCollection is not { } target) throw new InvalidOperationException("Create or select a staging collection first.");
+        if (SelectedCollection is not { } target) throw new InvalidOperationException("Make a collection first: name it in the Tags tab and press + NEW.");
         var collection = collectionStore.Load(target.FilePath);
         var updated = CollectionStore.Add(collection, paths);
-        collectionStore.Save(target.FilePath, updated);
-        Status = $"Added {updated.Paths.Length - collection.Paths.Length:N0} items to {target.Name}. References only; no media copied.";
+        SaveCollection(target, updated);
+        Status = $"Added {updated.Paths.Length - collection.Paths.Length:N0} to {target.Name}. Only the file's place is noted; nothing is copied.";
+    }
+
+    /// <summary>The cross on a collection in the Tags tab: the open file leaves that collection. The file itself is untouched.</summary>
+    [RelayCommand]
+    private async Task RemoveFileFromCollectionAsync(CollectionItem? target)
+    {
+        try
+        {
+            if (target is null || SelectedAsset is not { } item) return;
+            var collection = CollectionStore.Remove(collectionStore.Load(target.FilePath), item.Asset.FullPath);
+            SaveCollection(target, collection);
+            Status = $"Took {item.Name} out of {target.Name}. The file itself is untouched.";
+            if (CurrentFolder?.CollectionPath == target.FilePath)
+                await ShowVirtualFolderAsync($"Collection {collection.Name.Replace('\\', ' ')}", collection.Paths, target.FilePath);
+        }
+        catch (Exception exception) { ReportError(exception); }
     }
 
     [RelayCommand]
@@ -256,7 +355,8 @@ public sealed partial class MainViewModel
         {
             if (CurrentFolder is not { CollectionPath: { } file } || SelectedAsset is null) return;
             var collection = CollectionStore.Remove(collectionStore.Load(file), SelectedAsset.Asset.FullPath);
-            collectionStore.Save(file, collection);
+            if (Collections.FirstOrDefault(item => item.FilePath == file) is { } target) SaveCollection(target, collection);
+            else collectionStore.Save(file, collection);
             await ShowVirtualFolderAsync($"Collection {collection.Name.Replace('\\', ' ')}", collection.Paths, file);
         }
         catch (Exception exception) { ReportError(exception); }

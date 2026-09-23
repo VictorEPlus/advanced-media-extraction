@@ -60,6 +60,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private bool slowDecode;
     /// <summary>The last decode of the requested frame failed; the previous frame is still showing.</summary>
     private bool decodeFailed;
+    /// <summary>Why the selected file could not be opened, shown in place of the picture.</summary>
+    private string? openFailure;
     private readonly LiveVideo live;
     private bool disposed;
 
@@ -403,6 +405,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AspectHighlight = "";
         ShowBasicMetadata(item?.Asset);
         currentTraits = null;
+        openFailure = null;
         ShowTagsOf(item);
         UpdateSuggestions();
         displayedFrameBytes = null;
@@ -495,7 +498,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             else Status = "Audio ready. Select a track, channel and time range to export.";
         }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { if (SelectedAsset == item) ReportError(exception); }
+        catch (Exception exception)
+        {
+            if (SelectedAsset == item)
+            {
+                // FFmpeg's own output is long and technical; it goes to app.log and the window says what happened in one line.
+                openFailure = exception is InvalidOperationException or IOException or UnauthorizedAccessException
+                    ? $"{item.Name} could not be opened. It may be damaged, still being copied, or not really a {item.Asset.Kind.ToString().ToLowerInvariant()} file."
+                    : null;
+                ReportError(exception, openFailure);
+                NotifyEmptyState();
+            }
+        }
         finally
         {
             if (selectionCancellation == cancellation)
@@ -1334,9 +1348,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         catch (Exception exception) { ReportError(exception); }
     }
 
-    private void ReportError(Exception exception)
+    private void ReportError(Exception exception, string? summary = null)
     {
-        var message = exception.Message.Length <= 600 ? exception.Message : exception.Message[..600] + " (see app.log)";
+        var message = summary ?? (exception.Message.Length <= 600 ? exception.Message : exception.Message[..600] + " (see app.log)");
         Status = message;
         Notify(NotificationKind.Error, message);
         try { File.AppendAllText(Path.Combine(dataDirectory, "app.log"), $"{DateTimeOffset.Now:O} {exception}{Environment.NewLine}"); }

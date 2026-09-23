@@ -157,6 +157,24 @@ internal static partial class DesktopSmokeTest
         model.ShowAllFoldersCommand.Execute(null);
         Require(!model.ShowFolderEdits && view.Count == 70, "Show all folders should bring hidden folders back.");
 
+        // Moving a folder out gives it its own entry and takes it out of the folder around it; removing it puts it back.
+        var shootsFolder = model.WorkspaceFolders.Single(folder => folder.Label == "Shoots");
+        await model.AddSubfolderToWorkspaceCommand.ExecuteAsync(model.FolderRows.Single(row => row.Name == "day 2"));
+        var dayFolder = model.WorkspaceFolders.Single(folder => folder.Label == "day 2");
+        await WaitUntilAsync(() => !dayFolder.IsScanning, token);
+        Require(model.Assets.Count == 109 && model.Assets.Count(item => item.Owner == shootsFolder) == 69 && model.Assets.Count(item => item.Owner == dayFolder) == 30,
+            $"A folder moved out should show only as its own entry, not twice ({model.Assets.Count} files, {model.Assets.Count(item => item.Owner == shootsFolder)} in Shoots).");
+        Require(!model.FolderRows.Any(row => row.Node.Path.StartsWith(@"Shoots\shoot A\day 2", StringComparison.OrdinalIgnoreCase)) && !model.ShowFolderEdits,
+            "The moved folder should leave the tree of the folder around it, with nothing marked as hidden.");
+        model.RescanCommand.Execute(null);
+        await WaitUntilAsync(() => !model.IsScanning, token);
+        Require(model.Assets.Count(item => item.Owner == shootsFolder) == 69, "A rescan must not bring a moved-out folder back into its parent.");
+        model.RemoveWorkspaceFolderCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "day 2"));
+        await WaitUntilAsync(() => !model.IsScanning && model.Assets.Count(item => item.Owner == shootsFolder) == 99, token);
+        model.SelectedTab = model.Tabs[0];
+        model.SelectFolder(@"Shoots\shoot A");
+        Require(view.Count == 70, "Removing a moved-out folder from the workspace should put it back inside its parent.");
+
         // Reopening a folder is instant: the saved index is shown before the folder is read again.
         model.RemoveWorkspaceFolderCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "Archive"));
         Require(model.WorkspaceFolders.Count == 1 && model.Assets.Count == 99, "Removing a folder from the workspace takes only its files out.");
