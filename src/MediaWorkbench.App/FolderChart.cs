@@ -28,14 +28,14 @@ public sealed class FolderChart : FrameworkElement
     private const double RowHeight = 30;
     private const double BarHeight = 14;
     private const double SegmentGap = 2;
-    private static readonly SolidColorBrush PhotoBrush = Tokens.Brush("ChartPhotoBrush", Color.FromRgb(0x39, 0x87, 0xE5));
-    private static readonly SolidColorBrush VideoBrush = Tokens.Brush("ChartVideoBrush", Color.FromRgb(0xD9, 0x59, 0x26));
-    private static readonly SolidColorBrush AudioBrush = Tokens.Brush("ChartAudioBrush", Color.FromRgb(0x19, 0x9E, 0x70));
-    private static readonly SolidColorBrush InkBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF3, 0xEE, 0xE3));
-    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xBB, 0xB3, 0xA0));
-    private static readonly SolidColorBrush HoverBrush = Tokens.Brush("RaisedBrush", Color.FromRgb(0x40, 0x3C, 0x33));
-    private static readonly SolidColorBrush TrackBrush = Tokens.WithAlpha(Tokens.Brush("BorderBrush", Color.FromRgb(0x5A, 0x54, 0x47)), 0x55);
-    private static readonly SolidColorBrush FocusBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xEB, 0xBC, 0x45));
+    private static readonly SolidColorBrush PhotoBrush = Tokens.Brush("ChartPhotoBrush", Color.FromRgb(0x5A, 0x8C, 0xFF));
+    private static readonly SolidColorBrush VideoBrush = Tokens.Brush("ChartVideoBrush", Color.FromRgb(0xE8, 0x5C, 0x2A));
+    private static readonly SolidColorBrush AudioBrush = Tokens.Brush("ChartAudioBrush", Color.FromRgb(0x00, 0xAC, 0x75));
+    private static readonly SolidColorBrush InkBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xED, 0xEA, 0xFF));
+    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xA9, 0xA2, 0xCC));
+    private static readonly SolidColorBrush HoverBrush = Tokens.Brush("RaisedBrush", Color.FromRgb(0x33, 0x2C, 0x55));
+    private static readonly SolidColorBrush TrackBrush = Tokens.WithAlpha(Tokens.Brush("BorderBrush", Color.FromRgb(0x51, 0x4A, 0x86)), 0x55);
+    private static readonly SolidColorBrush FocusBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x00, 0xE5, 0xFF));
     private int hoverRow = -1;
 
     public FolderChart()

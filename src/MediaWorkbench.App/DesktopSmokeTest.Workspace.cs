@@ -145,7 +145,7 @@ internal static partial class DesktopSmokeTest
         content.UpdateLayout();
         Require(window.PreviewSurface.ActualWidth > 600 && window.PreviewSurface.ActualHeight > 200, "Compact layout should reclaim space when Sources is collapsed.");
         foreach (var button in VisualChildren(content).OfType<Button>().Where(button => button.ActualHeight > 0 && button.Visibility == Visibility.Visible && button.Style is not null))
-            if (button.Command is not null) Require(Math.Abs(button.ActualHeight - 32) < 0.1, "Action button heights should be consistent.");
+            if (button.Command is not null) Require(Math.Abs(button.ActualHeight - 32) < 0.1, $"Action button heights should be consistent: {button.Name} \"{button.Content}\" is {button.ActualHeight:0.#} tall, not 32.");
 
         var loader = new ThumbnailLoader();
         var engine = new MediaEngine(new ToolPaths("nonexistent-ffmpeg", "nonexistent-ffprobe"), Path.Combine(dataDirectory, "thumbnail-test"));

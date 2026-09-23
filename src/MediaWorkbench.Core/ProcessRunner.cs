@@ -5,19 +5,23 @@ namespace MediaWorkbench.Core;
 
 public sealed class ProcessRunner
 {
-    public Task RunAsync(string executable, IEnumerable<string> arguments, Action<string>? output = null, CancellationToken cancellationToken = default, Action<string>? errorOutput = null) =>
+    /// <param name="background">
+    /// Work nobody is waiting on: indexing, thumbnails, waveforms. The tool runs below normal priority so it cannot
+    /// take the processor away from video playback, which stutters as soon as it has to compete for it.
+    /// </param>
+    public Task RunAsync(string executable, IEnumerable<string> arguments, Action<string>? output = null, CancellationToken cancellationToken = default, Action<string>? errorOutput = null, bool background = false) =>
         RunCoreAsync(executable, arguments, async stream =>
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
             while (await reader.ReadLineAsync() is { } line)
                 output?.Invoke(line);
-        }, cancellationToken, errorOutput);
+        }, cancellationToken, errorOutput, background);
 
     /// <summary>Runs a tool whose standard output is binary (for example raw PCM) and hands the stream to <paramref name="consume"/>.</summary>
-    public Task RunBinaryAsync(string executable, IEnumerable<string> arguments, Func<Stream, Task> consume, CancellationToken cancellationToken = default) =>
-        RunCoreAsync(executable, arguments, consume, cancellationToken, null);
+    public Task RunBinaryAsync(string executable, IEnumerable<string> arguments, Func<Stream, Task> consume, CancellationToken cancellationToken = default, bool background = false) =>
+        RunCoreAsync(executable, arguments, consume, cancellationToken, null, background);
 
-    private static async Task RunCoreAsync(string executable, IEnumerable<string> arguments, Func<Stream, Task> consume, CancellationToken cancellationToken, Action<string>? errorOutput)
+    private static async Task RunCoreAsync(string executable, IEnumerable<string> arguments, Func<Stream, Task> consume, CancellationToken cancellationToken, Action<string>? errorOutput, bool background = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable)
@@ -37,6 +41,13 @@ public sealed class ProcessRunner
         catch (System.ComponentModel.Win32Exception exception)
         {
             throw new InvalidOperationException($"Cannot start {executable}. Install FFmpeg or set its bin folder in Settings.", exception);
+        }
+        if (background)
+        {
+            // Best effort: a tool that finished this quickly needed no yielding anyway.
+            try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
+            catch (InvalidOperationException) { }
+            catch (System.ComponentModel.Win32Exception) { }
         }
         using var registration = cancellationToken.Register(() =>
         {

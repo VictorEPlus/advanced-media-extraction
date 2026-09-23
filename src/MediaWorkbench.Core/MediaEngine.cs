@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -14,6 +15,9 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
 
     /// <summary>How many frames before a window a verified seek lands, so the frames that are kept are well clear of the seek point.</summary>
     public int SeekMargin { get; init; } = 48;
+
+    /// <summary>The shortest gap between indexing progress reports. Eight a second still looks live and costs the interface nothing.</summary>
+    private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(120);
 
     private static readonly System.Text.RegularExpressions.Regex ShowInfoLine = new(@"\bn:\s*(\d+)\s+pts:\s*-?\d+\s+pts_time:(-?[0-9.]+)", System.Text.RegularExpressions.RegexOptions.Compiled);
     private readonly ProcessRunner runner = new();
@@ -101,6 +105,9 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     {
         var frames = new List<VideoFrame>();
         var invalidTimestamp = false;
+        // Reports go to the interface thread, and FFprobe can read thousands of frames a second: without this the progress
+        // bar alone would keep the interface too busy to play video smoothly.
+        var lastReport = Stopwatch.GetTimestamp();
         await runner.RunAsync(tools.Ffprobe,
             ["-v", "error", "-select_streams", "v:0", "-show_frames", "-show_entries", "frame=best_effort_timestamp_time,duration_time,pkt_duration_time", "-of", "compact=p=0:nk=0", path],
             line =>
@@ -122,9 +129,11 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
                 if (time is null)
                     invalidTimestamp = true;
                 frames.Add(new VideoFrame(frames.Count, time ?? 0, duration));
-                if (frames.Count % 25 == 0)
-                    progress?.Report(frames.Count);
-            }, cancellationToken);
+                if (progress is null || frames.Count % 25 != 0 || Stopwatch.GetElapsedTime(lastReport) < ProgressInterval)
+                    return;
+                lastReport = Stopwatch.GetTimestamp();
+                progress.Report(frames.Count);
+            }, cancellationToken, background: true);
         progress?.Report(frames.Count);
         if (invalidTimestamp || frames.Count == 0)
             throw new InvalidDataException("This video has no usable frame timestamps. Precision editing is unavailable.");
@@ -137,7 +146,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     public Task<byte[]> GetThumbnailAsync(MediaAsset asset, CancellationToken cancellationToken = default) => CachedAsync(
         asset.Identity + "|thumbnail-v2", temporary => runner.RunAsync(tools.Ffmpeg,
             ["-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0", "-frames:v", "1", "-vf", "thumbnail=24,scale=224:224:force_original_aspect_ratio=decrease", "-f", "image2", temporary],
-            cancellationToken: cancellationToken), cancellationToken, thumbnailGate);
+            cancellationToken: cancellationToken, background: true), cancellationToken, thumbnailGate);
 
     public Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, CancellationToken cancellationToken = default)
     {
@@ -300,7 +309,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
             Waveform? waveform = null;
             await runner.RunBinaryAsync(tools.Ffmpeg,
                 ["-v", "error", "-nostdin", "-i", asset.FullPath, "-map", $"0:{track.StreamIndex}", "-vn", "-af", "aresample=async=1:first_pts=0", "-ac", "1", "-ar", Waveform.SampleRate.ToString(CultureInfo.InvariantCulture), "-f", "s16le", "pipe:1"],
-                async stream => waveform = await Waveform.FromPcmAsync(stream, Waveform.SamplesPerBucket(info.Duration), cancellationToken), cancellationToken);
+                async stream => waveform = await Waveform.FromPcmAsync(stream, Waveform.SamplesPerBucket(info.Duration), cancellationToken), cancellationToken, background: true);
             if (waveform is null || waveform.Count == 0)
                 throw new IOException("No audio could be decoded from this track.");
             Directory.CreateDirectory(cacheDirectory);

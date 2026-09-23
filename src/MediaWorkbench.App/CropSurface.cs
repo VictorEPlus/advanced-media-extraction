@@ -45,11 +45,11 @@ public sealed class CropSurface : FrameworkElement
     private const double GrabberLength = 46;
     private const double GrabberThickness = 7;
     private static readonly CropEdge[] EdgeOrder = [CropEdge.Left, CropEdge.Top, CropEdge.Right, CropEdge.Bottom];
-    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(235, 188, 69));
-    private static readonly SolidColorBrush InkBrush = Tokens.Brush("InkBrush", Color.FromRgb(243, 238, 227));
+    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0, 229, 255));
+    private static readonly SolidColorBrush InkBrush = Tokens.Brush("InkBrush", Color.FromRgb(237, 234, 255));
     private static readonly Brush ShadeBrush = Frozen(new SolidColorBrush(Color.FromArgb(145, 0, 0, 0)));
-    private static readonly Brush GrabberOutline = Frozen(new SolidColorBrush(Color.FromArgb(200, 20, 19, 16)));
-    private static readonly Brush ChipBackground = Frozen(new SolidColorBrush(Color.FromArgb(225, 46, 43, 37)));
+    private static readonly Brush GrabberOutline = Frozen(new SolidColorBrush(Color.FromArgb(200, 5, 4, 10)));
+    private static readonly Brush ChipBackground = Frozen(new SolidColorBrush(Color.FromArgb(225, 33, 29, 56)));
     private Point? dragStart;
     private CropEdge dragEdge;
 
@@ -196,7 +196,7 @@ public sealed class CropSurface : FrameworkElement
 
     protected override void OnRender(DrawingContext context)
     {
-        context.DrawRectangle(Tokens.Brush("MonitorBrush", Color.FromRgb(20, 19, 16)), null, new Rect(RenderSize));
+        context.DrawRectangle(Tokens.Brush("MonitorBrush", Color.FromRgb(11, 10, 20)), null, new Rect(RenderSize));
         if (Source is not { } image || ActualWidth <= 0 || ActualHeight <= 0) return;
         var (bounds, scale) = Fit(image);
         if (IsEdgeEditing)

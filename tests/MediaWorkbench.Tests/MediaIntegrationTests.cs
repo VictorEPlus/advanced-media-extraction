@@ -148,7 +148,7 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
     }
 
     [Fact]
-    public async Task IndexingReportsHowManyFramesHaveBeenReadAndStaysSilentWhenCached()
+    public async Task IndexingReportsProgressWithoutFloodingAndStaysSilentWhenCached()
     {
         var engine = new MediaEngine(fixture.Tools, fixture.Temporary.FilePath("progress cache"));
         var asset = fixture.Asset(fixture.LongPath);
@@ -156,7 +156,9 @@ public sealed class MediaIntegrationTests(MediaFixture fixture) : IClassFixture<
         var reports = new List<int>();
         var frames = await engine.IndexFramesAsync(asset, info, progress: new Collecting(reports));
         Assert.Equal(300, frames.Count);
-        Assert.True(reports.Count >= 12, "Expected a report every 25 frames.");
+        // Reports are throttled to a few a second so they cannot swamp the interface, so a file this short may only report once.
+        Assert.NotEmpty(reports);
+        Assert.True(reports.Count <= 12, $"A 300-frame file should not report {reports.Count} times.");
         Assert.Equal(reports.Order(), reports);
         Assert.Equal(300, reports[^1]);
         reports.Clear();

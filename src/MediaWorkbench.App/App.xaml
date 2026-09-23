@@ -5,24 +5,26 @@
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BoolVisibility" />
 
-        <!-- Tokens. Warm graphite surfaces, stepped clearly apart so panels, buttons and fields read as separate layers;
-             one tungsten-amber accent reserved for the timeline, the primary action and the selected item. See docs/DESIGN.md. -->
-        <SolidColorBrush x:Key="CanvasBrush" Color="#23211C" />
-        <SolidColorBrush x:Key="PanelBrush" Color="#2E2B25" />
-        <SolidColorBrush x:Key="RaisedBrush" Color="#403C33" />
-        <SolidColorBrush x:Key="InputBrush" Color="#1B1915" />
-        <SolidColorBrush x:Key="MonitorBrush" Color="#141310" />
-        <SolidColorBrush x:Key="BorderBrush" Color="#5A5447" />
-        <SolidColorBrush x:Key="InkBrush" Color="#F3EEE3" />
-        <SolidColorBrush x:Key="MutedBrush" Color="#BBB3A0" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#EBBC45" />
-        <SolidColorBrush x:Key="AccentInkBrush" Color="#1A1607" />
-        <SolidColorBrush x:Key="ErrorBrush" Color="#E0645F" />
-        <SolidColorBrush x:Key="SuccessBrush" Color="#7CB86A" />
+        <!-- Tokens. Indigo night surfaces, stepped clearly apart so panels, buttons and fields read as separate layers;
+             one electric-cyan accent reserved for the timeline, the primary action and the selected item, with a magenta
+             second accent used only for favorites. See docs/DESIGN.md. -->
+        <SolidColorBrush x:Key="CanvasBrush" Color="#161326" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#211D38" />
+        <SolidColorBrush x:Key="RaisedBrush" Color="#332C55" />
+        <SolidColorBrush x:Key="InputBrush" Color="#100E1C" />
+        <SolidColorBrush x:Key="MonitorBrush" Color="#0B0A14" />
+        <SolidColorBrush x:Key="BorderBrush" Color="#514A86" />
+        <SolidColorBrush x:Key="InkBrush" Color="#EDEAFF" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#A9A2CC" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#00E5FF" />
+        <SolidColorBrush x:Key="AccentInkBrush" Color="#04121A" />
+        <SolidColorBrush x:Key="AccentAltBrush" Color="#FF4BD8" />
+        <SolidColorBrush x:Key="ErrorBrush" Color="#FF4D6D" />
+        <SolidColorBrush x:Key="SuccessBrush" Color="#2BE58B" />
         <!-- Chart series: fixed order, validated for colour-blind separation and contrast on PanelBrush. -->
-        <SolidColorBrush x:Key="ChartPhotoBrush" Color="#3987E5" />
-        <SolidColorBrush x:Key="ChartVideoBrush" Color="#D95926" />
-        <SolidColorBrush x:Key="ChartAudioBrush" Color="#199E70" />
+        <SolidColorBrush x:Key="ChartPhotoBrush" Color="#5A8CFF" />
+        <SolidColorBrush x:Key="ChartVideoBrush" Color="#E85C2A" />
+        <SolidColorBrush x:Key="ChartAudioBrush" Color="#00AC75" />
         <FontFamily x:Key="DisplayFont">Bahnschrift, Segoe UI</FontFamily>
 
         <Style x:Key="DarkWindowStyle" TargetType="Window">

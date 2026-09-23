@@ -56,6 +56,18 @@ Selecting a file first shows its filmstrip thumbnail, already in memory, scaled 
 
 With **Preview follows scroll** on, `MainWindow.Filmstrip.cs` finds the live thumbnail container nearest the marker on every scroll step and calls `PeekAsset`, which only swaps the stand-in picture, the name and a one-line description. Opening a file (probe, decode, index, layout changes) is deliberately not done per step: `CommitPeek` selects the peeked file once the strip has rested for 140 ms with no glide running and no mouse button held. Only scrolling the person does is followed (the wheel glide or the mouse held on the scrollbar); scans, filters, thumbnail-size changes and bringing a clicked file to the marker also move the strip and are ignored. The marker position is `FollowFocusX`: the middle of the view, sliding linearly to the edges within half a view of either end, which keeps "offset plus marker" strictly increasing so every file can be reached. The wheel sets a target offset and a per-frame, frame-rate independent ease-out moves towards it, so fast spinning accumulates instead of stuttering.
 
+## Combining pictures
+
+`StitchLayout` in the core project works out the combined picture from the source sizes alone: where each picture goes and how big it is drawn, as plain arithmetic with no drawing and no WPF, so it is unit-tested directly. Matching sizes never enlarges a picture (a row matches the shortest, a column the narrowest, a grid fits each into the smallest box), and a plan larger than 20,000 pixels on a side is scaled down as a whole rather than refused.
+
+`StitchRenderer` in the application draws a plan with `DrawingVisual` and `RenderTargetBitmap`. The preview and the export are the same call with a different scale, so what is shown is what is saved. The full-size drawing happens on the interface thread, where the pictures live, and the result is frozen so only encoding and writing are left for the export job.
+
+## Background work and playback
+
+Video playback is the one thing in the app with a deadline, and it competes with FFmpeg for the machine. Two things protect it. Tools nobody is waiting on - frame indexing, thumbnails, waveforms - start at below-normal priority (`ProcessRunner`'s `background` flag), so the decoder keeps the processor. And indexing progress is throttled to about eight reports a second: FFprobe reads thousands of frames a second, and reporting every 25 of them to the interface thread left it too busy to play video smoothly.
+
+The out marker is watched by a 20 ms timer rather than the player's own time reports, which arrive about four times a second: waiting for one stopped a marked range several frames past its end. Markers set during playback go the same way as a pause, taking the clock's guess at once and the matched frame a moment later.
+
 ## Safety and portability
 
 - Launch FFmpeg/FFprobe directly with `ProcessStartInfo.ArgumentList`, never through a command shell. Bound captured stderr, redirect both streams, and terminate the child process tree on cancellation.

@@ -1,3 +1,5 @@
+using System.Windows;
+using System.Windows.Threading;
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Media;
@@ -40,6 +42,33 @@ public sealed partial class MainViewModel
     /// <summary>Carries a reported time forward; never by more than 600 ms, so a stalled player cannot run the estimate away.</summary>
     internal static long InterpolatePlayerTime(long reportedMs, double elapsedMs, float rate) =>
         reportedMs + (long)Math.Round(Math.Clamp(elapsedMs, 0, 600) * (rate > 0 ? rate : 1));
+
+    /// <summary>
+    /// Watches for the out marker between the player's own time reports. Those are a quarter of a second apart, so waiting for
+    /// one always ran past the marker: a marked range would stop several frames late, and a short one could play past its end.
+    /// </summary>
+    private DispatcherTimer? rangeWatch;
+
+    private void WatchForRangeEnd()
+    {
+        rangeWatch ??= new DispatcherTimer(TimeSpan.FromMilliseconds(20), DispatcherPriority.Normal, (_, _) => CheckRangeEnd(), Application.Current.Dispatcher);
+        rangeWatch.Start();
+    }
+
+    private void StopWatchingRangeEnd() => rangeWatch?.Stop();
+
+    private void CheckRangeEnd()
+    {
+        if (disposed || !ShowPlayback || stopPlaybackAt is not { } stop)
+        {
+            StopWatchingRangeEnd();
+            return;
+        }
+        if (EstimatedPlayerTimeMs() < stop)
+            return;
+        StopWatchingRangeEnd();
+        FinishAtOutMarker();
+    }
 
     private void HoldVideoSurface()
     {
@@ -109,7 +138,7 @@ public sealed partial class MainViewModel
     /// a small snapshot of the paused player is compared with the decoded frames around the estimate and the closest one wins.
     /// The paused video picture stays on screen meanwhile, so what replaces it is the same frame. Any failure keeps the estimate.
     /// </summary>
-    private async Task RefinePausedFrameAsync(AssetViewModel item, int estimate)
+    private async Task RefinePausedFrameAsync(AssetViewModel item, int estimate, Action<int>? settled = null)
     {
         var version = ++pauseVersion;
         refiningPause = true;
@@ -138,6 +167,8 @@ public sealed partial class MainViewModel
             if (!StillPausedThere())
                 return;
             pausedAtFrame = best;
+            if (best != estimate)
+                settled?.Invoke(best);
             if (best != CurrentFrame)
                 CurrentFrame = best;
         }

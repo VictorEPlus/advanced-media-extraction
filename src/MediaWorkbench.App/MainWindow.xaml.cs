@@ -111,6 +111,12 @@ public partial class MainWindow : Window
         request.Item.Thumbnail = null;
     }
 
+    private async void FolderCoverLoaded(object sender, RoutedEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: FolderRowViewModel row })
+            await viewModel.LoadFolderCoversAsync(row);
+    }
+
     private void OnTourRequested(object? sender, EventArgs args) => StartTour();
 
     private void FolderToggleClicked(object sender, MouseButtonEventArgs args)

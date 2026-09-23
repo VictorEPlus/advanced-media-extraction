@@ -86,6 +86,7 @@ internal static partial class DesktopSmokeTest
         await CheckVideoCropAsync(viewModel, window, dataDirectory, tools, timeout.Token);
         await CheckCompactLayoutAsync(viewModel, window, dataDirectory, tools, timeout.Token);
         await CheckZoomAndFocusAsync(viewModel, window, dataDirectory, timeout.Token);
+        await CheckStitchAsync(viewModel, window, dataDirectory, photoItem, videoItem, timeout.Token);
         Require(viewModel.Notifications.All(notification => notification.Kind != NotificationKind.Error),
             "The scenario raised an unexpected error notification: " + string.Join(" | ", viewModel.Notifications.Where(notification => notification.Kind == NotificationKind.Error).Select(notification => notification.Message)));
         CheckLibraryAndTour(viewModel, window, dataDirectory, photoItem);
@@ -126,6 +127,19 @@ internal static partial class DesktopSmokeTest
         Require(model.VisibleCount == "70 of 99 files in shoot A" && window.VisibleCountText.ActualWidth > 100, $"The file count should name the folder being shown: {model.VisibleCount}");
         model.ClearFiltersCommand.Execute(null);
         Require(!model.HasFolderFilter && view.Count == 99, "Clear filters should also clear the folder filter.");
+
+        // Flattening a folder promotes its subfolders to the top level; removing one takes a branch out. Both are ways of
+        // looking at the same scan, so the file count follows and nothing on disk is touched.
+        var shootA = model.FolderRows.Single(row => row.Node.Path == "shoot A");
+        model.FlattenFolderCommand.Execute(shootA);
+        Require(model.ShowFolderEdits && model.FolderEditsLabel == "Flattened to shoot A", "Flattening should say what it did: " + model.FolderEditsLabel);
+        Require(view.Count == 70, $"Flattening to a folder should leave only its files in the filmstrip, not {view.Count}.");
+        Require(model.FolderRows.Count == 3 && model.FolderRows.Any(row => row.Name == "day 1") && model.FolderRows.Any(row => row.Name == "day 2"),
+            "The flattened folder's own subfolders should now be the top level.");
+        model.RemoveFolderCommand.Execute(model.FolderRows.Single(row => row.Name == "day 1"));
+        Require(view.Count == 30 && model.FolderEditsLabel == "Flattened to shoot A, 1 folder removed", "Removing a folder should take its files out as well: " + model.FolderEditsLabel);
+        model.ShowAllFoldersCommand.Execute(null);
+        Require(!model.ShowFolderEdits && view.Count == 99 && model.FolderRows.Count == 4, "Show all folders should put the whole library back.");
 
         window.StartTour();
         Require(window.IsTourActive && window.TourLayer.Visibility == Visibility.Visible, "The tour overlay should appear.");
@@ -175,8 +189,8 @@ internal static partial class DesktopSmokeTest
 
     private static void CheckDarkTheme(Window window)
     {
-        Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(35, 33, 28), "The main window lost its dark canvas background.");
-        Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(243, 238, 227), "The main window lost its readable foreground.");
+        Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(22, 19, 38), "The main window lost its dark canvas background.");
+        Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(237, 234, 255), "The main window lost its readable foreground.");
     }
 
     private static void CheckControlSurfaces(DependencyObject parent)

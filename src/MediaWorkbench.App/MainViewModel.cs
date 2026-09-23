@@ -181,8 +181,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnFavoritesOnlyChanged(bool value) => RefreshView();
     partial void OnSelectedAssetChanged(AssetViewModel? value)
     {
-        // The centre shows the Library map while nothing is selected and the Preview once a file is chosen.
-        MainTab = value is null ? 0 : 1;
+        // The centre shows the Library map while nothing is selected and the Preview once a file is chosen. Stitching stays
+        // put: picking the next picture to add must not throw you out of the tab you are adding it to.
+        if (!IsStitchTab)
+            MainTab = value is null ? 0 : 1;
         BeginInstantPreview(value);
         _ = LoadSelectionAsync(value);
     }
@@ -367,7 +369,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (value is not AssetViewModel item)
             return false;
-        return FolderTree.Contains(folderFilter, item.FolderKey)
+        return IsFolderIncluded(item)
+            && FolderTree.Contains(folderFilter, FolderKeyOf(item))
             && (!FavoritesOnly || item.IsFavorite)
             && (string.IsNullOrWhiteSpace(TagFilter) || item.Tags.Any(tag => tag.Contains(TagFilter.Trim(), StringComparison.OrdinalIgnoreCase)))
             && (string.IsNullOrWhiteSpace(SearchText) || item.Asset.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
@@ -431,6 +434,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ResetFrameMemory();
         armedExportCount = -1;
         stopPlaybackAt = null;
+        StopWatchingRangeEnd();
         Player.Stop();
         playerMediaPath = null;
         pauseVersion++;
@@ -443,6 +447,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IsCropping = false;
         IsMetadataTagMode = false;
         MediaSummary = "";
+        AspectHighlight = "";
         Metadata.Clear();
         SelectedTags.Clear();
         if (item is not null) foreach (var tag in item.Tags) SelectedTags.Add(tag);
@@ -783,13 +788,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// True for the Pause button itself: after pausing, the picture the player stopped on is compared with the decoded frames around
     /// the estimated position, so the still that replaces it is that very frame. Other callers move to a frame of their own next.
     /// </param>
-    private void PauseAtPlaybackPosition(bool refine = false)
+    /// <param name="settled">
+    /// Given the paused frame: first the clock's guess, then again the matched frame when refining changes it. Markers use this so
+    /// they land on the frame that was on screen rather than one or two frames off it.
+    /// </param>
+    private void PauseAtPlaybackPosition(bool refine = false, Action<int>? settled = null)
     {
         if (!ShowPlayback)
             return;
         // The player only reports its time about four times a second; between reports the clock is carried forward.
         var time = EstimatedPlayerTimeMs() / 1000.0;
         stopPlaybackAt = null;
+        StopWatchingRangeEnd();
         Player.SetPause(true);
         // Keep the paused video picture up until the exact still of that moment is ready, instead of flashing the
         // still from before playback started and then jumping to the right one.
@@ -799,8 +809,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             var frame = FrameAtTime(time);
             pausedAtFrame = frame;
+            settled?.Invoke(frame);
             if (refine && loadedAsset is { } item)
-                _ = RefinePausedFrameAsync(item, frame);
+                _ = RefinePausedFrameAsync(item, frame, settled);
             if (frame == CurrentFrame)
                 _ = SeekFrameAsync();
             else
@@ -879,6 +890,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         frameCancellation?.Cancel();
         playbackStart = startMs;
         stopPlaybackAt = stopMs;
+        if (stopMs is null) StopWatchingRangeEnd(); else WatchForRangeEnd();
         var path = SelectedAsset!.Asset.FullPath;
         ShowPlayback = true;
         ReleaseVideoSurface(force: true);
@@ -915,6 +927,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (disposed)
             return;
         stopPlaybackAt = null;
+        StopWatchingRangeEnd();
         playerMediaPath = null;
         ReleaseVideoSurface(force: true);
         ShowPlayback = false;
@@ -946,18 +959,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (HasFrames)
                 PlaybackFrame = FrameAtTime(time / 1000.0);
             if (stopPlaybackAt is { } stop && time >= stop)
-            {
-                stopPlaybackAt = null;
-                PauseAtPlaybackPosition();
-                if (HasFrames)
-                {
-                    CurrentFrame = Math.Clamp(OutFrame, 0, MaximumFrame);
-                    _ = SeekFrameAsync();
-                }
-                else AudioPosition = AudioStart;
-                Status = HasFrames ? "Reached the out marker." : "Reached the end of the selection.";
-            }
+                FinishAtOutMarker();
         });
+    }
+
+    /// <summary>Stops a marked range at its out marker and shows that frame. The range watcher usually gets here first; a time report is the fallback.</summary>
+    private void FinishAtOutMarker()
+    {
+        if (stopPlaybackAt is null)
+            return;
+        stopPlaybackAt = null;
+        PauseAtPlaybackPosition();
+        if (HasFrames)
+        {
+            CurrentFrame = Math.Clamp(OutFrame, 0, MaximumFrame);
+            _ = SeekFrameAsync();
+        }
+        else AudioPosition = AudioStart;
+        Status = HasFrames ? "Reached the out marker." : "Reached the end of the selection.";
     }
 
     [RelayCommand]
@@ -970,7 +989,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (AudioEnd <= AudioStart) AudioEnd = mediaInfo.Duration;
             return;
         }
-        PauseAtPlaybackPosition(); InFrame = CurrentFrame; if (OutFrame < InFrame) OutFrame = InFrame;
+        MarkAtPausedFrame(frame => { InFrame = frame; if (OutFrame < InFrame) OutFrame = InFrame; });
     }
 
     [RelayCommand]
@@ -982,7 +1001,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (AudioEnd <= AudioStart) AudioStart = 0;
             return;
         }
-        PauseAtPlaybackPosition(); OutFrame = CurrentFrame; if (InFrame > OutFrame) InFrame = OutFrame;
+        MarkAtPausedFrame(frame => { OutFrame = frame; if (InFrame > OutFrame) InFrame = OutFrame; });
+    }
+
+    /// <summary>
+    /// Puts a marker on the frame that was on screen. While the video plays, the clock only gives a frame or two of accuracy,
+    /// so the marker is set from that guess at once and then corrected when the paused picture has been matched.
+    /// </summary>
+    private void MarkAtPausedFrame(Action<int> mark)
+    {
+        if (ShowPlayback)
+            PauseAtPlaybackPosition(refine: true, settled: mark);
+        else
+            mark(Math.Clamp(CurrentFrame, 0, MaximumFrame));
     }
 
     private void SyncAudioPositionToFrame()

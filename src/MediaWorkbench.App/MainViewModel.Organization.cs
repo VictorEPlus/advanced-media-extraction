@@ -25,7 +25,7 @@ public sealed partial class MainViewModel
     public ObservableCollection<string> SelectedTags { get; } = [];
     public ObservableCollection<string> KnownTags { get; } = [];
     public ObservableCollection<CollectionItem> Collections { get; } = [];
-    public string[] SortOptions { get; } = ["Name (natural)", "Name (reverse)", "Newest modified", "Oldest modified", "Largest first", "Smallest first", "Media type", "Full path"];
+    public string[] SortOptions { get; } = ["Name (natural)", "Name (reverse)", "Newest modified", "Oldest modified", "Largest first", "Smallest first", "Media type", "Favorites first", "Full path"];
     public bool HasSelection => SelectedAsset is not null;
     public bool IsPhoto => SelectedAsset?.Asset.Kind == MediaKind.Photo;
     public bool IsVideo => SelectedAsset?.Asset.Kind == MediaKind.Video;
@@ -76,6 +76,22 @@ public sealed partial class MainViewModel
     [ObservableProperty] private PixelCrop? cropSelection;
     [ObservableProperty] private bool isCropping;
     [ObservableProperty] private string mediaSummary = "";
+    /// <summary>The shape of the picture, on its own so it can be shown as a chip you can find at a glance: "16:9", or "~9:16" when it is only close.</summary>
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(HasAspectHighlight))] private string aspectHighlight = "";
+    public bool HasAspectHighlight => AspectHighlight.Length > 0;
+
+    private void ShowAspect(int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+        {
+            AspectHighlight = "";
+            return;
+        }
+        var nearest = MediaDimensions.NearestCommonRatio(width, height);
+        var exact = MediaDimensions.AspectRatio(width, height);
+        AspectHighlight = exact == nearest || MediaDimensions.DescribeAspect(width, height) == nearest ? nearest : $"~{nearest}";
+    }
+
     [ObservableProperty] private bool isMetadataTagMode;
 
     private void InitializeOrganization()
@@ -144,6 +160,7 @@ public sealed partial class MainViewModel
                 "Largest first" => second.Asset.Length.CompareTo(first.Asset.Length),
                 "Smallest first" => first.Asset.Length.CompareTo(second.Asset.Length),
                 "Media type" => first.Asset.Kind.CompareTo(second.Asset.Kind),
+                "Favorites first" => second.IsFavorite.CompareTo(first.IsFavorite),
                 "Full path" => NaturalOrder.Compare(first.Asset.FullPath, second.Asset.FullPath),
                 _ => NaturalOrder.Compare(first.Name, second.Name)
             };
@@ -481,6 +498,7 @@ public sealed partial class MainViewModel
         {
             Metadata.Add(new MetadataRow("Dimensions", $"{image.PixelWidth} × {image.PixelHeight}, {(image.PixelWidth == image.PixelHeight ? "square" : image.PixelWidth > image.PixelHeight ? "landscape" : "portrait")}, {image.PixelWidth * (double)image.PixelHeight / 1000000:0.##} MP"));
             Metadata.Add(new MetadataRow("Aspect ratio", MediaDimensions.DescribeAspect(image.PixelWidth, image.PixelHeight)));
+            ShowAspect(image.PixelWidth, image.PixelHeight);
             MediaSummary = $"{image.PixelWidth:N0} × {image.PixelHeight:N0}, {MediaDimensions.DescribeAspect(image.PixelWidth, image.PixelHeight)}{headerRate}, {asset.Length / 1048576.0:N1} MB";
         }
         if (mediaInfo is { Duration: > 0 } info)
@@ -489,7 +507,11 @@ public sealed partial class MainViewModel
             Metadata.Add(new MetadataRow("Sound", info.AudioTracks.Count == 0 ? "none" : string.Join("; ", info.AudioTracks.Select(track => track.Label))));
             if (IsAudio) MediaSummary = $"{info.Duration:0.###} s, {info.AudioTracks.Count} tracks, {asset.Length / 1048576.0:N1} MB";
             else if (PreviewImage is null && values.TryGetValue("width", out var width) && values.TryGetValue("height", out var height))
+            {
                 MediaSummary = $"{width} × {height}{headerRate}, {info.Duration:0.###} s, {asset.Length / 1048576.0:N1} MB";
+                if (int.TryParse(width, out var probedWidth) && int.TryParse(height, out var probedHeight))
+                    ShowAspect(probedWidth, probedHeight);
+            }
         }
         var names = new Dictionary<string, string>
         {

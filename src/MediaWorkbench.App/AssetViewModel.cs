@@ -11,6 +11,13 @@ public sealed partial class AssetViewModel(MediaAsset asset, bool favorite) : Ob
     public string Details => $"{Asset.Kind} - {Asset.RelativePath}";
     public string FavoriteLabel => IsFavorite ? "★" : "☆";
     public string Placeholder => Asset.Kind == MediaKind.Audio ? "♫" : Asset.Kind == MediaKind.Video ? "▶" : "▧";
+    /// <summary>The corner badge on a thumbnail: one glyph per kind, in the colour the folder graph already uses for that kind.</summary>
+    public string KindGlyph => Asset.Kind switch { MediaKind.Video => "▶", MediaKind.Audio => "♫", _ => "▣" };
+    public string KindLabel => Asset.Kind.ToString();
+    public Brush KindBrush => Asset.Kind switch { MediaKind.Video => VideoBrush, MediaKind.Audio => AudioBrush, _ => PhotoBrush };
+    private static readonly SolidColorBrush PhotoBrush = Tokens.Brush("ChartPhotoBrush", Color.FromRgb(0x5A, 0x8C, 0xFF));
+    private static readonly SolidColorBrush VideoBrush = Tokens.Brush("ChartVideoBrush", Color.FromRgb(0xE8, 0x5C, 0x2A));
+    private static readonly SolidColorBrush AudioBrush = Tokens.Brush("ChartAudioBrush", Color.FromRgb(0x00, 0xAC, 0x75));
     public bool ThumbnailRequested { get; set; }
     /// <summary>Normalized folder this file lives in, relative to the library root (or the full folder for collections and tag searches).</summary>
     public string FolderKey { get; init; } = "";

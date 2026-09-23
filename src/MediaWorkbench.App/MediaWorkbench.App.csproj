@@ -5,7 +5,12 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>MediaWorkbench</AssemblyName>
+    <ApplicationIcon>Assets\MediaWorkbench.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The same mark as a resource, so the window and taskbar show it as well as the .exe in Explorer. -->
+    <Resource Include="Assets\MediaWorkbench.ico" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../MediaWorkbench.Core/MediaWorkbench.Core.csproj" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

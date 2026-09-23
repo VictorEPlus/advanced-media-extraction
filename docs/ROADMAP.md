@@ -57,6 +57,17 @@
 - [x] Verified seek for deep cache misses, in-memory frame cache with directional read-ahead, decode overlay only for slow decodes.
 - [x] Percentages in the folder tree and graph; filmstrip header removed and its height given to the thumbnails; side-panel scrollbars at the panel edge.
 
+## Theme, stitching and library editing
+
+- [x] Cyberpunk palette: indigo night surfaces, one electric-cyan accent with a glowing tab edge, magenta favorite stars, and brighter graph colours revalidated for colour-blind separation against the new panel colour.
+- [x] Application icon: a neon film frame, drawn once and built into a multi-size `.ico` for the executable, the window and the taskbar.
+- [x] Stitch tab: add a few pictures (a photo, a chosen video frame, or any file from the filmstrip), arrange them side by side, stacked or in a grid with a gap and a backdrop, match their sizes without enlarging, and export the result as PNG or JPEG.
+- [x] Album covers on folder rows: the first and last picture in the folder, fetched only when the row is on screen.
+- [x] Flatten a folder to its subfolders, or take a folder out of the library view, with one way back and no rescan.
+- [x] Kind badges on thumbnails, the sort drop-down repeated under the filmstrip, a favorites-first sort, and the aspect ratio as a lit chip under the file name.
+- [x] Smoother playback: background tools run at below-normal priority and indexing progress is throttled, so indexing a video no longer stutters what is playing.
+- [x] Marked range fixes: playing a range stops on the out frame instead of up to a quarter of a second past it, and marking while playing lands on the frame that was on screen.
+
 ## Next milestones
 
 - [ ] Interactive usability testing with representative user footage and large libraries.

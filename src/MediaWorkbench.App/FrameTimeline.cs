@@ -36,14 +36,14 @@ public sealed class FrameTimeline : FrameworkElement
     private const double RulerTop = TrackTop + TrackHeight + 4;
     private static readonly int[] TickSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
     // Colours come from the App.xaml tokens so the timeline follows the palette.
-    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xEB, 0xBC, 0x45));
-    private static readonly Brush TrackBrush = Tokens.Brush("BorderBrush", Color.FromRgb(0x56, 0x50, 0x43));
+    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x00, 0xE5, 0xFF));
+    private static readonly Brush TrackBrush = Tokens.Brush("BorderBrush", Color.FromRgb(0x51, 0x4A, 0x86));
     private static readonly Brush SelectionBrush = Tokens.WithAlpha(AccentBrush, 0x55);
-    private static readonly Brush PlayheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF3, 0xEE, 0xE3));
-    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xB9, 0xB1, 0x9E));
+    private static readonly Brush PlayheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xED, 0xEA, 0xFF));
+    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xA9, 0xA2, 0xCC));
     private static readonly Brush TickBrush = Tokens.WithAlpha(MutedBrush, 0x80);
-    private static readonly Brush LiveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x7C, 0xB8, 0x6A));
-    private static readonly Brush LabelBackground = Tokens.WithAlpha(Tokens.Brush("PanelBrush", Color.FromRgb(0x2E, 0x2B, 0x25)), 0xEB);
+    private static readonly Brush LiveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x2B, 0xE5, 0x8B));
+    private static readonly Brush LabelBackground = Tokens.WithAlpha(Tokens.Brush("PanelBrush", Color.FromRgb(0x21, 0x1D, 0x38)), 0xEB);
     private static readonly Typeface LabelTypeface = Tokens.Display;
 
     private enum DragTarget { None, Playhead, In, Out }

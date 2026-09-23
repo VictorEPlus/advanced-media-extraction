@@ -37,4 +37,14 @@ For hands-on validation on your hardware:
 21. Play a video and pause on a moment you can recognise exactly (a cut, a blink, a counter). The still that appears must be that same frame, with no flash and no jump forwards or backwards. Press Play again without touching anything: it must carry on from there without a hitch. Pause, step a few frames, then Play: it should start from the frame you stepped to, without first flashing the old paused picture. Repeat quickly several times, with Play marked range, on a long video, on a variable-frame-rate video and on one with a start offset. Select another file while playing, then come back and play again.
 22. Open Details for a photo and a video: all the usual facts should fit without scrolling on a 1080p screen, and the aspect ratio should name the closest everyday shape for odd sizes.
 
+23. Play a long video while it is still being indexed (the dots beside the frame counter are moving). Playback should stay smooth, and the dots should still climb. Scroll the filmstrip through a folder of videos while playing: still smooth. Step frame by frame through a long video and check the pictures keep up.
+
+24. Set an in and an out marker while the video is playing, on moments you can recognise. Each marker should settle on the frame you saw, within a moment of pressing the key. Play marked range: it should stop on the out frame, not past it. Try a range of two or three frames, and a range at the very end of the video.
+
+25. Open the Library tab: each folder row should show the first and last picture in it. Right-click a folder and choose Use its subfolders as the top level: its subfolders become the top-level rows, the filmstrip narrows to them, and a banner says what happened. Right-click one of those and take it out: its files go too. Show all folders: everything comes back. Open a different folder and check nothing was remembered.
+
+26. Open a photo and press Add to stitch, then pause a video on a frame and add that too. In the Stitch tab try each arrangement, the gap, the column count, Match sizes on and off, and each backdrop; the preview and the combined size should follow. Move a picture earlier and later. Export PNG, then open the file: it should match the preview exactly. Try a transparent backdrop with PNG, and JPEG. Add pictures of very different sizes, and add one from the filmstrip by right-clicking it.
+
+27. Check the new colours where it matters: the open tab's glowing edge, the timeline handles and marked range, the favorite stars, the folder graph legend, and the app icon in the taskbar and in Explorer.
+
 Native playback/GPU behavior, actual clipboard interoperability, huge libraries, filesystem/network latency, and all DPI/monitor combinations still require interactive verification.

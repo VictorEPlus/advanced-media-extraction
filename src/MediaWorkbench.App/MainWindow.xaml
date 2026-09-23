@@ -4,7 +4,7 @@
         xmlns:local="clr-namespace:MediaWorkbench.App"
         xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
         Style="{StaticResource DarkWindowStyle}" ThemeMode="Dark"
-        Title="Media Workbench" Width="1500" Height="940" MinWidth="1080" MinHeight="700"
+        Icon="Assets/MediaWorkbench.ico" Title="Media Workbench" Width="1500" Height="940" MinWidth="1080" MinHeight="700"
         WindowStartupLocation="CenterScreen" PreviewKeyDown="OnPreviewKeyDown" Closed="OnClosed" SizeChanged="OnWindowSizeChanged"
         AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver">
     <Window.Resources>
@@ -55,6 +55,8 @@
                             <Setter TargetName="TabBorder" Property="BorderBrush" Value="{StaticResource BorderBrush}" />
                             <Setter TargetName="TabBorder" Property="Margin" Value="0,0,3,0" />
                             <Setter TargetName="TabMark" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <!-- The open tab's edge glows: the only lit element in the row, so the eye finds it first. -->
+                            <Setter TargetName="TabMark" Property="Effect"><Setter.Value><DropShadowEffect Color="#00E5FF" BlurRadius="12" ShadowDepth="0" Opacity="0.75" /></Setter.Value></Setter>
                             <Setter TargetName="TabLabel" Property="Margin" Value="18,10,18,8" />
                             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
                         </Trigger>
@@ -83,7 +85,7 @@
         </Style>
         <!-- Messages appear at the bottom right of the centre view, where they cover picture or hint text but never a button. -->
         <DataTemplate x:Key="NotificationTemplate">
-            <Border Background="#F52E2B25" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10,6" Margin="0,6,0,0">
+            <Border Background="#F5211D38" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10,6" Margin="0,6,0,0">
                 <DockPanel>
                     <Border DockPanel.Dock="Left" Width="3" CornerRadius="1" Margin="0,0,10,0">
                         <Border.Style><Style TargetType="Border"><Setter Property="Background" Value="{StaticResource MutedBrush}" /><Style.Triggers>
@@ -191,6 +193,7 @@
                     <StackPanel x:Name="MainTabs" Orientation="Horizontal" VerticalAlignment="Bottom">
                         <RadioButton x:Name="LibraryTabButton" Content="Library" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsLibraryTab}" ToolTip="Folder tree and graph of where your media lives" />
                         <RadioButton x:Name="PreviewTabButton" Content="Preview" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsPreviewTab}" ToolTip="The selected photo, video or audio file with its tools" />
+                        <RadioButton x:Name="StitchTabButton" Content="Stitch" GroupName="MainTabs" Style="{StaticResource MainTabButton}" IsChecked="{Binding IsStitchTab}" ToolTip="Combine a few pictures into one: side by side, stacked or in a grid" />
                     </StackPanel>
                     <Grid x:Name="SelectionHeader" Grid.Column="1" Margin="14,0,0,6" VerticalAlignment="Bottom" Visibility="{Binding IsPreviewTab, Converter={StaticResource BoolVisibility}}">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -198,6 +201,10 @@
                             <TextBlock Text="{Binding SelectionLabel}" FontFamily="{StaticResource DisplayFont}" FontSize="17" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedAsset.Asset.FullPath}" />
                             <DockPanel>
                                 <Border DockPanel.Dock="Right" Background="{StaticResource RaisedBrush}" CornerRadius="3" Padding="6,1" Margin="8,2,0,0" Visibility="{Binding IsSelectionHidden, Converter={StaticResource BoolVisibility}}" ToolTip="The selected file no longer matches the filters. It stays open until you choose another file."><TextBlock Text="Hidden by filters" Style="{StaticResource Hint}" /></Border>
+                                <!-- The shape of the picture, lit so it is the first thing found in this row. -->
+                                <Border x:Name="AspectChip" DockPanel.Dock="Left" Background="{StaticResource AccentBrush}" CornerRadius="3" Padding="7,0" Margin="0,2,8,0" VerticalAlignment="Center" Visibility="{Binding HasAspectHighlight, Converter={StaticResource BoolVisibility}}" ToolTip="The shape of this picture. A tilde means the exact ratio is only close to this everyday one; the Details tab has the exact figure.">
+                                    <TextBlock Text="{Binding AspectHighlight}" Foreground="{StaticResource AccentInkBrush}" FontFamily="{StaticResource DisplayFont}" FontSize="13" FontWeight="SemiBold" />
+                                </Border>
                                 <TextBlock Text="{Binding HeaderSummary}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
                             </DockPanel>
                         </StackPanel>
@@ -237,12 +244,33 @@
                                     </StackPanel>
                                     <TextBlock Text="Folders with media" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
                                 </DockPanel>
-                                <TextBlock DockPanel.Dock="Bottom" Text="Click a folder to show only its files in the filmstrip. Double-click or use Left/Right to open and close it. Counts include subfolders; the percentage is the share of the parent folder." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                <!-- What has been flattened or removed, with one way back. -->
+                                <Border x:Name="FolderEditsBanner" DockPanel.Dock="Top" Background="{StaticResource RaisedBrush}" CornerRadius="3" Padding="8,4" Margin="0,0,0,6" Visibility="{Binding ShowFolderEdits, Converter={StaticResource BoolVisibility}}">
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Content="Show all folders" Command="{Binding ShowAllFoldersCommand}" Margin="8,0,0,0" ToolTip="Puts every folder back. Nothing on disk was ever changed." />
+                                        <TextBlock Text="{Binding FolderEditsLabel}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                </Border>
+                                <TextBlock DockPanel.Dock="Bottom" Text="Click a folder to show only its files in the filmstrip. Double-click or use Left/Right to open and close it. Right-click a folder to flatten it to its subfolders or take it out. Counts include subfolders; the percentage is the share of the parent folder." Style="{StaticResource Hint}" Margin="0,8,0,0" />
                                 <ListBox x:Name="FolderTreeList" ItemsSource="{Binding FolderRows}" SelectedItem="{Binding SelectedFolderRow}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" KeyDown="FolderTreeKeyDown" MouseDoubleClick="FolderTreeDoubleClick" AutomationProperties.Name="Folders with media">
                                     <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource MediaListItem}"><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="4,3" /></Style></ListBox.ItemContainerStyle>
                                     <ListBox.ItemTemplate><DataTemplate>
-                                        <DockPanel Margin="{Binding Indent}" ToolTip="{Binding ToolTipText}">
+                                        <!-- A context menu is outside the visual tree, so the window's view model is handed to it through Tag. -->
+                                        <DockPanel Margin="{Binding Indent}" ToolTip="{Binding ToolTipText}" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                            <DockPanel.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Use its subfolders as the top level" Command="{Binding PlacementTarget.Tag.FlattenFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" ToolTip="Shows this folder's subfolders as separate top-level folders, as if each had been opened on its own." />
+                                                    <MenuItem Header="Take this folder out of the library" Command="{Binding PlacementTarget.Tag.RemoveFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" ToolTip="Hides this folder and everything under it. The files are not touched." />
+                                                    <Separator />
+                                                    <MenuItem Header="Show all folders" Command="{Binding PlacementTarget.Tag.ShowAllFoldersCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                                </ContextMenu>
+                                            </DockPanel.ContextMenu>
                                             <Border DockPanel.Dock="Left" Width="20" Background="Transparent" MouseLeftButtonDown="FolderToggleClicked" Cursor="Hand"><TextBlock Text="{Binding Glyph}" Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                                            <!-- Album cover: the first and last picture in the folder, fetched once the row is scrolled into view. -->
+                                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,8,0" VerticalAlignment="Center" Loaded="FolderCoverLoaded">
+                                                <Border Width="26" Height="26" CornerRadius="2" Background="{StaticResource MonitorBrush}" ClipToBounds="True"><Image Source="{Binding CoverFirst}" Stretch="UniformToFill" /></Border>
+                                                <Border Width="26" Height="26" CornerRadius="2" Background="{StaticResource MonitorBrush}" Margin="2,0,0,0" ClipToBounds="True" Visibility="{Binding HasSecondCover, Converter={StaticResource BoolVisibility}}"><Image Source="{Binding CoverLast}" Stretch="UniformToFill" /></Border>
+                                            </StackPanel>
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding ShareText}" FontFamily="{StaticResource DisplayFont}" Typography.NumeralAlignment="Tabular" Foreground="{StaticResource MutedBrush}" Width="42" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,2,0" ToolTip="Share of its parent folder" />
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" FontFamily="{StaticResource DisplayFont}" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" Margin="10,0,0,0" />
                                             <StackPanel>
@@ -275,8 +303,8 @@
                     <Border x:Name="PreviewMonitor" Grid.Row="1" MouseWheel="FrameWheel" Background="{StaticResource MonitorBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" ClipToBounds="True">
                         <Grid>
                             <local:CropSurface x:Name="PreviewSurface" Source="{Binding PreviewImage}" ViewKey="{Binding SelectedAsset}" Selection="{Binding CropSelection}" IsCropping="{Binding IsCropping}" EdgeSelection="{Binding VideoCrop}" IsEdgeEditing="{Binding ShowFramingTools}" Rotation="{Binding VideoRotation}" SelectedEdge="{Binding SelectedCropEdge}" />
-                            <Border Background="#66141310" IsHitTestVisible="False" Visibility="{Binding IsPreviewStale, Converter={StaticResource BoolVisibility}}" />
-                            <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Background="#EB2E2B25" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10,6" IsHitTestVisible="False" Visibility="{Binding ShowPendingOverlay, Converter={StaticResource BoolVisibility}}">
+                            <Border Background="#660B0A14" IsHitTestVisible="False" Visibility="{Binding IsPreviewStale, Converter={StaticResource BoolVisibility}}" />
+                            <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Background="#EB211D38" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10,6" IsHitTestVisible="False" Visibility="{Binding ShowPendingOverlay, Converter={StaticResource BoolVisibility}}">
                                 <StackPanel><TextBlock Text="{Binding PendingLabel}" /><ProgressBar Height="3" IsIndeterminate="True" Margin="0,6,0,0" Visibility="{Binding IsPreviewBusy, Converter={StaticResource BoolVisibility}}" /></StackPanel>
                             </Border>
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Margin="24" Visibility="{Binding ShowEmptyState, Converter={StaticResource BoolVisibility}}">
@@ -383,6 +411,7 @@
                                     <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionRowButton}"><Setter Property="Content" Value="Crop" /><Style.Triggers><DataTrigger Binding="{Binding IsCropping}" Value="True"><Setter Property="Content" Value="Cropping on" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
                                 </Button>
                                 <Button Content="Reset crop" Command="{Binding ResetCropCommand}" Visibility="{Binding HasCrop, Converter={StaticResource BoolVisibility}}" />
+                                <Button x:Name="AddToStitchButton" Content="Add to stitch" Command="{Binding AddToStitchCommand}" IsEnabled="{Binding CanCopy}" Style="{StaticResource ActionRowButton}" ToolTip="Puts the picture on screen into the Stitch tab, where a few pictures can be combined into one." />
                                 <Button x:Name="FramingButton" Command="{Binding ToggleFramingCommand}" IsEnabled="{Binding CanFrame}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Crop and rotate the entire video: adjust four edges with grabbers or the arrow keys, turn it in quarter turns, then export a new MP4">
                                     <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionRowButton}"><Setter Property="Content" Value="Crop &amp; rotate video" /><Style.Triggers><DataTrigger Binding="{Binding IsFraming}" Value="True"><Setter Property="Content" Value="Crop &amp; rotate on" /><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" /></DataTrigger></Style.Triggers></Style></Button.Style>
                                 </Button>
@@ -394,6 +423,79 @@
                                 <Button x:Name="ExitFocusButton" Content="Exit focus view (F11)" Command="{Binding ToggleFocusViewCommand}" BorderBrush="{StaticResource AccentBrush}" ToolTip="Brings back the panels, filters and filmstrip exactly as they were. Esc does the same." />
                             </WrapPanel>
                         </WrapPanel>
+                    </DockPanel>
+                </Grid>
+
+                <!-- Stitch tab: a few pictures combined into one. The list on the left is the order they are drawn in. -->
+                <Grid x:Name="StitchTab" Grid.Row="1" Visibility="{Binding IsStitchTab, Converter={StaticResource BoolVisibility}}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Background="{StaticResource PanelBrush}" CornerRadius="3" Padding="10" Margin="0,0,8,0">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="Pictures to combine" Style="{StaticResource SectionTitle}" Margin="0,0,0,2" />
+                            <TextBlock DockPanel.Dock="Top" Text="{Binding StitchCountLabel}" Style="{StaticResource Hint}" Margin="0,0,0,8" />
+                            <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                                <UniformGrid Columns="2" Margin="0,0,0,6">
+                                    <Button x:Name="StitchMoveBackButton" Content="&#x25C0; Earlier" Command="{Binding MoveStitchItemCommand}" CommandParameter="back" Margin="0,0,3,0" ToolTip="Moves the chosen picture one place earlier in the order" />
+                                    <Button x:Name="StitchMoveForwardButton" Content="Later &#x25B6;" Command="{Binding MoveStitchItemCommand}" CommandParameter="forward" Margin="3,0,0,0" ToolTip="Moves the chosen picture one place later in the order" />
+                                </UniformGrid>
+                                <UniformGrid Columns="2">
+                                    <Button x:Name="StitchRemoveButton" Content="Remove" Command="{Binding RemoveFromStitchCommand}" Margin="0,0,3,0" />
+                                    <Button x:Name="StitchClearButton" Content="Clear all" Command="{Binding ClearStitchCommand}" Margin="3,0,0,0" />
+                                </UniformGrid>
+                            </StackPanel>
+                            <ListBox x:Name="StitchList" ItemsSource="{Binding StitchItems}" SelectedItem="{Binding SelectedStitchItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Pictures in the stitch">
+                                <ListBox.ItemTemplate><DataTemplate>
+                                    <DockPanel ToolTip="{Binding ToolTipText}">
+                                        <Border DockPanel.Dock="Left" Width="44" Height="32" Background="{StaticResource MonitorBrush}" CornerRadius="2" Margin="0,0,8,0" ClipToBounds="True"><Image Source="{Binding Picture}" Stretch="Uniform" /></Border>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                                            <TextBlock Text="{Binding SizeText}" Style="{StaticResource Hint}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate></ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                    <DockPanel Grid.Column="1">
+                        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" CornerRadius="3" Padding="10,6" Margin="0,0,0,8">
+                            <WrapPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,16,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Arrangement" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="StitchArrangementBox" Width="140" Height="28" Margin="0" ItemsSource="{Binding StitchArrangements}" SelectedItem="{Binding StitchArrangement}" AutomationProperties.Name="Arrangement" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,16,0" VerticalAlignment="Center" Visibility="{Binding IsGridStitch, Converter={StaticResource BoolVisibility}}">
+                                    <TextBlock Text="Columns" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <Slider x:Name="StitchColumnsSlider" Width="90" Minimum="1" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding StitchColumns}" VerticalAlignment="Center" AutomationProperties.Name="Columns" />
+                                    <TextBlock Text="{Binding StitchColumns}" FontFamily="{StaticResource DisplayFont}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,16,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Gap" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <Slider x:Name="StitchGapSlider" Width="90" Minimum="0" Maximum="120" Value="{Binding StitchGap}" VerticalAlignment="Center" AutomationProperties.Name="Gap between pictures" />
+                                    <TextBlock Text="{Binding StitchGap}" FontFamily="{StaticResource DisplayFont}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <CheckBox x:Name="StitchMatchBox" Content="Match sizes" IsChecked="{Binding StitchMatchSizes}" Margin="0,0,16,0" VerticalAlignment="Center" ToolTip="Scales the pictures so they line up. Nothing is ever enlarged; turn this off to keep every picture's own pixels." />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,16,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Backdrop" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="StitchBackdropBox" Width="120" Height="28" Margin="0" ItemsSource="{Binding StitchBackdrops}" SelectedItem="{Binding StitchBackdrop}" AutomationProperties.Name="Backdrop colour" />
+                                </StackPanel>
+                                <CheckBox x:Name="StitchJpegBox" Content="Save as JPEG" IsChecked="{Binding StitchAsJpeg}" VerticalAlignment="Center" ToolTip="PNG keeps every pixel exactly and can be transparent; JPEG makes a much smaller file." />
+                            </WrapPanel>
+                        </Border>
+                        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                            <Button x:Name="StitchExportButton" DockPanel.Dock="Right" Content="{Binding StitchExportLabel}" Command="{Binding ExportStitchCommand}" IsEnabled="{Binding CanStitch}" Style="{StaticResource AccentButton}" Margin="10,0,0,0" ToolTip="{Binding ExportDestination}" />
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource Hint}" TextTrimming="CharacterEllipsis">
+                                <Run Text="Add pictures with the Add to stitch button in the Preview tab, or by right-clicking a file in the filmstrip. Combined size:" /><Run Text=" " /><Run Text="{Binding StitchSizeLabel, Mode=OneWay}" FontFamily="{StaticResource DisplayFont}" Foreground="{StaticResource InkBrush}" />
+                            </TextBlock>
+                        </DockPanel>
+                        <Border Background="{StaticResource MonitorBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" ClipToBounds="True">
+                            <Grid>
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowStitchEmpty, Converter={StaticResource BoolVisibility}}">
+                                    <TextBlock Text="Nothing to combine yet" FontFamily="{StaticResource DisplayFont}" FontSize="18" HorizontalAlignment="Center" />
+                                    <TextBlock Text="Open a photo or pause a video on the frame you want, then press Add to stitch." Style="{StaticResource Hint}" Margin="0,6,0,0" HorizontalAlignment="Center" />
+                                </StackPanel>
+                                <Image x:Name="StitchPreviewImage" Source="{Binding StitchPreview}" Stretch="Uniform" StretchDirection="DownOnly" Margin="10" RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Grid>
+                        </Border>
                     </DockPanel>
                 </Grid>
 
@@ -417,7 +519,7 @@
                             <Button DockPanel.Dock="Bottom" Content="Add checked values as tags" Command="{Binding ConfirmMetadataTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="0,8,16,0" Visibility="{Binding IsMetadataTagMode, Converter={StaticResource BoolVisibility}}" />
                             <ScrollViewer x:Name="MetadataList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl ItemsSource="{Binding Metadata}" Margin="0,0,16,0"><ItemsControl.ItemTemplate><DataTemplate>
-                                    <Border BorderBrush="#405A5447" BorderThickness="0,0,0,1" Padding="0,3">
+                                    <Border BorderBrush="#40514A86" BorderThickness="0,0,0,1" Padding="0,3">
                                         <DockPanel>
                                             <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsSelected}" IsEnabled="{Binding CanTag}" Margin="0,0,8,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding Name}" Visibility="{Binding DataContext.IsMetadataTagMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVisibility}}" />
                                             <Grid>
@@ -523,11 +625,18 @@
                     <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
                     <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource MediaListItem}"><Setter Property="Margin" Value="0,0,4,0" /><Setter Property="Padding" Value="3" /></Style></ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate><DataTemplate>
-                        <StackPanel Width="{Binding DataContext.ThumbnailWidth, RelativeSource={RelativeSource AncestorType=Window}}" ToolTip="{Binding Details}">
+                        <StackPanel Width="{Binding DataContext.ThumbnailWidth, RelativeSource={RelativeSource AncestorType=Window}}" ToolTip="{Binding Details}" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                            <StackPanel.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Add to stitch" Command="{Binding PlacementTarget.Tag.AddToStitchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" ToolTip="Adds this file's picture to the Stitch tab." />
+                                </ContextMenu>
+                            </StackPanel.ContextMenu>
                             <Grid Height="{Binding DataContext.ThumbnailHeight, RelativeSource={RelativeSource AncestorType=Window}}" Background="{StaticResource MonitorBrush}">
                                 <TextBlock Text="{Binding Placeholder}" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
                                 <Image Source="{Binding Thumbnail}" Stretch="Uniform" Loaded="ThumbnailLoaded" Unloaded="ThumbnailUnloaded" DataContextChanged="ThumbnailContextChanged" />
-                                <Border Background="#D02E2B25" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="2" Padding="4,0" Visibility="{Binding IsFavorite, Converter={StaticResource BoolVisibility}}"><TextBlock Text="{Binding FavoriteLabel}" Foreground="{StaticResource AccentBrush}" FontSize="15" /></Border>
+                                <Border Background="#D0211D38" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="2" Padding="4,0" Visibility="{Binding IsFavorite, Converter={StaticResource BoolVisibility}}"><TextBlock Text="{Binding FavoriteLabel}" Foreground="{StaticResource AccentAltBrush}" FontSize="15" /></Border>
+                                <!-- Photo, video or sound, without having to read the file name. -->
+                                <Border Background="#D00B0A14" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="2" CornerRadius="2" Padding="4,1" ToolTip="{Binding KindLabel}"><TextBlock Text="{Binding KindGlyph}" Foreground="{Binding KindBrush}" FontSize="11" /></Border>
                             </Grid>
                             <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" Margin="0,4,0,0" ToolTip="{Binding Name}" />
                         </StackPanel>
@@ -541,6 +650,11 @@
         </Border>
         <DockPanel x:Name="StatusRow" Grid.Row="4" Margin="12,0">
             <CheckBox x:Name="FollowScrollBox" DockPanel.Dock="Right" Content="Preview follows scroll" IsChecked="{Binding FollowFilmstrip}" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="11" ToolTip="Scroll the filmstrip and the preview shows the file under the amber marker straight away. The file is opened fully when you stop scrolling." />
+            <!-- The same sort as the filter bar, repeated where the files actually are. -->
+            <StackPanel x:Name="FilmstripSortControl" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                <TextBlock Text="Sort" Style="{StaticResource Hint}" VerticalAlignment="Center" />
+                <ComboBox x:Name="FilmstripSortBox" Width="152" Height="26" Margin="8,0,0,0" ItemsSource="{Binding SortOptions}" SelectedItem="{Binding SortMethod}" AutomationProperties.Name="Sort the filmstrip" ToolTip="Orders every file in the filmstrip. The filter bar at the top has the same setting." />
+            </StackPanel>
             <StackPanel x:Name="ThumbnailSizeControl" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0"><TextBlock Text="Thumbnail size" Style="{StaticResource Hint}" VerticalAlignment="Center" /><Slider Width="120" Minimum="56" Maximum="168" Value="{Binding ThumbnailHeight}" Margin="8,0,0,0" AutomationProperties.Name="Thumbnail size" /></StackPanel>
             <TextBlock x:Name="StatusText" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Status}" AutomationProperties.LiveSetting="Polite" />
         </DockPanel>

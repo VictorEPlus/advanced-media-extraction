@@ -55,17 +55,17 @@ public sealed class WaveformView : FrameworkElement
     private const double HandleReach = 6;
     private const double ClickSlop = 4;
     private static readonly double[] TickSteps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
-    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xEB, 0xBC, 0x45));
-    private static readonly SolidColorBrush WaveBrush = Tokens.Brush("ChartAudioBrush", Color.FromRgb(0x19, 0x9E, 0x70));
-    private static readonly SolidColorBrush MonitorBrush = Tokens.Brush("MonitorBrush", Color.FromRgb(0x14, 0x13, 0x10));
-    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xBB, 0xB3, 0xA0));
-    private static readonly Brush BorderBrush = Tokens.Brush("BorderBrush", Color.FromRgb(0x5A, 0x54, 0x47));
-    private static readonly Brush PlayheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF3, 0xEE, 0xE3));
-    private static readonly Brush LiveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x7C, 0xB8, 0x6A));
+    private static readonly SolidColorBrush AccentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x00, 0xE5, 0xFF));
+    private static readonly SolidColorBrush WaveBrush = Tokens.Brush("ChartAudioBrush", Color.FromRgb(0x00, 0xAC, 0x75));
+    private static readonly SolidColorBrush MonitorBrush = Tokens.Brush("MonitorBrush", Color.FromRgb(0x0B, 0x0A, 0x14));
+    private static readonly SolidColorBrush MutedBrush = Tokens.Brush("MutedBrush", Color.FromRgb(0xA9, 0xA2, 0xCC));
+    private static readonly Brush BorderBrush = Tokens.Brush("BorderBrush", Color.FromRgb(0x51, 0x4A, 0x86));
+    private static readonly Brush PlayheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xED, 0xEA, 0xFF));
+    private static readonly Brush LiveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x2B, 0xE5, 0x8B));
     private static readonly Brush SelectionBrush = Tokens.WithAlpha(AccentBrush, 0x30);
     private static readonly Brush OutsideBrush = Tokens.WithAlpha(MonitorBrush, 0xA8);
     private static readonly Brush TickBrush = Tokens.WithAlpha(MutedBrush, 0x80);
-    private static readonly Brush LabelBackground = Tokens.WithAlpha(Tokens.Brush("PanelBrush", Color.FromRgb(0x2E, 0x2B, 0x25)), 0xEB);
+    private static readonly Brush LabelBackground = Tokens.WithAlpha(Tokens.Brush("PanelBrush", Color.FromRgb(0x21, 0x1D, 0x38)), 0xEB);
 
     private enum DragTarget { None, New, Start, End }
     private DragTarget drag;

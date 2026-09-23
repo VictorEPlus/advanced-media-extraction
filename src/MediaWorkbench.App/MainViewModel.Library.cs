@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MediaWorkbench.Core;
@@ -21,6 +22,14 @@ public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool 
     /// <summary>This folder as a share of its parent folder, for example 71%. Empty for the root.</summary>
     public string ShareText => Depth == 0 ? "" : MainViewModel.Percent(Node.Total, parentTotal);
     public string ToolTipText => $"{(Node.Path.Length == 0 ? Node.Name : Node.Path)}\n{KindText}, {MainViewModel.DescribeSize(Node.Bytes)}\n{Node.DirectTotal:N0} directly in this folder";
+
+    /// <summary>The two pictures that stand for the folder, like the ends of an album: its first and its last visual file.</summary>
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(HasCover))] private ImageSource? coverFirst;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(HasSecondCover))] private ImageSource? coverLast;
+    public bool HasCover => CoverFirst is not null;
+    public bool HasSecondCover => CoverLast is not null;
+    /// <summary>Set the first time the row appears, so scrolling past it again costs nothing.</summary>
+    internal bool CoversRequested;
 }
 
 public sealed partial class MainViewModel
@@ -33,6 +42,101 @@ public sealed partial class MainViewModel
     private string folderFilter = "";
     private bool suppressFolderSelection;
     private DateTime lastFolderTreeBuild = DateTime.MinValue;
+
+    /// <summary>
+    /// Two ways to deal with opening one folder and then wanting its subfolders on their own. Flattening makes a folder's
+    /// subfolders the top level, as if each had been opened separately; removing takes a branch out of the library altogether.
+    /// Both are ways of looking at the files already scanned, so neither rescans and neither touches a file.
+    /// </summary>
+    private string flattenedRoot = "";
+    private readonly HashSet<string> removedFolders = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool ShowFolderEdits => flattenedRoot.Length > 0 || removedFolders.Count > 0;
+    public string FolderEditsLabel => (flattenedRoot.Length, removedFolders.Count) switch
+    {
+        (0, 0) => "",
+        (0, 1) => "1 folder removed",
+        (0, var removed) => $"{removed:N0} folders removed",
+        (_, 0) => $"Flattened to {LastSegment(flattenedRoot)}",
+        (_, 1) => $"Flattened to {LastSegment(flattenedRoot)}, 1 folder removed",
+        (_, var removed) => $"Flattened to {LastSegment(flattenedRoot)}, {removed:N0} folders removed"
+    };
+
+    private static string LastSegment(string path) => path.Split('\\').LastOrDefault() is { Length: > 0 } name ? name : path;
+
+    /// <summary>The folder a file counts as being in once the library has been flattened; empty for files directly in the flattened folder.</summary>
+    private string FolderKeyOf(AssetViewModel item) =>
+        flattenedRoot.Length == 0 ? item.FolderKey
+        : item.FolderKey.Length <= flattenedRoot.Length ? ""
+        : item.FolderKey[(flattenedRoot.Length + 1)..];
+
+    /// <summary>False for files under a removed folder, or outside the flattened one.</summary>
+    private bool IsFolderIncluded(AssetViewModel item) =>
+        FolderTree.Contains(flattenedRoot, item.FolderKey)
+        && (removedFolders.Count == 0 || !removedFolders.Any(folder => FolderTree.Contains(folder, item.FolderKey)));
+
+    /// <summary>A row's folder as the scan knows it: rows are keyed against the flattened view, the rest of the app against the library.</summary>
+    private string RealKey(FolderRowViewModel row) =>
+        flattenedRoot.Length == 0 ? row.Node.Path
+        : row.Node.Path.Length == 0 ? flattenedRoot
+        : flattenedRoot + "\\" + row.Node.Path;
+
+    [RelayCommand]
+    private void FlattenFolder(FolderRowViewModel? row)
+    {
+        if (row is null)
+            return;
+        var key = RealKey(row);
+        if (key.Length == 0)
+            return;
+        flattenedRoot = key;
+        folderFilter = "";
+        expandedFolders.Clear();
+        RefreshView();
+        RebuildFolderTree();
+        NotifyFolderEdits();
+        Status = $"Flattened to {LastSegment(key)}: its subfolders are now the top level. Use Show all folders to go back.";
+    }
+
+    [RelayCommand]
+    private void RemoveFolder(FolderRowViewModel? row)
+    {
+        if (row is null)
+            return;
+        var key = RealKey(row);
+        if (key.Length == 0 || key.Equals(flattenedRoot, StringComparison.OrdinalIgnoreCase))
+            return;
+        removedFolders.Add(key);
+        if (FolderTree.Contains(key, folderFilter.Length == 0 ? "" : RealKeyOfFilter()))
+            folderFilter = "";
+        RefreshView();
+        RebuildFolderTree();
+        NotifyFolderEdits();
+        Status = $"Removed {LastSegment(key)} from the library view. The files are untouched; Show all folders brings them back.";
+
+        string RealKeyOfFilter() => flattenedRoot.Length == 0 ? folderFilter : flattenedRoot + "\\" + folderFilter;
+    }
+
+    [RelayCommand]
+    private void ShowAllFolders()
+    {
+        if (!ShowFolderEdits)
+            return;
+        flattenedRoot = "";
+        removedFolders.Clear();
+        folderFilter = "";
+        expandedFolders.Clear();
+        RefreshView();
+        RebuildFolderTree();
+        NotifyFolderEdits();
+        Status = "Showing every folder in the library again.";
+    }
+
+    private void NotifyFolderEdits()
+    {
+        OnPropertyChanged(nameof(ShowFolderEdits));
+        OnPropertyChanged(nameof(FolderEditsLabel));
+    }
 
     public ObservableCollection<FolderRowViewModel> FolderRows { get; } = [];
     public event EventHandler? TourRequested;
@@ -47,6 +151,7 @@ public sealed partial class MainViewModel
 
     public bool IsLibraryTab { get => MainTab == 0; set { if (value) MainTab = 0; } }
     public bool IsPreviewTab { get => MainTab == 1; set { if (value) MainTab = 1; } }
+    public bool IsStitchTab { get => MainTab == 2; set { if (value) MainTab = 2; } }
     public bool ShowLibraryEmpty => !hasSource || Assets.Count == 0;
     public bool ShowLibraryMap => !ShowLibraryEmpty;
     public bool HasFolderFilter => folderFilter.Length > 0;
@@ -59,6 +164,33 @@ public sealed partial class MainViewModel
     {
         OnPropertyChanged(nameof(IsLibraryTab));
         OnPropertyChanged(nameof(IsPreviewTab));
+        OnPropertyChanged(nameof(IsStitchTab));
+    }
+
+    /// <summary>
+    /// Fetches a folder's two cover pictures. Only rows that have actually been scrolled into view ask for them, and they share
+    /// the filmstrip's thumbnail cache and its two workers, so a library of hundreds of folders never floods the machine.
+    /// </summary>
+    internal async Task LoadFolderCoversAsync(FolderRowViewModel row)
+    {
+        if (row.CoversRequested)
+            return;
+        row.CoversRequested = true;
+        var path = row.Node.Path;
+        var inFolder = Assets
+            .Where(item => item.Asset.Kind != MediaKind.Audio && FolderTree.Contains(path, item.FolderKey))
+            .Order(Comparer<AssetViewModel>.Create((left, right) => NaturalOrder.Compare(left.Asset.RelativePath, right.Asset.RelativePath)))
+            .ToList();
+        if (inFolder.Count == 0)
+            return;
+        try
+        {
+            row.CoverFirst = await thumbnails.LoadAsync(inFolder[0].Asset, engine, lifetime.Token);
+            if (inFolder.Count > 1)
+                row.CoverLast = await thumbnails.LoadAsync(inFolder[^1].Asset, engine, lifetime.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { }
     }
 
     partial void OnSelectedFolderRowChanged(FolderRowViewModel? value)
@@ -138,6 +270,10 @@ public sealed partial class MainViewModel
         folderRoot = null;
         folderFilter = "";
         expandedFolders.Clear();
+        // A new source starts with nothing flattened or removed; those choices belong to the folder they were made in.
+        flattenedRoot = "";
+        removedFolders.Clear();
+        NotifyFolderEdits();
         lastFolderTreeBuild = DateTime.MinValue;
         suppressFolderSelection = true;
         try { FolderRows.Clear(); SelectedFolderRow = null; }
@@ -158,7 +294,8 @@ public sealed partial class MainViewModel
     internal void RebuildFolderTree()
     {
         lastFolderTreeBuild = DateTime.UtcNow;
-        folderRoot = FolderTree.Build(Assets.Select(item => (item.FolderKey, item.Asset)), string.IsNullOrWhiteSpace(SourceName) ? "All folders" : SourceName);
+        var rootName = flattenedRoot.Length > 0 ? LastSegment(flattenedRoot) : string.IsNullOrWhiteSpace(SourceName) ? "All folders" : SourceName;
+        folderRoot = FolderTree.Build(Assets.Where(IsFolderIncluded).Select(item => (FolderKeyOf(item), item.Asset)), rootName);
         if (folderFilter.Length > 0 && FolderTree.Find(folderRoot, folderFilter) is null)
         {
             folderFilter = "";
