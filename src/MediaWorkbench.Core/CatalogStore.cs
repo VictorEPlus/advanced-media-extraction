@@ -53,6 +53,58 @@ public sealed class CatalogStore
         transaction.Commit();
     }
 
+    /// <summary>
+    /// Everything indexed under <paramref name="root"/> the last time it was scanned, with favorites marked. Read before scanning, so a
+    /// folder opened before shows its files at once; the scan that follows only adds, updates and removes what changed.
+    /// </summary>
+    public List<(MediaAsset Asset, bool Favorite)> ReadIndex(string root)
+    {
+        root = NormalizeRoot(root);
+        var result = new List<(MediaAsset, bool)>();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT relative_path, kind, size, modified, favorite FROM assets WHERE root=$root;";
+        command.Parameters.AddWithValue("$root", root);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!Enum.TryParse<MediaKind>(reader.GetString(1), out var kind))
+                continue;
+            result.Add((new MediaAsset(root, reader.GetString(0), kind, reader.GetInt64(2), reader.GetInt64(3)), reader.GetInt64(4) == 1));
+        }
+        return result;
+    }
+
+    /// <summary>Forgets files under <paramref name="root"/> that a scan no longer found, except favorites, which are kept in case the file comes back.</summary>
+    public int Prune(string root, IReadOnlyCollection<string> relativePaths)
+    {
+        root = NormalizeRoot(root);
+        var present = new HashSet<string>(relativePaths, StringComparer.OrdinalIgnoreCase);
+        var gone = new List<string>();
+        using var connection = Open();
+        using (var select = connection.CreateCommand())
+        {
+            select.CommandText = "SELECT relative_path FROM assets WHERE root=$root AND favorite=0;";
+            select.Parameters.AddWithValue("$root", root);
+            using var reader = select.ExecuteReader();
+            while (reader.Read())
+                if (!present.Contains(reader.GetString(0)))
+                    gone.Add(reader.GetString(0));
+        }
+        using var transaction = connection.BeginTransaction();
+        foreach (var path in gone)
+        {
+            using var delete = connection.CreateCommand();
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM assets WHERE root=$root AND relative_path=$path;";
+            delete.Parameters.AddWithValue("$root", root);
+            delete.Parameters.AddWithValue("$path", path);
+            delete.ExecuteNonQuery();
+        }
+        transaction.Commit();
+        return gone.Count;
+    }
+
     public HashSet<string> GetFavorites(string root)
     {
         root = NormalizeRoot(root);

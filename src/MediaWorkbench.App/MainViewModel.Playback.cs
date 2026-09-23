@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using LibVLCSharp.Shared;
 using MediaWorkbench.Core;
 
 namespace MediaWorkbench.App;
@@ -19,9 +18,8 @@ public sealed partial class MainViewModel
     private const int PauseSearchBefore = 3;
     private const int PauseSearchAfter = 4;
 
-    private bool concealVideoSurface;
-    private int concealVersion;
     private int pausedAtFrame = -1;
+    private int liveBaseline;
     private int pauseVersion;
     private bool refiningPause;
     private long lastPlayerTimeMs;
@@ -70,9 +68,14 @@ public sealed partial class MainViewModel
         FinishAtOutMarker();
     }
 
+    /// <summary>
+    /// Keeps the player's last picture on screen after pausing, until the exact still of that frame is ready to take its place.
+    /// Both are drawn by the same surface, so the swap is invisible: the two pictures are the same frame.
+    /// </summary>
     private void HoldVideoSurface()
     {
-        if (!IsVideo || holdingVideoSurface)
+        live.Freeze();
+        if (!IsVideo || holdingVideoSurface || LiveImage is null)
             return;
         holdingVideoSurface = true;
         var version = ++holdVersion;
@@ -80,13 +83,15 @@ public sealed partial class MainViewModel
         _ = ReleaseLaterAsync(version);
     }
 
-    /// <summary>Lets the still take over from the paused video picture. While the paused frame is still being identified only a forced release does.</summary>
+    /// <summary>Lets the still take over from the paused player picture. While the paused frame is still being identified only a forced release does.</summary>
     private void ReleaseVideoSurface(bool force = false)
     {
         if (!holdingVideoSurface || refiningPause && !force)
             return;
         holdingVideoSurface = false;
         holdVersion++;
+        if (!ShowPlayback)
+            LiveImage = null;
         NotifyVideoSurface();
     }
 
@@ -98,45 +103,28 @@ public sealed partial class MainViewModel
             ReleaseVideoSurface(force: true);
     }
 
-    /// <summary>
-    /// Playing on from a different frame than the one the player is paused on: its surface still holds the old picture, so the
-    /// still stays in view until the player reports a time again (it has jumped), or for at most 600 ms.
-    /// </summary>
-    private void ConcealVideoSurfaceUntilSeekLands()
+    /// <summary>A new picture from the player: once playback has produced its first picture, the preview shows the player instead of the still.</summary>
+    private void OnLivePictureShown(object? sender, EventArgs args)
     {
-        concealVideoSurface = true;
-        var version = ++concealVersion;
-        NotifyVideoSurface();
-        _ = RevealLaterAsync(version);
-    }
-
-    private void RevealVideoSurface()
-    {
-        if (!concealVideoSurface)
+        if (disposed || !ShowPlayback || live.PictureCount <= liveBaseline || live.Bitmap is not { } bitmap)
             return;
-        concealVideoSurface = false;
-        concealVersion++;
-        NotifyVideoSurface();
+        if (!ReferenceEquals(LiveImage, bitmap))
+            LiveImage = bitmap;
     }
 
-    private async Task RevealLaterAsync(int version)
-    {
-        try { await Task.Delay(600, lifetime.Token); }
-        catch (OperationCanceledException) { return; }
-        if (version == concealVersion)
-            RevealVideoSurface();
-    }
+    partial void OnLiveImageChanged(System.Windows.Media.Imaging.BitmapSource? value) => NotifyVideoSurface();
 
     private void NotifyVideoSurface()
     {
         OnPropertyChanged(nameof(ShowVideoSurface));
         OnPropertyChanged(nameof(ShowInstantLayer));
+        OnPropertyChanged(nameof(ShowEmptyState));
     }
 
     /// <summary>
     /// Finds the frame the player really stopped on. The time estimate is good to a frame or two; the picture itself settles it:
-    /// a small snapshot of the paused player is compared with the decoded frames around the estimate and the closest one wins.
-    /// The paused video picture stays on screen meanwhile, so what replaces it is the same frame. Any failure keeps the estimate.
+    /// the paused picture, already in memory, is compared with the decoded frames around the estimate and the closest one wins.
+    /// The paused picture stays on screen meanwhile, so what replaces it is the same frame. Any failure keeps the estimate.
     /// </summary>
     private async Task RefinePausedFrameAsync(AssetViewModel item, int estimate, Action<int>? settled = null)
     {
@@ -146,7 +134,9 @@ public sealed partial class MainViewModel
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             limit.CancelAfter(VideoSurfaceHoldLimit - TimeSpan.FromMilliseconds(300));
-            var snapshot = await TakePausedSnapshotAsync(limit.Token);
+            // Let a picture that was already on its way to the screen land, so the one compared is the one showing.
+            await Task.Delay(40, limit.Token);
+            var snapshot = live.Capture();
             if (snapshot is null || !StillPausedThere() || mediaInfo is not { } info)
                 return;
             var selectedEngine = engine;
@@ -173,7 +163,7 @@ public sealed partial class MainViewModel
                 CurrentFrame = best;
         }
         catch (OperationCanceledException) { }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or NotSupportedException or ArgumentException or VLCException) { }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or NotSupportedException or ArgumentException) { }
         finally
         {
             if (version == pauseVersion)
@@ -185,36 +175,6 @@ public sealed partial class MainViewModel
         }
 
         bool StillPausedThere() => version == pauseVersion && loadedAsset == item && !ShowPlayback && CurrentFrame == estimate;
-    }
-
-    /// <summary>A small picture of what the paused player is showing, or null when the player cannot give one in time.</summary>
-    private async Task<BitmapSource?> TakePausedSnapshotAsync(CancellationToken token)
-    {
-        var folder = Path.Combine(dataDirectory, "cache");
-        Directory.CreateDirectory(folder);
-        var path = Path.Combine(folder, $"pause-{Guid.NewGuid():N}.tmp.png");
-        var taken = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnTaken(object? sender, MediaPlayerSnapshotTakenEventArgs args) => taken.TrySetResult(true);
-        Player.SnapshotTaken += OnTaken;
-        try
-        {
-            if (!await Task.Run(() => Player.TakeSnapshot(0, path, 320, 0), token))
-                return null;
-            await Task.WhenAny(taken.Task, Task.Delay(800, token));
-            for (var attempt = 0; attempt < 10 && !(File.Exists(path) && new FileInfo(path).Length > 0); attempt++)
-                await Task.Delay(30, token);
-            if (!File.Exists(path))
-                return null;
-            var bytes = await File.ReadAllBytesAsync(path, token);
-            return bytes.Length == 0 ? null : await Task.Run(() => DecodeImage(bytes), token);
-        }
-        finally
-        {
-            Player.SnapshotTaken -= OnTaken;
-            try { File.Delete(path); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
     }
 }
 

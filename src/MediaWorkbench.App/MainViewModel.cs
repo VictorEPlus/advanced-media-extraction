@@ -20,7 +20,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     /// <summary>Frame-sequence exports above this count require a second click on the same button.</summary>
     public const int LargeExportThreshold = 500;
-    public const int MaximumNotifications = 4;
+    /// <summary>More than two stacked messages covered a third of the picture; older ones give way.</summary>
+    public const int MaximumNotifications = 2;
+    /// <summary>Recent folders listed in the Sources panel, which keeps a fixed space for exactly this many.</summary>
+    public const int MaximumRecentShown = 5;
 
     private readonly CatalogStore catalog;
     private readonly SettingsStore settingsStore;
@@ -29,7 +32,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly LibVLC libVlc;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim exportGate = new(1);
-    private CancellationTokenSource? scanCancellation;
     private CancellationTokenSource? selectionCancellation;
     private CancellationTokenSource? frameCancellation;
     private CancellationTokenSource? indexCancellation;
@@ -56,6 +58,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private int prefetchIndex;
     private int prefetchDirection = 1;
     private bool slowDecode;
+    /// <summary>The last decode of the requested frame failed; the previous frame is still showing.</summary>
+    private bool decodeFailed;
+    private readonly LiveVideo live;
     private bool disposed;
 
     public BatchCollection<AssetViewModel> Assets { get; } = [];
@@ -76,13 +81,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public int MaximumFrame => Math.Max(0, frames.Count - 1);
     public bool IsPreviewBusy => IsFrameLoading || IsIndexing;
     /// <summary>True while the visible still is not the requested frame: a decode is pending or failed.</summary>
-    public bool IsPreviewStale => IsVideo && PreviewImage is not null && (IsFrameLoading ? slowDecode : DisplayedFrame != CurrentFrame);
+    public bool IsPreviewStale => IsVideo && PreviewImage is not null && (IsFrameLoading ? slowDecode : decodeFailed && DisplayedFrame != CurrentFrame);
     public bool ShowPendingOverlay => IsPreviewStale && !ShowPlayback;
     /// <summary>The thin progress line under the preview; like the overlay it only appears for decodes that are actually slow.</summary>
     public bool ShowFrameProgress => IsFrameLoading && (slowDecode || !IsVideo);
     public string PendingLabel => !IsVideo ? "" :
         IsFrameLoading ? $"Decoding frame {CurrentFrame:N0}…" :
-        DisplayedFrame != CurrentFrame ? $"Showing frame {DisplayedFrame:N0}. Frame {CurrentFrame:N0} could not be decoded." :
+        decodeFailed && DisplayedFrame != CurrentFrame ? $"Showing frame {DisplayedFrame:N0}. Frame {CurrentFrame:N0} could not be decoded." :
         IsIndexing && !HasFrames ? "Indexing frame timestamps for exact stepping…" : "";
     public string FrameLabel => !HasFrames ? (IsIndexing ? "Indexing frame timestamps…" : "Select a video for frame-accurate editing") :
         $"Frame {CurrentFrame:N0} / {MaximumFrame:N0}  ·  {frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time:0.000000}s  ·  zero-based";
@@ -98,7 +103,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string SelectedFramesLabel => !HasFrames ? "Export selected frames" : ExportLabelFor(Math.Max(0, OutFrame - InFrame + 1), "");
     public string AllFramesLabel => !HasFrames ? "Export all frames" : ExportLabelFor(frames.Count, "all ");
     public int ActiveJobCount => Jobs.Count(job => !job.IsFinished);
-    public string ExportBadge => ActiveJobCount > 0 ? $"Export ({ActiveJobCount})" : "Export";
+    public string ExportBadge => ActiveJobCount > 0 ? $"EXPORT ({ActiveJobCount})" : "EXPORT";
     public string JobHistoryLabel => $"Previous exports ({JobHistory.Count})";
     public bool ShowQueueHint => Jobs.Count == 0;
     public bool ShowEmptyState => PreviewImage is null && !ShowPlayback && !IsAudio && !ShowInstantLayer;
@@ -126,6 +131,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string exportDirectory;
     [ObservableProperty] private string ffmpegDirectory;
     [ObservableProperty] private int cacheMegabytes;
+    /// <summary>The playing video's picture, drawn by the preview instead of the still while set. See <see cref="LiveVideo"/>.</summary>
+    [ObservableProperty] private BitmapSource? liveImage;
 
     public MainViewModel(string dataDirectory)
     {
@@ -151,8 +158,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RefreshRecentLibraries();
         InitializeOrganization();
         LibVLCSharp.Shared.Core.Initialize();
-        libVlc = new LibVLC("--no-video-title-show", "--quiet");
+        // No text of VLC's own over the picture: not the file name when playback starts, and not the path of a snapshot.
+        libVlc = new LibVLC("--no-video-title-show", "--no-osd", "--no-snapshot-preview", "--quiet");
         Player = new MediaPlayer(libVlc);
+        live = new LiveVideo(Application.Current.Dispatcher);
+        live.Attach(Player);
+        live.PictureShown += OnLivePictureShown;
         Player.Playing += OnPlaying;
         Player.EndReached += OnEndReached;
         Player.TimeChanged += OnTimeChanged;
@@ -170,8 +181,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
                 Notify(NotificationKind.Info, "New here? The tour points at every panel and button and says what it does.", "Tour the UI", () => TourRequested?.Invoke(this, EventArgs.Empty), sticky: true);
             }
-            if (scanLastLibrary && Directory.Exists(LibraryRoot))
-                await OpenLibraryAsync(LibraryRoot);
+            if (scanLastLibrary)
+                await RestoreWorkspaceAsync();
+            _ = LearnTaggedDetailsAsync();
         }
         catch (Exception exception) { ReportError(exception); }
     }
@@ -188,7 +200,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         BeginInstantPreview(value);
         _ = LoadSelectionAsync(value);
     }
-    partial void OnCurrentFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); NotifyFrameState(); SyncAudioPositionToFrame(); _ = SeekFrameAsync(); }
+    // The decode is requested first, so the frame state below already says "loading" rather than a moment of "not decoded".
+    partial void OnCurrentFrameChanged(int value) { armedExportCount = -1; _ = SeekFrameAsync(); NotifyExportLabels(); NotifyFrameState(); SyncAudioPositionToFrame(); }
     partial void OnDisplayedFrameChanged(int value) => NotifyFrameState();
     partial void OnPreviewImageChanged(ImageSource? value)
     {
@@ -207,7 +220,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ShowVideoSurface));
         OnPropertyChanged(nameof(ShowInstantLayer));
         if (value) { IsCropping = false; CropSelection = null; }
-        else { PlaybackFrame = -1; SyncAudioPositionToFrame(); }
+        else
+        {
+            PlaybackFrame = -1;
+            SyncAudioPositionToFrame();
+            if (!holdingVideoSurface) LiveImage = null;
+        }
     }
     partial void OnInFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); UpdateAudioRange(); }
     partial void OnOutFrameChanged(int value) { armedExportCount = -1; NotifyExportLabels(); UpdateAudioRange(); }
@@ -221,18 +239,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _ = LoadWaveformAsync();
     }
 
+    /// <summary>Adds a folder to the workspace, beside the ones already open.</summary>
     [RelayCommand]
     private async Task OpenFolderAsync()
     {
-        var path = NativeDialogs.PickFolder("Choose a media library folder", LibraryRoot);
-        if (path is not null)
-            await OpenLibraryAsync(path);
+        var path = NativeDialogs.PickFolder("Add a folder to the workspace", CurrentFolder is { IsVirtual: false } current ? current.Path : LibraryRoot);
+        if (path is null)
+            return;
+        try { await AddFolderAsync(path); }
+        catch (Exception exception) { ReportError(exception); }
     }
 
-    [RelayCommand]
-    private Task OpenRecentAsync(RecentEntry? entry) => entry is null ? Task.CompletedTask : OpenPathAsync(entry.Path);
-
-    /// <summary>Opens a dropped or recent path: a folder becomes the library; a file opens its folder and selects the file.</summary>
+    /// <summary>Opens a dropped path: a folder joins the workspace; a file is selected, adding its folder first if it is not already open.</summary>
     public async Task OpenPathAsync(string path)
     {
         try
@@ -240,114 +258,40 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             path = Path.GetFullPath(path);
             if (Directory.Exists(path))
             {
-                await OpenLibraryAsync(path);
+                await AddFolderAsync(path);
                 return;
             }
             if (!File.Exists(path))
                 throw new DirectoryNotFoundException($"Not found: {path}");
-            var directory = Path.GetDirectoryName(path)!;
-            var existing = Assets.FirstOrDefault(item => string.Equals(item.Asset.FullPath, path, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null && !IsScanning)
+            if (Assets.FirstOrDefault(item => string.Equals(item.Asset.FullPath, path, StringComparison.OrdinalIgnoreCase) && item.Owner is { IsVirtual: false }) is { } existing)
             {
+                ShowFolder(existing.FolderKey);
                 SelectedAsset = existing;
                 return;
             }
             if (LibraryScanner.ReadFile(path) is null)
                 throw new NotSupportedException($"{Path.GetFileName(path)} is not a supported media type.");
             pendingSelectionPath = path;
-            await OpenLibraryAsync(directory);
-        }
-        catch (Exception exception) { ReportError(exception); }
-    }
-
-    [RelayCommand]
-    private async Task RescanAsync()
-    {
-        if (activeCollectionPath is not null)
-        {
-            try
-            {
-                var collection = collectionStore.Load(activeCollectionPath);
-                await LoadVirtualAsync(collection.Paths, collection.Name);
-            }
-            catch (Exception exception) { ReportError(exception); }
-        }
-        else if (virtualSource) await BrowseTaggedAsync();
-        else await OpenLibraryAsync(LibraryRoot);
-    }
-
-    [RelayCommand]
-    private void CancelScan() => scanCancellation?.Cancel();
-
-    public async Task OpenLibraryAsync(string root)
-    {
-        scanCancellation?.Cancel();
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        scanCancellation = cancellation;
-        IsScanning = true;
-        SelectedAsset = null;
-        Assets.Clear();
-        virtualSource = false;
-        activeCollectionPath = null;
-        hasSource = true;
-        ResetFolderTree();
-        OnPropertyChanged(nameof(IsCollectionView));
-        UpdateVisibleCount();
-        NotifyEmptyState();
-        try
-        {
-            LibraryRoot = Path.GetFullPath(root);
-            SourceName = Path.GetFileName(Path.TrimEndingDirectorySeparator(LibraryRoot));
-            OnPropertyChanged(nameof(SourceSummary));
-            var favorites = catalog.GetFavorites(LibraryRoot);
-            var scanRoot = LibraryRoot;
-            Status = "Scanning folders…";
-            await Task.Run(async () =>
-            {
-                var batch = new List<MediaAsset>(200);
-                foreach (var asset in new LibraryScanner().Scan(scanRoot, cancellation.Token))
-                {
-                    batch.Add(asset);
-                    if (batch.Count < 200)
-                        continue;
-                    await AddBatchAsync(batch.ToArray(), favorites, cancellation.Token);
-                    batch.Clear();
-                }
-                if (batch.Count > 0)
-                    await AddBatchAsync(batch.ToArray(), favorites, cancellation.Token);
-            }, cancellation.Token);
-            settings = settings.WithRecentLibrary(scanRoot);
-            settingsStore.Save(settings);
-            RefreshRecentLibraries();
-            Status = $"Found {Assets.Count:N0} media files. Unsupported files report errors inline; originals are never changed.";
-            if (pendingSelectionPath is { } missing)
-            {
-                pendingSelectionPath = null;
-                Notify(NotificationKind.Info, $"{Path.GetFileName(missing)} was not found in the scanned folder.");
-            }
-        }
-        catch (OperationCanceledException) { if (scanCancellation == cancellation) Status = "Scan cancelled. Already discovered items remain available."; }
-        catch (Exception exception) { ReportError(exception); }
-        finally
-        {
-            if (scanCancellation == cancellation) { IsScanning = false; scanCancellation = null; }
-            OnPropertyChanged(nameof(LibraryLabel));
-            UpdateVisibleCount();
-            RebuildFolderTree();
-            NotifyEmptyState();
-        }
-    }
-
-    private async Task AddBatchAsync(MediaAsset[] batch, HashSet<string> favorites, CancellationToken cancellationToken)
-    {
-        catalog.Index(batch, cancellationToken);
-        await Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.RelativePath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []), FolderKey = FolderKeyOf(asset) }));
+            await AddFolderAsync(Path.GetDirectoryName(path)!);
             AfterBatchAdded();
-            Status = $"Found {Assets.Count:N0} media files…";
-        }, DispatcherPriority.Background, cancellationToken);
+        }
+        catch (Exception exception) { ReportError(exception); }
+    }
+
+    /// <summary>Checks every folder in the workspace for files added, changed or removed since it was read. Nothing already shown is cleared.</summary>
+    [RelayCommand]
+    private void Rescan()
+    {
+        foreach (var folder in WorkspaceFolders.Where(folder => !folder.IsVirtual))
+            _ = ScanFolderAsync(folder, firstTime: false);
+        Status = "Checking the workspace folders for changes…";
+    }
+
+    [RelayCommand]
+    private void CancelScan()
+    {
+        foreach (var folder in WorkspaceFolders)
+            folder.Scan?.Cancel();
     }
 
     /// <summary>Re-syncs the filmstrip highlight after a collection reset and honours a pending drop/recent file selection.</summary>
@@ -360,6 +304,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (pendingSelectionPath is { } pending && Assets.FirstOrDefault(item => string.Equals(item.Asset.FullPath, pending, StringComparison.OrdinalIgnoreCase)) is { } match)
         {
             pendingSelectionPath = null;
+            ShowFolder(match.FolderKey);
             SelectedAsset = match;
         }
         else OnPropertyChanged(nameof(SelectedAsset));
@@ -370,7 +315,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (value is not AssetViewModel item)
             return false;
         return IsFolderIncluded(item)
-            && FolderTree.Contains(folderFilter, FolderKeyOf(item))
+            && FolderTree.Contains(folderFilter, item.FolderKey)
             && (!FavoritesOnly || item.IsFavorite)
             && (string.IsNullOrWhiteSpace(TagFilter) || item.Tags.Any(tag => tag.Contains(TagFilter.Trim(), StringComparison.OrdinalIgnoreCase)))
             && (string.IsNullOrWhiteSpace(SearchText) || item.Asset.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
@@ -386,8 +331,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (SelectedAsset is not { } item)
             return;
-        catalog.SetFavorite(item.Asset, !item.IsFavorite);
-        item.IsFavorite = !item.IsFavorite;
+        var favorite = !item.IsFavorite;
+        catalog.SetFavorite(item.Asset, favorite);
+        foreach (var same in Assets.Where(other => string.Equals(other.Asset.FullPath, item.Asset.FullPath, StringComparison.OrdinalIgnoreCase)))
+            same.IsFavorite = favorite;
         Status = item.IsFavorite ? $"Favorited {item.Name}" : $"Removed favorite: {item.Name}";
         RefreshView();
         OnPropertyChanged(nameof(LibraryLabel));
@@ -396,11 +343,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ExportFavorites() => Guard(() =>
     {
-        RequireLibrary();
+        var root = RequireLibrary();
         var path = NativeDialogs.SaveJson("Export favorites", settings.ExportDirectory, "favorites.json");
         if (path is null)
             return;
-        File.WriteAllText(path, catalog.ExportFavorites(LibraryRoot));
+        File.WriteAllText(path, catalog.ExportFavorites(root));
         Status = "Favorites exported. Copy your media separately, then import after scanning its new location.";
         Notify(NotificationKind.Success, "Favorites exported.", "Open", () => RevealPath(path));
     });
@@ -408,16 +355,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ImportFavorites() => Guard(() =>
     {
-        RequireLibrary();
+        var root = RequireLibrary();
         if (IsScanning)
             throw new InvalidOperationException("Wait for the folder scan to finish before importing favorites.");
         var path = NativeDialogs.OpenJson("Import favorites", settings.ExportDirectory);
         if (path is null)
             return;
-        var count = catalog.ImportFavorites(LibraryRoot, File.ReadAllText(path));
-        var favorites = catalog.GetFavorites(LibraryRoot);
+        var count = catalog.ImportFavorites(root, File.ReadAllText(path));
+        var favorites = catalog.GetFavoritePaths();
         foreach (var item in Assets)
-            item.IsFavorite = favorites.Contains(item.Asset.RelativePath);
+            item.IsFavorite = favorites.Contains(Path.GetFullPath(item.Asset.FullPath));
         RefreshView();
         OnPropertyChanged(nameof(LibraryLabel));
         Status = $"Matched {count:N0} favorites to this folder. Unmatched relative paths were skipped.";
@@ -435,22 +382,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         armedExportCount = -1;
         stopPlaybackAt = null;
         StopWatchingRangeEnd();
-        Player.Stop();
+        // Stopping waits for VLC's threads, so it is only done when something is actually open.
+        if (playerMediaPath is not null || Player.State is VLCState.Playing or VLCState.Paused or VLCState.Opening or VLCState.Buffering)
+            Player.Stop();
         playerMediaPath = null;
         pauseVersion++;
         refiningPause = false;
         pausedAtFrame = -1;
-        ReleaseVideoSurface(force: true);
+        holdingVideoSurface = false;
+        holdVersion++;
+        live.Thaw();
         ShowPlayback = false;
+        LiveImage = null;
         PreviewImage = null;
         CropSelection = null;
         IsCropping = false;
         IsMetadataTagMode = false;
-        MediaSummary = "";
+        // What is known without opening the file goes up at once, so the details never blank out and then refill.
+        MediaSummary = item is null ? "" : $"{item.Asset.Kind}, {item.Asset.Length / 1048576.0:N1} MB";
         AspectHighlight = "";
-        Metadata.Clear();
-        SelectedTags.Clear();
-        if (item is not null) foreach (var tag in item.Tags) SelectedTags.Add(tag);
+        ShowBasicMetadata(item?.Asset);
+        currentTraits = null;
+        ShowTagsOf(item);
+        UpdateSuggestions();
         displayedFrameBytes = null;
         DisplayedFrame = -1;
         frames = [];
@@ -495,11 +449,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     PreviewImage = photo.Image;
                     DisplayedFrame = 0;
                     ShowMetadata(item.Asset, photo.Metadata);
+                    _ = ReadTraitsAsync(item, photo.Metadata, photo.Image.PixelWidth, photo.Image.PixelHeight, 0);
                     Status = "Image ready. Drag a crop and copy pixels, or tag/stage this file. No video controls needed.";
                     return;
                 }
             }
+            // For a video, frame 0 is decoded while the file is probed instead of after it; both are separate FFmpeg runs.
+            var firstFrame = item.Asset.Kind == MediaKind.Video && selectedEngine.TryGetCachedFrame(item.Asset, 0) is null
+                ? selectedEngine.GetFrameAsync(item.Asset, 0, cancellation.Token) : null;
             var info = await selectedEngine.ProbeAsync(item.Asset.FullPath, cancellation.Token);
+            if (firstFrame is not null)
+            {
+                try { await firstFrame; }
+                catch (Exception exception) when (exception is InvalidOperationException or IOException) { }
+            }
             cancellation.Token.ThrowIfCancellationRequested();
             mediaInfo = info;
             foreach (var track in info.AudioTracks)
@@ -508,6 +471,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             AudioEnd = info.Duration;
             UpdateFrameRate();
             ShowMetadata(item.Asset, info.Metadata);
+            int.TryParse(info.Metadata.GetValueOrDefault("width"), out var probedWidth);
+            int.TryParse(info.Metadata.GetValueOrDefault("height"), out var probedHeight);
+            _ = ReadTraitsAsync(item, info.Metadata, probedWidth, probedHeight, info.Duration);
             NotifyMediaProperties();
             if (item.Asset.Kind == MediaKind.Video)
             {
@@ -617,6 +583,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         frameCancellation = cancellation;
         inFlightFrame = index;
         slowDecode = false;
+        decodeFailed = false;
         IsFrameLoading = true;
         NotifyFrameState();
         _ = RevealSlowDecodeAsync(cancellation);
@@ -642,7 +609,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             SchedulePrefetch(item, index);
         }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { if (frameCancellation == cancellation) ReportError(exception); }
+        catch (Exception exception) { if (frameCancellation == cancellation) { decodeFailed = true; ReportError(exception); } }
         finally
         {
             if (frameCancellation == cancellation)
@@ -856,8 +823,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // Rounded up to the millisecond: rounding down would land just before the frame and show the previous one first.
         var startMs = HasFrames ? (long)Math.Ceiling(frames[Math.Clamp(CurrentFrame, 0, MaximumFrame)].Time * 1000)
             : (long)((mediaInfo is { } info && AudioPosition < info.Duration - 0.05 ? AudioPosition : 0) * 1000);
-        // Still on the frame the player was paused on: carry on from exactly where it stopped, with no seek at all.
-        StartPlayback(startMs, null, continueFromPause: HasFrames && pausedAtFrame >= 0 && CurrentFrame == pausedAtFrame);
+        // Always from the frame on screen. Carrying on inside the paused player skipped the two or three pictures it had already
+        // decoded past the one showing; opening at the frame's time starts on exactly that frame.
+        StartPlayback(startMs, null);
         Status = "Playing. Pause or step to return to exact frame preview.";
     });
 
@@ -881,7 +849,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Status = $"Playing frames {InFrame:N0} to {OutFrame:N0}; playback pauses at the out marker.";
     });
 
-    private void StartPlayback(long startMs, long? stopMs, bool continueFromPause = false)
+    /// <summary>
+    /// Plays from <paramref name="startMs"/>. The picture on screen stays until the player has produced its first picture, so
+    /// starting never flashes black or an older frame. The file is opened at that moment every time, which starts on exactly that
+    /// frame: a seek on a paused player ran on for several frames before the picture caught up, and carrying on inside it skipped
+    /// the pictures it had already decoded.
+    /// </summary>
+    private void StartPlayback(long startMs, long? stopMs)
     {
         pauseVersion++;
         refiningPause = false;
@@ -892,22 +866,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         stopPlaybackAt = stopMs;
         if (stopMs is null) StopWatchingRangeEnd(); else WatchForRangeEnd();
         var path = SelectedAsset!.Asset.FullPath;
+        // Whatever is on screen now stays until the first new picture replaces it.
+        holdingVideoSurface = false;
+        holdVersion++;
+        liveBaseline = live.PictureCount;
+        live.Thaw();
         ShowPlayback = true;
-        ReleaseVideoSurface(force: true);
-        // Resuming the file that is already open and paused: move to the place and carry on. Opening it again for every
-        // Play made the picture go black, start from the beginning and then jump, which showed as flicker and stutter.
-        if (playerMediaPath == path && Player.State == VLCState.Paused)
-        {
-            verifyStartPending = false;
-            if (!continueFromPause)
-            {
-                // Moved since pausing: the player still holds the old picture, so keep showing the still until it has jumped.
-                ConcealVideoSurfaceUntilSeekLands();
-                Player.Time = startMs;
-            }
-            Player.SetPause(false);
-            return;
-        }
         using var media = new Media(libVlc, path, FromType.FromPath);
         // Start at the right moment from the first picture, rather than starting at zero and seeking once it plays.
         media.AddOption(":start-time=" + (startMs / 1000.0).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
@@ -920,6 +884,27 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Back to the first frame (or the start of the sound) and play from there. Shortcut: Home.</summary>
+    [RelayCommand]
+    private void Restart() => Guard(() =>
+    {
+        if (!CanPlay || SelectedAsset is null)
+            return;
+        if (HasFrames)
+        {
+            if (ShowPlayback)
+                PauseAtPlaybackPosition();
+            CurrentFrame = 0;
+            StartPlayback((long)Math.Ceiling(frames[0].Time * 1000), null);
+        }
+        else
+        {
+            AudioPosition = 0;
+            StartPlayback(0, null);
+        }
+        Status = "Playing from the start.";
+    });
+
     private void OnPlaying(object? sender, EventArgs args) { }
 
     private void OnEndReached(object? sender, EventArgs args) => Application.Current.Dispatcher.BeginInvoke(() =>
@@ -929,9 +914,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         stopPlaybackAt = null;
         StopWatchingRangeEnd();
         playerMediaPath = null;
-        ReleaseVideoSurface(force: true);
+        // The last picture stays up until the still of the last frame replaces it, instead of jumping back to where playback began.
+        HoldVideoSurface();
         ShowPlayback = false;
-        if (!HasFrames) AudioPosition = 0;
+        if (HasFrames)
+        {
+            if (CurrentFrame == MaximumFrame) _ = SeekFrameAsync();
+            else CurrentFrame = MaximumFrame;
+            if (frameCancellation is null && DisplayedFrame == CurrentFrame) ReleaseVideoSurface();
+        }
+        else
+        {
+            AudioPosition = 0;
+            ReleaseVideoSurface(force: true);
+        }
         Status = "Playback finished.";
     });
 
@@ -944,7 +940,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (disposed || !ShowPlayback)
                 return;
-            RevealVideoSurface();
             if (verifyStartPending)
             {
                 // A container that ignored the start option begins at zero: one corrective seek, only then.
@@ -1190,11 +1185,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void OpenHistoryOutput(ExportJobRecord? record) => Guard(() => { if (record?.OutputPath is { } path) RevealPath(path); });
 
     [RelayCommand]
-    private void BrowseExportDirectory()
+    private void BrowseExportDirectory() => ChangeExportDirectory();
+
+    /// <summary>Picks the output folder and saves it straight away; there is no separate Save step to forget.</summary>
+    [RelayCommand]
+    private void ChangeExportDirectory() => Guard(() =>
     {
-        var path = NativeDialogs.PickFolder("Default export destination", ExportDirectory);
-        if (path is not null)
-            ExportDirectory = path;
+        var path = NativeDialogs.PickFolder("Where should exports be saved?", settings.ExportDirectory);
+        if (path is null)
+            return;
+        Directory.CreateDirectory(path);
+        settings = WithBrowsingPreferences(settings with { ExportDirectory = path });
+        settingsStore.Save(settings);
+        ExportDirectory = path;
+        NotifyExportDestination();
+        Status = $"Exports now go to {path}.";
+        Notify(NotificationKind.Success, $"Output folder: {path}", "Open", () => RevealPath(path));
+    });
+
+    /// <summary>The output folder's own name, for the header button; the full path is in its tooltip.</summary>
+    public string ExportFolderName => Path.GetFileName(Path.TrimEndingDirectorySeparator(settings.ExportDirectory)) is { Length: > 0 } name ? name : settings.ExportDirectory;
+
+    private void NotifyExportDestination()
+    {
+        OnPropertyChanged(nameof(ExportDestination));
+        OnPropertyChanged(nameof(ExportFolderName));
     }
 
     [RelayCommand]
@@ -1207,7 +1222,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             settingsStore.Save(updated);
             settings = updated;
             engine = CreateEngine();
-            OnPropertyChanged(nameof(ExportDestination));
+            NotifyExportDestination();
             Status = "Settings saved. Future exports use this destination without a save dialog.";
         }
         catch (Exception exception) { ReportError(exception); }
@@ -1271,17 +1286,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void RefreshRecentLibraries()
     {
         RecentLibraries.Clear();
-        foreach (var path in settings.RecentLibraries)
+        foreach (var path in settings.RecentLibraries.Take(MaximumRecentShown))
             RecentLibraries.Add(new RecentEntry(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path));
     }
 
     private MediaEngine CreateEngine() => new(ToolPaths.Resolve(settings.FfmpegDirectory), Path.Combine(dataDirectory, "cache"), settings.CacheMegabytes);
 
-    private void RequireLibrary()
+    /// <summary>The workspace folder the selected tab is in, for actions that belong to one folder on disk.</summary>
+    private string RequireLibrary()
     {
-        if (virtualSource) throw new InvalidOperationException("Favorites transfer applies to a folder. Reopen the original media root first.");
-        if (!Directory.Exists(LibraryRoot))
-            throw new InvalidOperationException("Open a media folder first.");
+        if (CurrentFolder is not { IsVirtual: false } folder || !Directory.Exists(folder.Path))
+            throw new InvalidOperationException("Select a folder of the workspace in the tree first; favorites transfer works per folder.");
+        return folder.Path;
     }
 
     private string ExportLabelFor(int count, string prefix) => armedExportCount == count ? $"Confirm {count:N0} PNGs" : $"Export {prefix}{count:N0} PNGs";
@@ -1334,6 +1350,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         disposed = true;
         Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
+        DisposeWorkspace();
         foreach (var job in Jobs.Where(job => !job.IsFinished).ToArray())
         {
             job.IsFinished = true;
@@ -1343,11 +1360,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Guard(() => jobHistoryStore.Save(JobHistory));
         prefetchCancellation.Cancel();
         lifetime.Cancel();
+        live.PictureShown -= OnLivePictureShown;
         Player.Playing -= OnPlaying;
         Player.EndReached -= OnEndReached;
         Player.TimeChanged -= OnTimeChanged;
         Player.Stop();
         Player.Dispose();
+        live.Dispose();
         libVlc.Dispose();
     }
 }

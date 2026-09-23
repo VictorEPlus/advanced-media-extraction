@@ -26,6 +26,13 @@ public partial class App : Application
                 Shutdown(0);
                 return;
             }
+            if (args.Args.Contains("--motion-probe"))
+            {
+                await DesktopMotionProbe.RunAsync(viewModel, window, dataDirectory);
+                window.Close();
+                Shutdown(0);
+                return;
+            }
             window.Show();
             await viewModel.InitializeAsync();
         }

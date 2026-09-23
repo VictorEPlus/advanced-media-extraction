@@ -68,6 +68,25 @@
 - [x] Smoother playback: background tools run at below-normal priority and indexing progress is throttled, so indexing a video no longer stutters what is playing.
 - [x] Marked range fixes: playing a range stops on the out frame instead of up to a quarter of a second past it, and marking while playing lands on the frame that was on screen.
 
+## Stability pass
+
+- [x] Nothing jumps: the strip under the picture has one height for photos, videos and sound; controls that do not apply are hidden with their space kept; portrait pictures no longer move the buttons beside them; crop tools and readouts are laid over the picture.
+- [x] Video drawn by the app instead of a separate VLC window: no VLC text over the picture (the snapshot path that flashed on every pause), no wrong frame when pausing, zoom works while playing.
+- [x] Play starts on exactly the frame on screen; Restart button (Home).
+- [x] Output folder shown by name in the top bar and changed in one step, saved at once.
+- [x] Details no longer blank out and refill on every click; a video's cached first frame stands in while it opens; frame 0 decodes while the file is probed.
+- [x] `tools/motion-probe`: 60 fps recording of a scripted session with optical flow, flash detection and a frame-number barcode in the test video.
+- [x] Clean-up proposals in `docs/UI-INVENTORY.md` (applied in the pass below).
+
+## Workspace and glass-terminal overhaul
+
+- [x] Several folders open at once in one tree; adding a folder never closes another; collections and tag searches open beside them.
+- [x] Saved index per folder: a folder opened before appears at once and only changes are read; folders are watched while the app runs.
+- [x] Folder tabs over the filmstrip; switching tabs or folders keeps the open file and never rescans.
+- [x] Thumbnails stay with their files (up to 400), so switching folders and tabs shows them at once; unchanged tree rows are reused.
+- [x] Glass-terminal theme: translucent navy panels with cyan edges, square corners, monospace labels, one button height, one gap per row; own scroll bars, menus, tooltips and folding sections.
+- [x] One top bar; Settings renamed Advanced and holds the rarely used tools.
+
 ## Next milestones
 
 - [ ] Interactive usability testing with representative user footage and large libraries.

@@ -11,7 +11,12 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel viewModel;
     private readonly Dictionary<Image, (AssetViewModel Item, CancellationTokenSource Cancellation)> thumbnailRequests = new();
-    private GridLength inspectorWidth = new(324);
+    private GridLength inspectorWidth = new(330);
+    private GridLength navigatorWidth = new(270);
+    /// <summary>Thumbnails stay with their files until this many others have been shown since, so switching folders or tabs shows them at once.</summary>
+    internal const int ThumbnailsKept = 400;
+    private readonly LinkedList<AssetViewModel> thumbnailHolders = new();
+    private readonly Dictionary<AssetViewModel, LinkedListNode<AssetViewModel>> holderNodes = new();
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -20,7 +25,9 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         viewModel.TourRequested += OnTourRequested;
+        viewModel.FolderTagRequested += OnFolderTagRequested;
         ApplyInspectorVisibility();
+        ApplySourcesVisibility();
         SyncFilmstripSelection();
     }
 
@@ -30,6 +37,7 @@ public partial class MainWindow : Window
         {
             case nameof(MainViewModel.SelectedAsset): SyncFilmstripSelection(); break;
             case nameof(MainViewModel.ShowInspector): ApplyInspectorVisibility(); break;
+            case nameof(MainViewModel.ShowSources): ApplySourcesVisibility(); break;
             case nameof(MainViewModel.FollowFilmstrip): OnFollowFilmstripChanged(); break;
             case nameof(MainViewModel.IsFocusView): ApplyFocusView(); break;
         }
@@ -62,7 +70,8 @@ public partial class MainWindow : Window
         {
             InspectorPanel.Visibility = Visibility.Visible;
             InspectorSplitter.Visibility = Visibility.Visible;
-            InspectorColumn.MinWidth = 304;
+            InspectorGap.Width = new GridLength(8);
+            InspectorColumn.MinWidth = 300;
             InspectorColumn.MaxWidth = 460;
             InspectorColumn.Width = inspectorWidth;
         }
@@ -72,10 +81,61 @@ public partial class MainWindow : Window
                 inspectorWidth = new GridLength(InspectorColumn.ActualWidth);
             InspectorPanel.Visibility = Visibility.Collapsed;
             InspectorSplitter.Visibility = Visibility.Collapsed;
+            InspectorGap.Width = new GridLength(0);
             InspectorColumn.MinWidth = 0;
             InspectorColumn.MaxWidth = double.PositiveInfinity;
             InspectorColumn.Width = new GridLength(0);
         }
+    }
+
+    /// <summary>The workspace panel on the left: shown at its last width, or folded away completely.</summary>
+    private void ApplySourcesVisibility()
+    {
+        if (viewModel.ShowSources)
+        {
+            SourcesPanel.Visibility = Visibility.Visible;
+            NavigatorSplitter.Visibility = Visibility.Visible;
+            NavigatorGap.Width = new GridLength(8);
+            NavigatorColumn.MinWidth = 220;
+            NavigatorColumn.MaxWidth = 420;
+            NavigatorColumn.Width = navigatorWidth;
+        }
+        else
+        {
+            if (NavigatorColumn.ActualWidth > 0)
+                navigatorWidth = new GridLength(NavigatorColumn.ActualWidth);
+            SourcesPanel.Visibility = Visibility.Collapsed;
+            NavigatorSplitter.Visibility = Visibility.Collapsed;
+            NavigatorGap.Width = new GridLength(0);
+            NavigatorColumn.MinWidth = 0;
+            NavigatorColumn.MaxWidth = double.PositiveInfinity;
+            NavigatorColumn.Width = new GridLength(0);
+        }
+    }
+
+    private void OutputMenuClicked(object sender, RoutedEventArgs args) => OpenMenuUnder(OpenExportsButton, PlacementMode.Bottom);
+
+    private static void OpenMenuUnder(Button button, PlacementMode placement)
+    {
+        if (button.ContextMenu is not { } menu)
+            return;
+        menu.PlacementTarget = button;
+        menu.Placement = placement;
+        menu.IsOpen = true;
+    }
+
+    /// <summary>A middle click on a folder tab closes it, as in a browser.</summary>
+    private void FolderTabMouseUp(object sender, MouseButtonEventArgs args)
+    {
+        if (args.ChangedButton != MouseButton.Middle || args.OriginalSource is not DependencyObject source)
+            return;
+        for (var current = source; current is not null; current = VisualTreeHelper.GetParent(current))
+            if (current is ListBoxItem { DataContext: FolderTab tab })
+            {
+                viewModel.CloseTabCommand.Execute(tab);
+                args.Handled = true;
+                return;
+            }
     }
 
     private async void ThumbnailLoaded(object sender, RoutedEventArgs args)
@@ -100,7 +160,9 @@ public partial class MainWindow : Window
         if (image.DataContext is not AssetViewModel item || thumbnailRequests.ContainsKey(image)) return;
         var cancellation = new CancellationTokenSource();
         thumbnailRequests[image] = (item, cancellation);
-        await viewModel.LoadThumbnailAsync(item, cancellation.Token);
+        KeepThumbnail(item);
+        if (item.Thumbnail is null)
+            await viewModel.LoadThumbnailAsync(item, cancellation.Token);
     }
 
     private void ReleaseThumbnail(Image image)
@@ -108,7 +170,28 @@ public partial class MainWindow : Window
         if (!thumbnailRequests.Remove(image, out var request)) return;
         request.Cancellation.Cancel();
         request.Cancellation.Dispose();
-        request.Item.Thumbnail = null;
+        // The picture stays with the file: scrolling back, switching folders or tabs, or a filter change shows it at once instead
+        // of a blank that fills in a moment later. Only the least recently shown are let go, so memory stays bounded.
+    }
+
+    private void KeepThumbnail(AssetViewModel item)
+    {
+        if (holderNodes.Remove(item, out var existing))
+            thumbnailHolders.Remove(existing);
+        holderNodes[item] = thumbnailHolders.AddFirst(item);
+        var onScreen = thumbnailRequests.Values.Select(request => request.Item).ToHashSet();
+        var guard = thumbnailHolders.Count;
+        while (thumbnailHolders.Count > ThumbnailsKept && thumbnailHolders.Last is { } oldest && guard-- > 0)
+        {
+            thumbnailHolders.RemoveLast();
+            if (onScreen.Contains(oldest.Value))
+            {
+                thumbnailHolders.AddFirst(oldest);
+                continue;
+            }
+            holderNodes.Remove(oldest.Value);
+            oldest.Value.Thumbnail = null;
+        }
     }
 
     private async void FolderCoverLoaded(object sender, RoutedEventArgs args)
@@ -118,6 +201,10 @@ public partial class MainWindow : Window
     }
 
     private void OnTourRequested(object? sender, EventArgs args) => StartTour();
+
+    /// <summary>After "Tag this folder" in the tree: the Tags tab is open; put the cursor in the folder tag box once it is on screen.</summary>
+    private void OnFolderTagRequested(object? sender, EventArgs args) =>
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => FolderTagBox.Focus());
 
     private void FolderToggleClicked(object sender, MouseButtonEventArgs args)
     {
@@ -133,6 +220,9 @@ public partial class MainWindow : Window
         if (FolderTreeList.SelectedItem is FolderRowViewModel row)
             viewModel.ToggleFolderRowCommand.Execute(row);
     }
+
+    /// <summary>The less used picture actions live in a menu under More, so the button row stays one short line.</summary>
+    private void MoreActionsClicked(object sender, RoutedEventArgs args) => OpenMenuUnder(MoreActionsButton, PlacementMode.Top);
 
     private void OnAudioSelectionRequested(object? sender, AudioRangeEventArgs args) => viewModel.SelectAudioRange(args.Start, args.End);
 
@@ -202,6 +292,7 @@ public partial class MainWindow : Window
             Key.I when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkInCommand,
             Key.O when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkOutCommand,
             Key.Space => viewModel.TogglePlaybackCommand,
+            Key.Home when viewModel.CanPlay => viewModel.RestartCommand,
             _ => null
         };
         if (command is null || !command.CanExecute(null))
@@ -275,6 +366,7 @@ public partial class MainWindow : Window
     {
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         viewModel.TourRequested -= OnTourRequested;
+        viewModel.FolderTagRequested -= OnFolderTagRequested;
         StopGlide();
         settleTimer?.Stop();
         foreach (var image in thumbnailRequests.Keys.ToArray()) ReleaseThumbnail(image);

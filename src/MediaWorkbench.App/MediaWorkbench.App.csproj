@@ -6,6 +6,8 @@
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>MediaWorkbench</AssemblyName>
     <ApplicationIcon>Assets\MediaWorkbench.ico</ApplicationIcon>
+    <!-- LiveVideo copies decoded pictures between native buffers and the bitmap on screen. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <!-- The same mark as a resource, so the window and taskbar show it as well as the .exe in Explorer. -->
@@ -14,7 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="../MediaWorkbench.Core/MediaWorkbench.Core.csproj" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="LibVLCSharp.WPF" Version="3.10.1" />
+    <PackageReference Include="LibVLCSharp" Version="3.10.1" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
   </ItemGroup>
 </Project>

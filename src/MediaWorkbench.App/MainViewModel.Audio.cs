@@ -30,7 +30,10 @@ public sealed partial class MainViewModel
     /// <summary>The waveform sits under the frame timeline for a video with sound and fills the preview for an audio file.</summary>
     public bool ShowVideoWaveform => IsVideo && HasAudio;
     public bool ShowAudioStage => IsAudio;
-    public bool ShowVideoSurface => (ShowPlayback && !concealVideoSurface || holdingVideoSurface) && !IsAudio;
+    /// <summary>Said in the sound row of a silent video, once its tracks are known, so the empty row does not look broken.</summary>
+    public bool ShowNoSoundNote => IsVideo && mediaInfo is not null && !HasAudio;
+    /// <summary>The preview is showing the player's picture rather than a decoded still.</summary>
+    public bool ShowVideoSurface => LiveImage is not null && !IsAudio;
     public bool CanSnipAudio => HasAudio && mediaInfo is not null && AudioEnd > AudioStart;
     public bool CanPlayRange => CanPlay && (HasFrames || IsAudio && AudioEnd > AudioStart);
     public string PlayRangeLabel => IsAudio ? "Play selection" : "Play marked range";
@@ -57,7 +60,7 @@ public sealed partial class MainViewModel
 
     private void NotifyAudioState()
     {
-        foreach (var property in new[] { nameof(AudioSelectionText), nameof(CanSnipAudio), nameof(CanPlayRange), nameof(PlayRangeLabel), nameof(ShowVideoWaveform), nameof(ShowAudioStage), nameof(ShowVideoSurface), nameof(WaveformDuration), nameof(AudioHint) })
+        foreach (var property in new[] { nameof(AudioSelectionText), nameof(CanSnipAudio), nameof(CanPlayRange), nameof(PlayRangeLabel), nameof(ShowVideoWaveform), nameof(ShowAudioStage), nameof(ShowNoSoundNote), nameof(ShowVideoSurface), nameof(WaveformDuration), nameof(AudioHint) })
             OnPropertyChanged(property);
     }
 

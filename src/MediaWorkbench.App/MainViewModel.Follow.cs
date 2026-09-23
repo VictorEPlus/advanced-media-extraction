@@ -86,6 +86,24 @@ public sealed partial class MainViewModel
         WatchInstantSource(item);
         InstantPreview = item?.Thumbnail;
         PeekedAsset = null;
+        if (item is { Asset.Kind: Core.MediaKind.Video })
+            _ = UseCachedFirstFrameAsync(item);
+    }
+
+    /// <summary>
+    /// A video's thumbnail is its most typical early frame, not its first, so standing it in and then showing frame 0 swapped one
+    /// picture for another. When frame 0 has been decoded before, that exact picture stands in instead and nothing changes when it loads.
+    /// </summary>
+    private async Task UseCachedFirstFrameAsync(AssetViewModel item)
+    {
+        var selectedEngine = engine;
+        System.Windows.Media.Imaging.BitmapSource? image = null;
+        try { image = await Task.Run(() => selectedEngine.TryGetCachedFrame(item.Asset, 0) is { } bytes ? DecodeImage(bytes) : null); }
+        catch (Exception exception) when (exception is System.IO.IOException or NotSupportedException or ArgumentException) { }
+        if (image is null || !ReferenceEquals(SelectedAsset, item) || PreviewImage is not null || IsPeeking)
+            return;
+        WatchInstantSource(null);
+        InstantPreview = image;
     }
 
     private void EndInstantPreview()
@@ -111,34 +129,6 @@ public sealed partial class MainViewModel
         if (args.PropertyName == nameof(AssetViewModel.Thumbnail) && sender is AssetViewModel { Thumbnail: { } thumbnail } item
             && ReferenceEquals(item, instantSource) && (IsPeeking || PreviewImage is null))
             InstantPreview = thumbnail;
-    }
-}
-
-// Portrait pictures get the action buttons beside the preview instead of under it, so the picture keeps its height.
-public sealed partial class MainViewModel
-{
-    private bool portraitLayout;
-
-    /// <summary>
-    /// True when the picture in the preview is taller than wide (as shown, so a video being turned counts as turned). The last
-    /// answer is kept while the next file loads, so browsing a folder of portrait files does not flip the layout back and forth.
-    /// </summary>
-    public bool IsPortraitLayout => portraitLayout;
-
-    private void UpdatePortraitLayout()
-    {
-        var value = portraitLayout;
-        if (SelectedAsset is null || IsAudio)
-            value = false;
-        else if (PreviewImage is System.Windows.Media.Imaging.BitmapSource image)
-        {
-            var turned = IsFraming && Core.VideoTransform.NormalizeRotation(VideoRotation) is 90 or 270;
-            value = turned ? image.PixelWidth > image.PixelHeight : image.PixelHeight > image.PixelWidth;
-        }
-        if (value == portraitLayout)
-            return;
-        portraitLayout = value;
-        OnPropertyChanged(nameof(IsPortraitLayout));
     }
 }
 

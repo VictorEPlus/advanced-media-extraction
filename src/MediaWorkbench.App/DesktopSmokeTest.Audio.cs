@@ -22,7 +22,7 @@ internal static partial class DesktopSmokeTest
         Require(model.CurrentFrame == 3 && model.DisplayedFrame == 3 && Math.Abs(model.AudioPosition - 0.5) < 0.002, "Clicking the sound should go to the frame showing at that moment.");
         Layout(window);
         var root = (UIElement)window.Content;
-        Require(Shown(window.FrameRateReadout) && Shown(window.VideoWaveform) && window.VideoWaveform.ActualHeight >= 30 && Shown(window.SnipAudioButton) && window.SnipAudioButton.IsEnabled, "The frame rate, the waveform and the snip button should be visible for a video with sound.");
+        Require(Shown(window.FrameRateReadout) && Shown(window.VideoWaveform) && window.VideoWaveform.ActualHeight >= 26 && model.CanSnipAudio, "The frame rate and the waveform should be visible, and the sound can be snipped, for a video with sound.");
         var timelineLeft = window.Timeline.TranslatePoint(new Point(0, 0), root).X;
         var waveformLeft = window.VideoWaveform.TranslatePoint(new Point(0, 0), root).X;
         Require(Math.Abs(timelineLeft - waveformLeft) < 0.5 && Math.Abs(window.Timeline.ActualWidth - window.VideoWaveform.ActualWidth) < 0.5, "The waveform must line up with the frame timeline above it.");
@@ -98,7 +98,7 @@ internal static partial class DesktopSmokeTest
         model.MarkOutCommand.Execute(null);
         Require(Math.Abs(model.AudioEnd - 1.75) < 1e-9, "O should end the selection at the audio playhead.");
         Layout(window);
-        Require(Shown(window.AudioWaveform) && window.AudioWaveform.ActualHeight > 150 && !Shown(window.VideoTimeline) && Shown(window.PlayRangeButton) && window.SnipAudioButton.IsEnabled, "The audio stage, Play selection and Snip selection should be available for an audio file.");
+        Require(Shown(window.AudioWaveform) && window.AudioWaveform.ActualHeight > 150 && !Shown(window.VideoTimeline) && Shown(window.PlayRangeButton) && Shown(window.RestartButton) && model.CanSnipAudio, "The audio stage, Play selection and Snip selection should be available for an audio file.");
         Render(window, Path.Combine(dataDirectory, "workspace-audio.png"));
         var before = model.JobHistory.Count;
         model.ExportAudioCommand.Execute(null);

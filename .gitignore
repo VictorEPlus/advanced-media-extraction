@@ -19,3 +19,5 @@ cache/
 settings.json
 favorites.json
 *.log
+tools/motion-probe/.venv/
+__pycache__/

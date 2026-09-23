@@ -50,7 +50,7 @@ public sealed partial class MainViewModel
         var count => $"{count:N0} pictures"
     };
     public string StitchSizeLabel => StitchPlanNow() is { IsEmpty: false } plan ? $"{plan.Width:N0} × {plan.Height:N0} px" : "";
-    public string StitchExportLabel => StitchAsJpeg ? "Export JPEG" : "Export PNG";
+    public string StitchExportLabel => StitchAsJpeg ? "EXPORT JPEG" : "EXPORT PNG";
 
     partial void OnStitchArrangementChanged(string value) { OnPropertyChanged(nameof(IsGridStitch)); RefreshStitch(); }
     partial void OnStitchGapChanged(int value) => RefreshStitch();

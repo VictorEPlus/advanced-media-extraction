@@ -22,10 +22,10 @@ public sealed class UiSourceTests
     }
 
     [Theory]
-    [InlineData("ToggleFavoriteCommand", "\u2605 Favorite")]
-    [InlineData("OpenExportsCommand", "Open exports \u2197")]
+    [InlineData("ToggleFavoriteCommand", "\u2605")]
+    [InlineData("PreviousFrameCommand", "\u25C0")]
     [InlineData("ExportFavoritesCommand", "Export favorites\u2026")]
-    [InlineData("TogglePlaybackCommand", "\u25B6 Play / pause")]
+    [InlineData("PlaySelectionCommand", "[\u25B6]")]
     public void XamlDecodesSymbolsExactly(string command, string expected)
     {
         var document = XDocument.Load(Path.Combine(SourceDirectory, "MainWindow.xaml"));

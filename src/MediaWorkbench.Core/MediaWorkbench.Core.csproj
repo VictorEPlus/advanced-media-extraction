@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- FileIdentity calls Windows directly for the NTFS file ID. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>

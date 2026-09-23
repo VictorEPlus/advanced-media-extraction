@@ -17,8 +17,6 @@ public sealed partial class MainViewModel
     private readonly CollectionStore collectionStore = new();
     private readonly ThumbnailLoader thumbnails = new();
     private readonly SemaphoreSlim photoDecodeGate = new(1);
-    private string? activeCollectionPath;
-    private bool virtualSource;
     private bool hasSource;
     private int visibleCount;
     public ObservableCollection<MetadataRow> Metadata { get; } = [];
@@ -34,12 +32,12 @@ public sealed partial class MainViewModel
     public bool HasCrop => CropSelection is not null;
     public bool CanCopy => PreviewImage is BitmapSource && !IsFrameLoading && !ShowPlayback;
     public string CopyLabel => HasCrop ? "Copy crop" : IsVideo ? "Copy frame" : "Copy image";
-    public string ExportLabel => IsPhoto ? "Export PNG" : "Export frame";
+    public string ExportLabel => IsPhoto ? "EXPORT PNG" : "EXPORT FRAME";
     public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.DescribeAspect(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
-    public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString() ?? "No selection";
-    public string SourceSummary => virtualSource ? SourceName : LibraryRoot;
+    public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString().ToUpperInvariant() ?? "NO SELECTION";
+    public string SourceSummary => CurrentFolder is { IsVirtual: false } folder ? folder.Path : SourceName;
     public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files" + (HasFolderFilter ? $" in {folderFilter}" : "");
-    public bool IsCollectionView => activeCollectionPath is not null;
+    public bool IsCollectionView => CurrentFolder?.CollectionPath is not null;
     public double ThumbnailWidth => ThumbnailHeight * 1.6;
     public double FilmstripHeight => ThumbnailHeight + 48;
     /// <summary>The inspected file is still selected but no longer passes the filters. It is kept rather than torn down.</summary>
@@ -168,84 +166,12 @@ public sealed partial class MainViewModel
         }
     }
 
-    private void ReloadTags()
-    {
-        tagIndex = tagStore.ReadAll();
-        KnownTags.Clear();
-        foreach (var tag in tagIndex.Values.SelectMany(tags => tags).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)) KnownTags.Add(tag);
-        foreach (var item in Assets) item.Tags = tagIndex.GetValueOrDefault(item.Asset.FullPath, []);
-        SelectedTags.Clear();
-        if (SelectedAsset is { } selected)
-            foreach (var tag in selected.Tags) SelectedTags.Add(tag);
-    }
-
-    [RelayCommand]
-    private void AddTags() => Guard(() =>
-    {
-        if (SelectedAsset is not { } item) return;
-        var tags = TagText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (tags.Length == 0) throw new ArgumentException("Type one or more comma-separated tags.");
-        tagStore.Add(item.Asset.FullPath, tags);
-        TagText = "";
-        ReloadTags();
-        RefreshView();
-        Status = "Tags saved locally. Media files were not modified.";
-    });
-
-    [RelayCommand]
-    private void RemoveTag(string? tag) => Guard(() =>
-    {
-        if (SelectedAsset is null || tag is null) return;
-        tagStore.Remove(SelectedAsset.Asset.FullPath, tag);
-        ReloadTags();
-        RefreshView();
-    });
-
     [RelayCommand]
     private void ToggleMetadataTagMode()
     {
         IsMetadataTagMode = !IsMetadataTagMode;
         if (!IsMetadataTagMode)
             foreach (var row in Metadata) row.IsSelected = false;
-    }
-
-    [RelayCommand]
-    private void ConfirmMetadataTags() => Guard(() =>
-    {
-        if (SelectedAsset is null) return;
-        var selected = Metadata.Where(row => row.CanTag && row.IsSelected).Select(row => row.Tag).ToArray();
-        if (selected.Length == 0) throw new InvalidOperationException("Check the metadata values you want, then confirm.");
-        tagStore.Add(SelectedAsset.Asset.FullPath, selected, "confirmed metadata");
-        foreach (var row in Metadata) row.IsSelected = false;
-        IsMetadataTagMode = false;
-        ReloadTags();
-        RefreshView();
-        Status = $"Added {selected.Length} confirmed metadata tags. Nothing is tagged automatically.";
-        Notify(NotificationKind.Success, $"Added {selected.Length} metadata tags to {SelectedAsset.Name}.");
-    });
-
-    [RelayCommand]
-    private async Task BrowseTaggedAsync()
-    {
-        var query = TagFilter.Trim();
-        var paths = tagIndex.Where(pair => query.Length == 0 || pair.Value.Any(tag => tag.Contains(query, StringComparison.OrdinalIgnoreCase))).Select(pair => pair.Key).ToArray();
-        activeCollectionPath = null;
-        await LoadVirtualAsync(paths, query.Length == 0 ? "All tagged media" : $"Tag search: {query}");
-    }
-
-    [RelayCommand]
-    private async Task FindRelatedAsync()
-    {
-        if (SelectedAsset is not { Tags.Length: > 0 } selected) { Status = "Add a tag before finding related files."; return; }
-        var sourcePath = selected.Asset.FullPath;
-        var tags = selected.Tags.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var paths = tagIndex.Where(pair => !string.Equals(pair.Key, sourcePath, StringComparison.OrdinalIgnoreCase) && pair.Value.Any(tags.Contains)).Select(pair => pair.Key).ToArray();
-        SearchText = "";
-        TagFilter = "";
-        MediaFilter = "All media";
-        FavoritesOnly = false;
-        activeCollectionPath = null;
-        await LoadVirtualAsync(paths, $"Shared tags with {selected.Name}");
     }
 
     [RelayCommand]
@@ -310,8 +236,7 @@ public sealed partial class MainViewModel
         {
             if (SelectedCollection is not { } selected) return;
             var collection = collectionStore.Load(selected.FilePath);
-            activeCollectionPath = selected.FilePath;
-            await LoadVirtualAsync(collection.Paths, collection.Name);
+            await ShowVirtualFolderAsync($"Collection {collection.Name.Replace('\\', ' ')}", collection.Paths, selected.FilePath);
         }
         catch (Exception exception) { ReportError(exception); }
     }
@@ -329,10 +254,10 @@ public sealed partial class MainViewModel
     {
         try
         {
-            if (activeCollectionPath is null || SelectedAsset is null) return;
-            var collection = CollectionStore.Remove(collectionStore.Load(activeCollectionPath), SelectedAsset.Asset.FullPath);
-            collectionStore.Save(activeCollectionPath, collection);
-            await LoadVirtualAsync(collection.Paths, collection.Name);
+            if (CurrentFolder is not { CollectionPath: { } file } || SelectedAsset is null) return;
+            var collection = CollectionStore.Remove(collectionStore.Load(file), SelectedAsset.Asset.FullPath);
+            collectionStore.Save(file, collection);
+            await ShowVirtualFolderAsync($"Collection {collection.Name.Replace('\\', ' ')}", collection.Paths, file);
         }
         catch (Exception exception) { ReportError(exception); }
     }
@@ -365,68 +290,6 @@ public sealed partial class MainViewModel
         var path = output.Path;
         Notify(NotificationKind.Success, $"Saved collection JSON for {item.Name}.", "Open output", () => RevealPath(path));
     });
-
-    private async Task LoadVirtualAsync(string[] paths, string name)
-    {
-        scanCancellation?.Cancel();
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        scanCancellation = cancellation;
-        IsScanning = true;
-        SelectedAsset = null;
-        Assets.Clear();
-        virtualSource = true;
-        hasSource = true;
-        ResetFolderTree();
-        SourceName = name;
-        OnPropertyChanged(nameof(IsCollectionView));
-        UpdateVisibleCount();
-        NotifyEmptyState();
-        var missing = 0;
-        try
-        {
-            await Task.Run(async () =>
-            {
-                var batch = new List<MediaAsset>(200);
-                foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
-                {
-                    cancellation.Token.ThrowIfCancellationRequested();
-                    MediaAsset? asset = null;
-                    try { asset = LibraryScanner.ReadFile(path); }
-                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
-                    if (asset is null) { missing++; continue; }
-                    batch.Add(asset);
-                    if (batch.Count < 200) continue;
-                    await AddVirtualBatchAsync(batch.ToArray(), cancellation.Token);
-                    batch.Clear();
-                }
-                if (batch.Count > 0) await AddVirtualBatchAsync(batch.ToArray(), cancellation.Token);
-            }, cancellation.Token);
-            Status = $"{Assets.Count:N0} available items / {missing:N0} missing or unsupported references. Collection paths are preserved.";
-            if (missing > 0)
-                Notify(NotificationKind.Info, $"{missing:N0} referenced files are missing or unsupported. Their references were kept.");
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception exception) { ReportError(exception); }
-        finally
-        {
-            if (scanCancellation == cancellation) { scanCancellation = null; IsScanning = false; }
-            RebuildFolderTree();
-            RefreshView();
-            OnPropertyChanged(nameof(LibraryLabel));
-        }
-    }
-
-    private async Task AddVirtualBatchAsync(MediaAsset[] batch, CancellationToken token)
-    {
-        catalog.Index(batch, token);
-        var favorites = catalog.GetFavoritePaths();
-        await Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            token.ThrowIfCancellationRequested();
-            Assets.AddRange(batch.Select(asset => new AssetViewModel(asset, favorites.Contains(asset.FullPath)) { Tags = tagIndex.GetValueOrDefault(asset.FullPath, []), FolderKey = FolderKeyOf(asset) }));
-            AfterBatchAdded();
-        }, System.Windows.Threading.DispatcherPriority.Background, token);
-    }
 
     [RelayCommand]
     private void ClearFilters()
@@ -484,14 +347,22 @@ public sealed partial class MainViewModel
         return image;
     }
 
-    private void ShowMetadata(MediaAsset asset, IReadOnlyDictionary<string, string> values)
+    /// <summary>The rows every file has, from the scan alone. Shown the moment a file is selected; the rest follows once it is read.</summary>
+    private void ShowBasicMetadata(MediaAsset? asset)
     {
         Metadata.Clear();
+        if (asset is null)
+            return;
         // The file name is in the header above the preview and the kind is this tab's heading, so neither is repeated here.
         Metadata.Add(new MetadataRow("Folder", Path.GetDirectoryName(asset.FullPath) ?? "", false));
         Metadata.Add(new MetadataRow("Type", $"{asset.Kind}, {Path.GetExtension(asset.Name).TrimStart('.').ToLowerInvariant()}"));
         Metadata.Add(new MetadataRow("File size", $"{asset.Length / 1048576.0:N2} MB ({asset.Length:N0} bytes)", false));
         Metadata.Add(new MetadataRow("Modified", new DateTime(asset.ModifiedTicks, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")));
+    }
+
+    private void ShowMetadata(MediaAsset asset, IReadOnlyDictionary<string, string> values)
+    {
+        ShowBasicMetadata(asset);
         // The header line under the file name carries the frame rate too; the large readout beside the frame counter is the measured one.
         var headerRate = IsVideo && (FrameRateInfo.FromRatio(values.GetValueOrDefault("avg_frame_rate")) ?? FrameRateInfo.FromRatio(values.GetValueOrDefault("r_frame_rate"))) is { } rate ? $", {rate.Number} fps" : "";
         if (PreviewImage is BitmapSource image)

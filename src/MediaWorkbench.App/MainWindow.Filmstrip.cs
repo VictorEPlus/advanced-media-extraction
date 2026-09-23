@@ -283,9 +283,8 @@ public partial class MainWindow
         CenterHeader.Visibility = visibility;
         FilmstripPanel.Visibility = visibility;
         StatusRow.Visibility = visibility;
-        RootGrid.RowDefinitions[0].Height = RootGrid.RowDefinitions[1].Height = new GridLength(focus ? 0 : 44);
-        RootGrid.RowDefinitions[4].Height = new GridLength(focus ? 0 : 26);
-        CenterPanel.Margin = focus ? new Thickness(12, 10, 12, 10) : new Thickness(12, 0, 4, 0);
+        RootGrid.RowDefinitions[0].Height = new GridLength(focus ? 0 : 52);
+        RootGrid.RowDefinitions[3].Height = new GridLength(focus ? 0 : 24);
         if (!focus && focusRestore is { } restore)
         {
             focusRestore = null;

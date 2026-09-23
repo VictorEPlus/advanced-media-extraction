@@ -20,6 +20,10 @@ public sealed class CropSurface : FrameworkElement
         if (args.OldValue is BitmapSource before && args.NewValue is BitmapSource after && (before.PixelWidth != after.PixelWidth || before.PixelHeight != after.PixelHeight))
             ((CropSurface)d).ResetView();
     }));
+    /// <summary>The playing video's latest picture. While set it is drawn instead of <see cref="Source"/>, in the same place and zoom.</summary>
+    public static readonly DependencyProperty LiveSourceProperty = DependencyProperty.Register(nameof(LiveSource), typeof(BitmapSource), typeof(CropSurface), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    /// <summary>Space kept free at the top, for tools laid over the picture (the video crop tools), so they never cover its top edge.</summary>
+    public static readonly DependencyProperty TopInsetProperty = DependencyProperty.Register(nameof(TopInset), typeof(double), typeof(CropSurface), new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty ViewKeyProperty = DependencyProperty.Register(nameof(ViewKey), typeof(object), typeof(CropSurface), new FrameworkPropertyMetadata(null, (d, _) => ((CropSurface)d).ResetView()));
     public static readonly DependencyProperty SelectionProperty = DependencyProperty.Register(nameof(Selection), typeof(PixelCrop), typeof(CropSurface), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
     public static readonly DependencyProperty IsCroppingProperty = DependencyProperty.Register(nameof(IsCropping), typeof(bool), typeof(CropSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -29,6 +33,12 @@ public sealed class CropSurface : FrameworkElement
     public static readonly DependencyProperty SelectedEdgeProperty = DependencyProperty.Register(nameof(SelectedEdge), typeof(CropEdge), typeof(CropSurface), new FrameworkPropertyMetadata(CropEdge.None, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
 
     public BitmapSource? Source { get => (BitmapSource?)GetValue(SourceProperty); set => SetValue(SourceProperty, value); }
+    public BitmapSource? LiveSource { get => (BitmapSource?)GetValue(LiveSourceProperty); set => SetValue(LiveSourceProperty, value); }
+    public double TopInset { get => (double)GetValue(TopInsetProperty); set => SetValue(TopInsetProperty, value); }
+    /// <summary>The height the picture may use, below <see cref="TopInset"/>.</summary>
+    private double ViewHeight => Math.Max(1, ActualHeight - TopInset);
+    /// <summary>What sets the picture's place and size: the still when there is one, so switching to and from the live picture never moves anything.</summary>
+    private BitmapSource? Geometry => Source ?? LiveSource;
     /// <summary>Identifies the file being shown. Zoom and position are kept while it stays the same and reset when it changes.</summary>
     public object? ViewKey { get => GetValue(ViewKeyProperty); set => SetValue(ViewKeyProperty, value); }
     public PixelCrop? Selection { get => (PixelCrop?)GetValue(SelectionProperty); set => SetValue(SelectionProperty, value); }
@@ -83,10 +93,10 @@ public sealed class CropSurface : FrameworkElement
     private (Rect Bounds, double Scale) Fit(BitmapSource image)
     {
         var (width, height) = ShownSize(image);
-        var scale = Math.Min(ActualWidth / width, ActualHeight / height) * zoom;
+        var scale = Math.Min(ActualWidth / width, ViewHeight / height) * zoom;
         var (shownWidth, shownHeight) = (width * scale, height * scale);
         var left = Place(ActualWidth, shownWidth, viewCentre.X);
-        var top = Place(ActualHeight, shownHeight, viewCentre.Y);
+        var top = TopInset + Place(ViewHeight, shownHeight, viewCentre.Y);
         return (new Rect(left, top, shownWidth, shownHeight), scale);
 
         static double Place(double view, double shown, double centre) =>
@@ -96,7 +106,7 @@ public sealed class CropSurface : FrameworkElement
     /// <summary>Multiplies the zoom by <paramref name="factor"/> keeping the picture point under <paramref name="anchor"/> where it is.</summary>
     public void ZoomAt(Point anchor, double factor)
     {
-        if (Source is not { } image || ActualWidth <= 0 || ActualHeight <= 0)
+        if (Geometry is not { } image || ActualWidth <= 0 || ActualHeight <= 0)
             return;
         var (before, _) = Fit(image);
         var target = Math.Clamp(zoom * factor, 1, MaximumZoom);
@@ -106,9 +116,9 @@ public sealed class CropSurface : FrameworkElement
         var pointY = (anchor.Y - before.Y) / before.Height;
         zoom = target;
         var (width, height) = ShownSize(image);
-        var scale = Math.Min(ActualWidth / width, ActualHeight / height) * zoom;
+        var scale = Math.Min(ActualWidth / width, ViewHeight / height) * zoom;
         // Put the same picture point back under the pointer, then let Fit keep the picture inside the view.
-        viewCentre = new Point((ActualWidth / 2 - (anchor.X - pointX * width * scale)) / (width * scale), (ActualHeight / 2 - (anchor.Y - pointY * height * scale)) / (height * scale));
+        viewCentre = new Point((ActualWidth / 2 - (anchor.X - pointX * width * scale)) / (width * scale), (ViewHeight / 2 - (anchor.Y - TopInset - pointY * height * scale)) / (height * scale));
         NormalizeView(image);
         OnViewChanged();
     }
@@ -125,7 +135,7 @@ public sealed class CropSurface : FrameworkElement
     /// <summary>The source-independent picture point (0..1, as shown) under a point of the view; for checks.</summary>
     internal Point PicturePointAt(Point point)
     {
-        if (Source is not { } image) return default;
+        if (Geometry is not { } image) return default;
         var (bounds, _) = Fit(image);
         return new Point((point.X - bounds.X) / bounds.Width, (point.Y - bounds.Y) / bounds.Height);
     }
@@ -134,13 +144,13 @@ public sealed class CropSurface : FrameworkElement
     private void NormalizeView(BitmapSource image)
     {
         var (bounds, _) = Fit(image);
-        viewCentre = new Point((ActualWidth / 2 - bounds.X) / bounds.Width, (ActualHeight / 2 - bounds.Y) / bounds.Height);
+        viewCentre = new Point((ActualWidth / 2 - bounds.X) / bounds.Width, (TopInset + ViewHeight / 2 - bounds.Y) / bounds.Height);
     }
 
     private void OnViewChanged()
     {
         // Past a few screen pixels per picture pixel, smoothing only blurs what you zoomed in to see.
-        RenderOptions.SetBitmapScalingMode(this, Source is { } image && Fit(image).Scale >= 3 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Unspecified);
+        RenderOptions.SetBitmapScalingMode(this, Geometry is { } image && Fit(image).Scale >= 3 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Unspecified);
         InvalidateVisual();
         ZoomChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -148,7 +158,7 @@ public sealed class CropSurface : FrameworkElement
     protected override void OnMouseWheel(MouseWheelEventArgs args)
     {
         // Plain wheel over the picture zooms at the pointer. With Ctrl the event is left alone and steps frames instead.
-        if (Source is null || (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        if (Geometry is null || (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             return;
         ZoomAt(args.GetPosition(this), Math.Pow(1.2, args.Delta / (double)Mouse.MouseWheelDeltaForOneLine));
         args.Handled = true;
@@ -197,14 +207,15 @@ public sealed class CropSurface : FrameworkElement
     protected override void OnRender(DrawingContext context)
     {
         context.DrawRectangle(Tokens.Brush("MonitorBrush", Color.FromRgb(11, 10, 20)), null, new Rect(RenderSize));
-        if (Source is not { } image || ActualWidth <= 0 || ActualHeight <= 0) return;
+        if (Geometry is not { } image || ActualWidth <= 0 || ActualHeight <= 0) return;
+        var picture = LiveSource ?? image;
         var (bounds, scale) = Fit(image);
         if (IsEdgeEditing)
         {
             // Draw the unturned picture around the centre of where it belongs, then turn it.
             var centre = new Point(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2);
             context.PushTransform(new RotateTransform(VideoTransform.NormalizeRotation(Rotation), centre.X, centre.Y));
-            context.DrawImage(image, new Rect(centre.X - image.PixelWidth * scale / 2, centre.Y - image.PixelHeight * scale / 2, image.PixelWidth * scale, image.PixelHeight * scale));
+            context.DrawImage(picture, new Rect(centre.X - image.PixelWidth * scale / 2, centre.Y - image.PixelHeight * scale / 2, image.PixelWidth * scale, image.PixelHeight * scale));
             context.Pop();
             var selected = ShownCropOnScreen(image);
             context.DrawGeometry(ShadeBrush, null, new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(bounds), new RectangleGeometry(selected)));
@@ -214,7 +225,7 @@ public sealed class CropSurface : FrameworkElement
             DrawZoomChip(context);
             return;
         }
-        context.DrawImage(image, bounds);
+        context.DrawImage(picture, bounds);
         if (Selection is { } crop)
         {
             var selected = new Rect(bounds.X + crop.X * scale, bounds.Y + crop.Y * scale, crop.Width * scale, crop.Height * scale);
@@ -319,7 +330,7 @@ public sealed class CropSurface : FrameworkElement
     {
         // Clicking the preview gives it keyboard focus so Left/Right step frames instead of changing the filmstrip file.
         Focus();
-        if (Source is not { } image) return;
+        if (Geometry is not { } image) return;
         if (args.ClickCount == 2 && !IsCropping && (!IsEdgeEditing || EdgeAt(args.GetPosition(this), ShownCropOnScreen(image)) == CropEdge.None))
         {
             ResetView();
@@ -358,7 +369,7 @@ public sealed class CropSurface : FrameworkElement
 
     protected override void OnMouseMove(MouseEventArgs args)
     {
-        if (Source is not { } source) return;
+        if (Geometry is not { } source) return;
         var position = args.GetPosition(this);
         if (panStart is { } from)
         {
@@ -419,7 +430,7 @@ public sealed class CropSurface : FrameworkElement
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
     {
         base.OnRenderSizeChanged(sizeInfo);
-        if (Source is { } image && IsZoomed)
+        if (Geometry is { } image && IsZoomed)
             NormalizeView(image);
     }
 }

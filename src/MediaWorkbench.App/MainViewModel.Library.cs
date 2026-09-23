@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,7 +11,7 @@ namespace MediaWorkbench.App;
 /// <summary>One visible row of the folder tree. The tree is flattened so it can use the same list styling and virtualization as the rest of the app.</summary>
 public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool isExpanded, int parentTotal) : ObservableObject
 {
-    public FolderNode Node { get; } = node;
+    public FolderNode Node { get; private set; } = node;
     public int Depth { get; } = depth;
     public bool IsExpanded { get; } = isExpanded;
     public bool HasChildren => Node.Children.Count > 0;
@@ -30,6 +31,26 @@ public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool 
     public bool HasSecondCover => CoverLast is not null;
     /// <summary>Set the first time the row appears, so scrolling past it again costs nothing.</summary>
     internal bool CoversRequested;
+    /// <summary>A folder added to the workspace (the second level of the tree, under All folders).</summary>
+    public bool IsWorkspaceFolder { get; init; }
+    /// <summary>For a workspace folder row: the folder itself, whose reading state the row shows.</summary>
+    public WorkspaceFolder? Folder { get; init; }
+    /// <summary>The folder has tags of its own, which every file under it carries.</summary>
+    public bool HasFolderTags { get; init; }
+    public bool IsAllFolders => Depth == 0;
+
+    /// <summary>Same place, name and counts: the old row can stay on screen instead of being redrawn.</summary>
+    internal bool SameAs(FolderRowViewModel other) =>
+        Depth == other.Depth && IsExpanded == other.IsExpanded && Node.Name == other.Node.Name && Node.Total == other.Node.Total
+        && Node.Photos == other.Node.Photos && Node.Videos == other.Node.Videos && Node.Children.Count == other.Node.Children.Count
+        && HasFolderTags == other.HasFolderTags;
+
+    /// <summary>This row with the freshly built node behind it, keeping the row (and its covers) itself.</summary>
+    internal FolderRowViewModel WithNode(FolderNode node)
+    {
+        Node = node;
+        return this;
+    }
 }
 
 public sealed partial class MainViewModel
@@ -39,82 +60,43 @@ public sealed partial class MainViewModel
 
     private FolderNode? folderRoot;
     private readonly HashSet<string> expandedFolders = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Workspace folders are open by default; these are the ones closed by hand.</summary>
+    private readonly HashSet<string> collapsedTops = new(StringComparer.OrdinalIgnoreCase);
     private string folderFilter = "";
     private bool suppressFolderSelection;
     private DateTime lastFolderTreeBuild = DateTime.MinValue;
 
-    /// <summary>
-    /// Two ways to deal with opening one folder and then wanting its subfolders on their own. Flattening makes a folder's
-    /// subfolders the top level, as if each had been opened separately; removing takes a branch out of the library altogether.
-    /// Both are ways of looking at the files already scanned, so neither rescans and neither touches a file.
-    /// </summary>
-    private string flattenedRoot = "";
+    /// <summary>Folders taken out of view with "Hide this folder". Nothing on disk changes; Show all folders brings them back.</summary>
     private readonly HashSet<string> removedFolders = new(StringComparer.OrdinalIgnoreCase);
 
-    public bool ShowFolderEdits => flattenedRoot.Length > 0 || removedFolders.Count > 0;
-    public string FolderEditsLabel => (flattenedRoot.Length, removedFolders.Count) switch
-    {
-        (0, 0) => "",
-        (0, 1) => "1 folder removed",
-        (0, var removed) => $"{removed:N0} folders removed",
-        (_, 0) => $"Flattened to {LastSegment(flattenedRoot)}",
-        (_, 1) => $"Flattened to {LastSegment(flattenedRoot)}, 1 folder removed",
-        (_, var removed) => $"Flattened to {LastSegment(flattenedRoot)}, {removed:N0} folders removed"
-    };
+    public bool ShowFolderEdits => removedFolders.Count > 0;
+    public string FolderEditsLabel => removedFolders.Count == 1 ? "1 folder hidden" : $"{removedFolders.Count:N0} folders hidden";
 
     private static string LastSegment(string path) => path.Split('\\').LastOrDefault() is { Length: > 0 } name ? name : path;
 
-    /// <summary>The folder a file counts as being in once the library has been flattened; empty for files directly in the flattened folder.</summary>
-    private string FolderKeyOf(AssetViewModel item) =>
-        flattenedRoot.Length == 0 ? item.FolderKey
-        : item.FolderKey.Length <= flattenedRoot.Length ? ""
-        : item.FolderKey[(flattenedRoot.Length + 1)..];
-
-    /// <summary>False for files under a removed folder, or outside the flattened one.</summary>
+    /// <summary>False for files under a hidden folder.</summary>
     private bool IsFolderIncluded(AssetViewModel item) =>
-        FolderTree.Contains(flattenedRoot, item.FolderKey)
-        && (removedFolders.Count == 0 || !removedFolders.Any(folder => FolderTree.Contains(folder, item.FolderKey)));
-
-    /// <summary>A row's folder as the scan knows it: rows are keyed against the flattened view, the rest of the app against the library.</summary>
-    private string RealKey(FolderRowViewModel row) =>
-        flattenedRoot.Length == 0 ? row.Node.Path
-        : row.Node.Path.Length == 0 ? flattenedRoot
-        : flattenedRoot + "\\" + row.Node.Path;
-
-    [RelayCommand]
-    private void FlattenFolder(FolderRowViewModel? row)
-    {
-        if (row is null)
-            return;
-        var key = RealKey(row);
-        if (key.Length == 0)
-            return;
-        flattenedRoot = key;
-        folderFilter = "";
-        expandedFolders.Clear();
-        RefreshView();
-        RebuildFolderTree();
-        NotifyFolderEdits();
-        Status = $"Flattened to {LastSegment(key)}: its subfolders are now the top level. Use Show all folders to go back.";
-    }
+        removedFolders.Count == 0 || !removedFolders.Any(folder => FolderTree.Contains(folder, item.FolderKey));
 
     [RelayCommand]
     private void RemoveFolder(FolderRowViewModel? row)
     {
-        if (row is null)
+        if (row is null || row.Node.Path.Length == 0)
             return;
-        var key = RealKey(row);
-        if (key.Length == 0 || key.Equals(flattenedRoot, StringComparison.OrdinalIgnoreCase))
+        var key = row.Node.Path;
+        // A whole workspace folder is removed from the workspace rather than hidden.
+        if (!key.Contains('\\') && FolderOf(key) is { } folder)
+        {
+            CloseFolder(folder, save: true);
             return;
+        }
         removedFolders.Add(key);
-        if (FolderTree.Contains(key, folderFilter.Length == 0 ? "" : RealKeyOfFilter()))
-            folderFilter = "";
+        if (FolderTree.Contains(key, folderFilter))
+            SelectFolder(key.Contains('\\') ? key[..key.LastIndexOf('\\')] : "");
         RefreshView();
         RebuildFolderTree();
         NotifyFolderEdits();
-        Status = $"Removed {LastSegment(key)} from the library view. The files are untouched; Show all folders brings them back.";
-
-        string RealKeyOfFilter() => flattenedRoot.Length == 0 ? folderFilter : flattenedRoot + "\\" + folderFilter;
+        Status = $"Hid {LastSegment(key)}. The files are untouched; Show all folders brings them back.";
     }
 
     [RelayCommand]
@@ -122,15 +104,40 @@ public sealed partial class MainViewModel
     {
         if (!ShowFolderEdits)
             return;
-        flattenedRoot = "";
         removedFolders.Clear();
-        folderFilter = "";
-        expandedFolders.Clear();
         RefreshView();
         RebuildFolderTree();
         NotifyFolderEdits();
-        Status = "Showing every folder in the library again.";
+        Status = "Showing every folder again.";
     }
+
+    /// <summary>A subfolder opened as a workspace folder of its own, so its tree starts at the top.</summary>
+    [RelayCommand]
+    private async Task AddSubfolderToWorkspaceAsync(FolderRowViewModel? row)
+    {
+        if (row is null || FolderOf(row.Node.Path) is not { IsVirtual: false } folder)
+            return;
+        var relative = row.Node.Path.Length > folder.Label.Length ? row.Node.Path[(folder.Label.Length + 1)..] : "";
+        try { await AddFolderAsync(Path.Combine(folder.Path, relative)); }
+        catch (Exception exception) { ReportError(exception); }
+    }
+
+    [RelayCommand]
+    private void RevealFolder(FolderRowViewModel? row) => Guard(() =>
+    {
+        if (row is null || FolderOf(row.Node.Path) is not { IsVirtual: false } folder)
+            return;
+        var relative = row.Node.Path.Length > folder.Label.Length ? row.Node.Path[(folder.Label.Length + 1)..] : "";
+        RevealPath(Path.Combine(folder.Path, relative));
+    });
+
+    /// <summary>
+    /// Whether a folder key still has somewhere to show: a workspace folder (even one whose files are still being read), or a
+    /// subfolder with files in view. Asked of the files, not the tree, because the tree merges a folder that is left with a single
+    /// subfolder into one row, and that folder is still perfectly good to look at.
+    /// </summary>
+    private bool HasFolder(string path) =>
+        path.Length == 0 || FolderOf(path) is not null && (!path.Contains('\\') || Assets.Any(item => IsFolderIncluded(item) && FolderTree.Contains(path, item.FolderKey)));
 
     private void NotifyFolderEdits()
     {
@@ -193,17 +200,30 @@ public sealed partial class MainViewModel
         catch (Exception) { }
     }
 
+    /// <summary>Clicking a folder in the tree moves the selected tab there. The filmstrip changes at once; nothing is rescanned.</summary>
     partial void OnSelectedFolderRowChanged(FolderRowViewModel? value)
     {
+        ShowFolderTags();
         if (suppressFolderSelection || value is null)
             return;
         if (folderFilter.Equals(value.Node.Path, StringComparison.OrdinalIgnoreCase))
             return;
-        folderFilter = value.Node.Path;
+        ApplyFolder(value.Node.Path);
+        Status = HasFolderFilter ? $"Showing {visibleCount:N0} files in {value.Node.Name.Split('\\')[^1]} and its subfolders." : "Showing every folder of the workspace.";
+    }
+
+    private void ApplyFolder(string path)
+    {
+        folderFilter = path;
+        if (SelectedTab is { } tab && !tab.Path.Equals(path, StringComparison.OrdinalIgnoreCase))
+        {
+            tab.Path = path;
+            SaveWorkspace();
+        }
         RefreshView();
         UpdateChart();
+        UpdateTabs();
         NotifyFolderFilter();
-        Status = HasFolderFilter ? $"Showing {visibleCount:N0} files in {value.Node.Name} and its subfolders." : "Showing every folder.";
     }
 
     partial void OnChartSelectedPathChanged(string? value)
@@ -220,7 +240,11 @@ public sealed partial class MainViewModel
     private void ToggleFolderRow(FolderRowViewModel? row)
     {
         if (row is not { HasChildren: true } || row.Node.Path.Length == 0) return;
-        if (!expandedFolders.Remove(row.Node.Path)) expandedFolders.Add(row.Node.Path);
+        if (row.IsWorkspaceFolder)
+        {
+            if (!collapsedTops.Remove(row.Node.Path)) collapsedTops.Add(row.Node.Path);
+        }
+        else if (!expandedFolders.Remove(row.Node.Path)) expandedFolders.Add(row.Node.Path);
         RebuildFolderRows();
     }
 
@@ -230,6 +254,7 @@ public sealed partial class MainViewModel
         if (folderRoot is null) return;
         void Walk(FolderNode node) { foreach (var child in node.Children) { if (child.Children.Count > 0) expandedFolders.Add(child.Path); Walk(child); } }
         Walk(folderRoot);
+        collapsedTops.Clear();
         RebuildFolderRows();
     }
 
@@ -237,6 +262,7 @@ public sealed partial class MainViewModel
     private void CollapseAllFolders()
     {
         expandedFolders.Clear();
+        foreach (var folder in WorkspaceFolders) collapsedTops.Add(folder.Label);
         RebuildFolderRows();
     }
 
@@ -246,8 +272,13 @@ public sealed partial class MainViewModel
     /// <summary>Selects a folder by its normalized path, expanding its ancestors so the row is visible.</summary>
     public void SelectFolder(string path)
     {
-        if (folderRoot is null || FolderTree.Find(folderRoot, path) is null)
+        if (!HasFolder(path))
+            path = "";
+        if (folderRoot is null)
+        {
+            folderFilter = path;
             return;
+        }
         var ancestor = "";
         foreach (var segment in path.Split('\\', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -258,11 +289,8 @@ public sealed partial class MainViewModel
         for (var node = folderRoot; node is not null && !node.Path.Equals(path, StringComparison.OrdinalIgnoreCase);
              node = node.Children.FirstOrDefault(child => FolderTree.Contains(child.Path, path)))
             if (node.Path.Length > 0) expandedFolders.Add(node.Path);
-        folderFilter = path;
-        RebuildFolderRows();
-        RefreshView();
-        UpdateChart();
-        NotifyFolderFilter();
+        RebuildFolderRows(path);
+        ApplyFolder(path);
     }
 
     private void ResetFolderTree()
@@ -270,8 +298,6 @@ public sealed partial class MainViewModel
         folderRoot = null;
         folderFilter = "";
         expandedFolders.Clear();
-        // A new source starts with nothing flattened or removed; those choices belong to the folder they were made in.
-        flattenedRoot = "";
         removedFolders.Clear();
         NotifyFolderEdits();
         lastFolderTreeBuild = DateTime.MinValue;
@@ -294,38 +320,77 @@ public sealed partial class MainViewModel
     internal void RebuildFolderTree()
     {
         lastFolderTreeBuild = DateTime.UtcNow;
-        var rootName = flattenedRoot.Length > 0 ? LastSegment(flattenedRoot) : string.IsNullOrWhiteSpace(SourceName) ? "All folders" : SourceName;
-        folderRoot = FolderTree.Build(Assets.Where(IsFolderIncluded).Select(item => (FolderKeyOf(item), item.Asset)), rootName);
-        if (folderFilter.Length > 0 && FolderTree.Find(folderRoot, folderFilter) is null)
+        folderRoot = FolderTree.Build(Assets.Where(IsFolderIncluded).Select(item => (item.FolderKey, item.Asset)), "All folders");
+        // Workspace folders are never merged into their only subfolder: each keeps a row of its own at the top.
+        folderRoot = KeepWorkspaceRows(folderRoot);
+        if (!HasFolder(folderFilter) && !IsScanning)
         {
             folderFilter = "";
             RefreshView();
         }
-        RebuildFolderRows();
+        RebuildFolderRows(folderFilter);
         UpdateChart();
+        UpdateTabs();
         NotifyFolderFilter();
     }
 
-    private void RebuildFolderRows()
+    /// <summary>
+    /// Rebuilds the visible rows, reusing the row of every folder that is still there with the same counts, so the list does not
+    /// redraw rows that did not change (and their album covers do not blink).
+    /// </summary>
+    private void RebuildFolderRows(string? select = null)
     {
+        select ??= folderFilter;
         suppressFolderSelection = true;
         try
         {
-            FolderRows.Clear();
+            var previous = FolderRows.ToDictionary(row => row.Node.Path, StringComparer.OrdinalIgnoreCase);
+            var rows = new List<FolderRowViewModel>();
             if (folderRoot is not null)
-                AddRows(folderRoot, 0, folderRoot.Total);
-            SelectedFolderRow = FolderRows.FirstOrDefault(row => row.Node.Path.Equals(folderFilter, StringComparison.OrdinalIgnoreCase)) ?? FolderRows.FirstOrDefault();
+                AddRows(folderRoot, 0, folderRoot.Total, rows);
+            for (var index = 0; index < rows.Count; index++)
+                if (previous.TryGetValue(rows[index].Node.Path, out var kept) && kept.SameAs(rows[index]))
+                    rows[index] = kept.WithNode(rows[index].Node);
+            var same = rows.Count == FolderRows.Count && rows.Select((row, index) => ReferenceEquals(row, FolderRows[index])).All(match => match);
+            if (!same)
+            {
+                FolderRows.Clear();
+                foreach (var row in rows) FolderRows.Add(row);
+            }
+            SelectedFolderRow = FolderRows.FirstOrDefault(row => row.Node.Path.Equals(select, StringComparison.OrdinalIgnoreCase)) ?? FolderRows.FirstOrDefault();
         }
         finally { suppressFolderSelection = false; }
     }
 
-    private void AddRows(FolderNode node, int depth, int parentTotal)
+    /// <summary>Undoes the chain merging for the workspace folders themselves, which must each keep a row labelled with their own name.</summary>
+    private FolderNode KeepWorkspaceRows(FolderNode root)
     {
-        var expanded = node.Path.Length == 0 || expandedFolders.Contains(node.Path);
-        FolderRows.Add(new FolderRowViewModel(node, depth, expanded, parentTotal));
+        for (var index = 0; index < root.Children.Count; index++)
+        {
+            var child = root.Children[index];
+            if (child.Path.Contains('\\') && FolderOf(child.Path) is { } folder)
+            {
+                // The merged node's path runs past the label; rebuild the label node above it.
+                var top = new FolderNode(folder.Label, folder.Label)
+                {
+                    Photos = child.Photos, Videos = child.Videos, Audio = child.Audio, Bytes = child.Bytes, FolderCount = child.FolderCount + 1
+                };
+                child.Name = child.Path[(folder.Label.Length + 1)..];
+                top.Children.Add(child);
+                root.Children[index] = top;
+            }
+        }
+        return root;
+    }
+
+    private void AddRows(FolderNode node, int depth, int parentTotal, List<FolderRowViewModel> rows)
+    {
+        // Workspace folders start open, so their first level is in view the moment they are added.
+        var expanded = node.Path.Length == 0 || expandedFolders.Contains(node.Path) || depth == 1 && !collapsedTops.Contains(node.Path);
+        rows.Add(new FolderRowViewModel(node, depth, expanded, parentTotal) { IsWorkspaceFolder = depth == 1, Folder = depth == 1 ? FolderOf(node.Path) : null, HasFolderTags = depth > 0 && FolderHasTags(node) });
         if (!expanded) return;
         foreach (var child in node.Children)
-            AddRows(child, depth + 1, node.Total);
+            AddRows(child, depth + 1, node.Total, rows);
     }
 
     private void UpdateChart()
@@ -360,8 +425,6 @@ public sealed partial class MainViewModel
             OnPropertyChanged(property);
     }
 
-    private string FolderKeyOf(MediaAsset asset) =>
-        FolderTree.Normalize(virtualSource ? asset.Root : System.IO.Path.GetDirectoryName(asset.RelativePath));
 
     public static string DescribeKinds(int photos, int videos, int audio, bool percentages = false)
     {

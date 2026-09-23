@@ -71,9 +71,12 @@ public sealed partial class MainViewModel
         NotifyFraming();
     }
 
+    /// <summary>Room kept above the picture for the crop tools laid over its top, so they never cover the top edge.</summary>
+    public double FramingInset => ShowFramingTools ? 76 : 0;
+
     private void NotifyFraming()
     {
-        UpdatePortraitLayout();
+        OnPropertyChanged(nameof(FramingInset));
         foreach (var property in new[] { nameof(CanFrame), nameof(HasVideoTransform), nameof(ShowFramingTools), nameof(ShowTransformReminder), nameof(TrimLabel), nameof(FramingSummary), nameof(FramingEdgeHint) })
             OnPropertyChanged(property);
     }

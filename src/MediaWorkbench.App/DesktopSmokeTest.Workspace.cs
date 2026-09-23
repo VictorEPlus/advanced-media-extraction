@@ -13,8 +13,9 @@ internal static partial class DesktopSmokeTest
     private static async Task CheckWorkspaceAsync(MainViewModel model, MainWindow window, string dataDirectory, string mediaDirectory, AssetViewModel photo, AssetViewModel video, CancellationToken token)
     {
         model.InspectorTab = 0;
-        Require(model.IsPhoto && !model.IsVideo && model.CanCopy && model.ExportLabel == "Export PNG", "Photos must expose image actions, not video controls.");
-        Require(window.VideoTimeline.Visibility == Visibility.Collapsed && window.PlaybackButton.Visibility == Visibility.Collapsed, "Video controls should collapse for a photo.");
+        Require(model.IsPhoto && !model.IsVideo && model.CanCopy && model.ExportLabel == "EXPORT PNG", "Photos must expose image actions, not video controls.");
+        // Hidden, not collapsed: their space is kept so the picture is the same size for a photo as for a video.
+        Require(window.VideoTimeline.Visibility == Visibility.Collapsed && window.TransportControls.Visibility == Visibility.Hidden, "Video controls should be hidden for a photo, keeping their space.");
         Require(model.Metadata.Any(row => row.Name == "Aspect ratio" && row.Value == "16:9"), "Photo metadata should include the reduced aspect ratio.");
         Require(model.Metadata.Any(row => row.Name == "DPI"), "Native image metadata was not loaded.");
         Require(model.Metadata.All(row => !row.IsSelected), "Metadata tag candidates must start unconfirmed.");
@@ -67,19 +68,23 @@ internal static partial class DesktopSmokeTest
         Render(window, Path.Combine(dataDirectory, "workspace-video.png"));
         Require(window.VideoTimeline.Visibility == Visibility.Visible && window.PlaybackButton.Visibility == Visibility.Visible, "Video timeline and playback controls should be visible.");
         model.StageSelectedCommand.Execute(null);
+        // Related files and collections open beside the folder, not instead of it: the folder stays in the workspace.
+        var shown = (System.Windows.Data.ListCollectionView)model.LibraryView;
         await model.FindRelatedCommand.ExecuteAsync(null);
-        Require(model.Assets.Count == 1 && model.Assets[0].Asset.FullPath == photo.Asset.FullPath, "Shared tags should find related media across sources.");
+        Require(shown.Count == 1 && ((AssetViewModel)shown.GetItemAt(0)).Asset.FullPath == photo.Asset.FullPath && model.WorkspaceFolders.Count == 2,
+            "Shared tags should find related media across sources, as one more entry in the workspace.");
         await model.OpenCollectionCommand.ExecuteAsync(null);
-        Require(model.Assets.Count == 2 && model.Assets.All(item => item.IsFavorite), "Collection browsing lost media or cross-root favorites.");
-        model.SelectedAsset = model.Assets.Single(item => item.Asset.Kind == MediaKind.Photo);
+        Require(shown.Count == 2 && shown.Cast<AssetViewModel>().All(item => item.IsFavorite), "Collection browsing lost media or cross-root favorites.");
+        Require(model.WorkspaceFolders.Any(folder => !folder.IsVirtual && folder.Path == mediaDirectory), "Showing a collection must keep the folder open.");
+        model.SelectedAsset = shown.Cast<AssetViewModel>().Single(item => item.Asset.Kind == MediaKind.Photo);
         await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         Require(model.SelectedTags.Contains("review"), "Tags should follow a file into a collection.");
         await model.RemoveFromCollectionCommand.ExecuteAsync(null);
-        Require(model.Assets.Count == 1 && File.Exists(photo.Asset.FullPath), "Removing a staged item must not delete its media.");
+        Require(shown.Count == 1 && File.Exists(photo.Asset.FullPath), "Removing a staged item must not delete its media.");
         var collection = store.Load(collectionPath);
         store.Save(collectionPath, CollectionStore.Add(collection, [Path.Combine(mediaDirectory, "missing.png")]));
         await model.OpenCollectionCommand.ExecuteAsync(null);
-        Require(model.Assets.Count == 1 && model.Status.Contains("1 missing", StringComparison.Ordinal), "Missing collection paths should be reported and preserved.");
+        Require(shown.Count == 1 && model.CurrentFolder?.State.Contains("1 missing", StringComparison.Ordinal) == true, "Missing collection paths should be reported and preserved: " + model.CurrentFolder?.State);
         Require(store.Load(collectionPath).Paths.Length == 2, "Loading a collection must not remove missing references.");
         await model.OpenLibraryAsync(mediaDirectory);
         model.SelectedAsset = model.Assets.Single(item => item.Asset.Kind == MediaKind.Photo);
@@ -140,12 +145,15 @@ internal static partial class DesktopSmokeTest
         model.ShowSources = false;
         model.MainTab = 1;
         var content = (FrameworkElement)window.Content;
-        content.Measure(new Size(1050, 660));
-        content.Arrange(new Rect(0, 0, 1050, 660));
+        content.Measure(new Size(1080, 700));
+        content.Arrange(new Rect(0, 0, 1080, 700));
         content.UpdateLayout();
-        Require(window.PreviewSurface.ActualWidth > 600 && window.PreviewSurface.ActualHeight > 200, "Compact layout should reclaim space when Sources is collapsed.");
-        foreach (var button in VisualChildren(content).OfType<Button>().Where(button => button.ActualHeight > 0 && button.Visibility == Visibility.Visible && button.Style is not null))
-            if (button.Command is not null) Require(Math.Abs(button.ActualHeight - 32) < 0.1, $"Action button heights should be consistent: {button.Name} \"{button.Content}\" is {button.ActualHeight:0.#} tall, not 32.");
+        // The dock under the picture keeps one height for every kind of file, so at the smallest window a photo gets a little less height than it used to.
+        Require(window.PreviewSurface.ActualWidth > 600 && window.PreviewSurface.ActualHeight > 185, $"Compact layout should reclaim space when Sources is collapsed (picture {window.PreviewSurface.ActualWidth:0} x {window.PreviewSurface.ActualHeight:0}, filmstrip {window.FilmstripPanel.ActualHeight:0}, dock {window.PreviewDock.ActualHeight:0}, header {window.CenterHeader.ActualHeight:0}).");
+        // Every button is 28 tall; only the small inline icons (a tab close cross, the tree arrows) are deliberately smaller.
+        var inline = window.FindResource("QuietIconButton");
+        foreach (var button in VisualChildren(content).OfType<Button>().Where(button => button.ActualHeight > 0 && button.Visibility == Visibility.Visible && button.Style is not null && !ReferenceEquals(button.Style, inline)))
+            if (button.Command is not null) Require(Math.Abs(button.ActualHeight - 28) < 0.1, $"Action button heights should be consistent: {button.Name} \"{button.Content}\" is {button.ActualHeight:0.#} tall, not 28.");
 
         var loader = new ThumbnailLoader();
         var engine = new MediaEngine(new ToolPaths("nonexistent-ffmpeg", "nonexistent-ffprobe"), Path.Combine(dataDirectory, "thumbnail-test"));

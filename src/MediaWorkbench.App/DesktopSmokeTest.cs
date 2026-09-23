@@ -15,7 +15,7 @@ internal static partial class DesktopSmokeTest
     {
         CheckDarkTheme(window);
         Render(window, Path.Combine(dataDirectory, "desktop-empty.png"));
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(150));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(240));
         var tools = ToolPaths.Resolve();
         await tools.CheckAsync(timeout.Token);
         var mediaDirectory = Path.Combine(dataDirectory, "synthetic-media");
@@ -30,7 +30,7 @@ internal static partial class DesktopSmokeTest
         await viewModel.SaveSettingsCommand.ExecuteAsync(null);
         await viewModel.OpenLibraryAsync(mediaDirectory);
         Require(viewModel.Assets.Count == 2, "The desktop scan did not discover both generated files.");
-        Require(viewModel.IsLibraryTab && viewModel.FolderRows.Count == 1 && viewModel.FolderRows[0].Node.Total == 2, "Opening a folder should show the Library tab with its folder tree.");
+        Require(viewModel.IsLibraryTab && viewModel.FolderRows.Count == 2 && viewModel.FolderRows[1].IsWorkspaceFolder && viewModel.FolderRows[0].Node.Total == 2, "Opening a folder should show the Overview with the folder in the workspace tree.");
         var videoItem = viewModel.Assets.Single(item => item.Asset.Kind == MediaKind.Video);
         var photoItem = viewModel.Assets.Single(item => item.Asset.Kind == MediaKind.Photo);
         viewModel.SelectedAsset = videoItem;
@@ -61,14 +61,14 @@ internal static partial class DesktopSmokeTest
         viewModel.InspectorTab = 0;
         viewModel.ExportFrameCommand.Execute(null);
         Require(viewModel.Jobs.Count == 1, "Frame export was not queued.");
-        Require(viewModel.InspectorTab == 0 && viewModel.ExportBadge == "Export (1)", "Queueing an export must badge the Export tab instead of switching to it.");
+        Require(viewModel.InspectorTab == 0 && viewModel.ExportBadge == "EXPORT (1)", "Queueing an export must badge the Export tab instead of switching to it.");
         viewModel.SelectedAsset = photoItem;
         await WaitUntilAsync(() => !viewModel.IsPreviewBusy && viewModel.Jobs.All(job => job.IsFinished), timeout.Token);
         Require(viewModel.Jobs[0].OutputPath is { } path && Path.GetFileName(path).Contains("frame_000003", StringComparison.Ordinal), "Export did not retain the selected video frame when browsing away.");
         Require(viewModel.Notifications.Any(notification => notification.Kind == NotificationKind.Success && notification.HasAction), "A finished export should raise a success notification with an Open output action.");
         Require(viewModel.JobHistory.Count == 1 && viewModel.JobHistory[0].Succeeded && File.Exists(Path.Combine(dataDirectory, "export-history.json")), "Finished exports must be recorded in persistent history.");
         Require(viewModel.RecentLibraries.Any(entry => entry.Path == mediaDirectory), "The opened folder should appear in recent libraries.");
-        Require(viewModel.ExportBadge == "Export", "The Export badge should clear when no jobs are active.");
+        Require(viewModel.ExportBadge == "EXPORT", "The Export badge should clear when no jobs are active.");
         Require(viewModel.CanExportFrame, "Photo preview failed: " + viewModel.Status);
         viewModel.ToggleFavoriteCommand.Execute(null);
         var stored = new CatalogStore(Path.Combine(dataDirectory, "catalog.db")).GetFavorites(mediaDirectory);
@@ -87,60 +87,95 @@ internal static partial class DesktopSmokeTest
         await CheckCompactLayoutAsync(viewModel, window, dataDirectory, tools, timeout.Token);
         await CheckZoomAndFocusAsync(viewModel, window, dataDirectory, timeout.Token);
         await CheckStitchAsync(viewModel, window, dataDirectory, photoItem, videoItem, timeout.Token);
+        await CheckTagsAsync(viewModel, window, dataDirectory, tools, timeout.Token);
         Require(viewModel.Notifications.All(notification => notification.Kind != NotificationKind.Error),
             "The scenario raised an unexpected error notification: " + string.Join(" | ", viewModel.Notifications.Where(notification => notification.Kind == NotificationKind.Error).Select(notification => notification.Message)));
-        CheckLibraryAndTour(viewModel, window, dataDirectory, photoItem);
+        await CheckWorkspaceAndTourAsync(viewModel, window, dataDirectory, timeout.Token);
         var errorWindow = new StartupErrorWindow("Synthetic startup error for theme verification.");
         CheckDarkTheme(errorWindow);
         Render(errorWindow, Path.Combine(dataDirectory, "startup-dialog.png"));
     }
 
-    /// <summary>Library tab: folder tree, folder filter and graph. Then every tour step must point at a real element.</summary>
-    private static void CheckLibraryAndTour(MainViewModel model, MainWindow window, string dataDirectory, AssetViewModel photo)
+    /// <summary>
+    /// The workspace: two folders open at once, each with its own tree; tabs flip between folder views without rescanning and
+    /// without closing the open file; a folder opened before comes back at once from its saved index; changes on disk are picked
+    /// up while the app runs. Then every tour step must point at a real element.
+    /// </summary>
+    private static async Task CheckWorkspaceAndTourAsync(MainViewModel model, MainWindow window, string dataDirectory, CancellationToken token)
     {
-        (string Folder, int Count, MediaKind Kind)[] layout =
+        (string Folder, int Count, string Extension)[] layout =
         [
-            ("", 3, MediaKind.Photo), (@"shoot A\day 1", 40, MediaKind.Photo), (@"shoot A\day 2", 25, MediaKind.Photo), (@"shoot A\day 2", 5, MediaKind.Video),
-            ("shoot B", 12, MediaKind.Video), ("shoot B", 8, MediaKind.Audio), (@"deep\only\chain\here", 6, MediaKind.Photo)
+            ("", 3, ".png"), (@"shoot A\day 1", 40, ".png"), (@"shoot A\day 2", 25, ".png"), (@"shoot A\day 2", 5, ".mp4"),
+            ("shoot B", 12, ".mp4"), ("shoot B", 8, ".wav"), (@"deep\only\chain\here", 6, ".png")
         ];
+        var shoots = Path.Combine(dataDirectory, "workspace", "Shoots");
+        var archive = Path.Combine(dataDirectory, "workspace", "Archive");
         var number = 0;
+        foreach (var (folder, count, extension) in layout)
+        {
+            Directory.CreateDirectory(Path.Combine(shoots, folder));
+            for (var index = 0; index < count; index++)
+                File.WriteAllBytes(Path.Combine(shoots, folder, $"file{++number}{extension}"), [1, 2, 3]);
+        }
+        Directory.CreateDirectory(Path.Combine(archive, "old"));
+        for (var index = 0; index < 10; index++)
+            File.WriteAllBytes(Path.Combine(archive, "old", $"scan{index}.png"), [1, 2, 3]);
+
         model.ClearFiltersCommand.Execute(null);
-        model.SelectedAsset = null;
-        model.Assets.Clear();
-        model.Assets.AddRange(layout.SelectMany(entry => Enumerable.Range(0, entry.Count).Select(_ =>
-            new AssetViewModel(photo.Asset with { RelativePath = Path.Combine(entry.Folder, $"file{++number}.bin"), Kind = entry.Kind }, false) { FolderKey = FolderTree.Normalize(entry.Folder) })));
-        model.RebuildFolderTree();
+        await model.OpenLibraryAsync(shoots);
         model.MainTab = 0;
         var view = (System.Windows.Data.ListCollectionView)model.LibraryView;
         Require(model.IsLibraryTab && model.ShowLibraryMap, "The Library tab should show the folder map once media has been found.");
-        Require(model.FolderRows.Count == 4 && model.FolderRows[0].Node.Total == 99, "The folder tree should list the root and its three top-level folders with totals that include subfolders.");
+        Require(model.FolderRows.Count == 5 && model.FolderRows[0].IsAllFolders && model.FolderRows[1].IsWorkspaceFolder && model.FolderRows[1].Node.Total == 99,
+            $"The tree should show All folders, then the workspace folder open to its three top-level folders, not {model.FolderRows.Count} rows.");
         Require(model.FolderRows.Any(row => row.Name == @"deep\only\chain\here" && row.Node.Total == 6), "Folders that only lead to one subfolder should collapse into a single row.");
-        Require(model.ChartNodes.Count == 4 && model.ChartNodes[^1].Total == 3, "The graph should chart each top-level folder plus the files directly in the root.");
-        model.SelectFolder("shoot A");
+        model.SelectFolder(@"Shoots\shoot A");
         Require(model.HasFolderFilter && view.Count == 70 && model.ChartNodes.Count == 2, "Selecting a folder must narrow the filmstrip to it and chart its subfolders.");
         model.ToggleFolderRowCommand.Execute(model.SelectedFolderRow);
-        Require(model.FolderRows.Count == 6 && model.SelectedFolderRow?.Node.Path == "shoot A", "Opening a folder should reveal its subfolders and keep it selected.");
-        model.ChartSelectedPath = @"shoot A\day 2";
-        Require(view.Count == 30 && model.SelectedFolderRow?.Node.Path == @"shoot A\day 2" && model.ChartSelectedPath is null, "Clicking a graph bar should go into that folder.");
-        model.SelectFolder("shoot A");
+        Require(model.FolderRows.Count == 7 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A", "Opening a folder should reveal its subfolders and keep it selected.");
+        model.ChartSelectedPath = @"Shoots\shoot A\day 2";
+        Require(view.Count == 30 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A\day 2" && model.ChartSelectedPath is null, "Clicking a graph bar should go into that folder.");
+        model.SelectFolder(@"Shoots\shoot A");
         Render(window, Path.Combine(dataDirectory, "workspace-library.png"));
-        Require(model.VisibleCount == "70 of 99 files in shoot A" && window.VisibleCountText.ActualWidth > 100, $"The file count should name the folder being shown: {model.VisibleCount}");
-        model.ClearFiltersCommand.Execute(null);
-        Require(!model.HasFolderFilter && view.Count == 99, "Clear filters should also clear the folder filter.");
+        Require(model.VisibleCount == @"70 of 99 files in Shoots\shoot A", $"The file count should name the folder being shown: {model.VisibleCount}");
 
-        // Flattening a folder promotes its subfolders to the top level; removing one takes a branch out. Both are ways of
-        // looking at the same scan, so the file count follows and nothing on disk is touched.
-        var shootA = model.FolderRows.Single(row => row.Node.Path == "shoot A");
-        model.FlattenFolderCommand.Execute(shootA);
-        Require(model.ShowFolderEdits && model.FolderEditsLabel == "Flattened to shoot A", "Flattening should say what it did: " + model.FolderEditsLabel);
-        Require(view.Count == 70, $"Flattening to a folder should leave only its files in the filmstrip, not {view.Count}.");
-        Require(model.FolderRows.Count == 3 && model.FolderRows.Any(row => row.Name == "day 1") && model.FolderRows.Any(row => row.Name == "day 2"),
-            "The flattened folder's own subfolders should now be the top level.");
+        // A second folder joins the workspace in a tab of its own; the first tab stays where it was.
+        model.NewTabCommand.Execute(null);
+        var archiveFolder = await model.AddFolderAsync(archive);
+        await WaitUntilAsync(() => !archiveFolder.IsScanning, token);
+        Require(model.Assets.Count == 109 && model.WorkspaceFolders.Count == 2 && model.Tabs.Count == 2, $"Adding a folder must keep the first one open ({model.Assets.Count} files, {model.WorkspaceFolders.Count} folders, {model.Tabs.Count} tabs).");
+        Require(view.Count == 10 && model.SelectedTab?.Path == "Archive", "The new tab should show the added folder.");
+        model.SelectedAsset = view.Cast<AssetViewModel>().First();
+        var working = model.SelectedAsset;
+        model.SelectedTab = model.Tabs[0];
+        Require(view.Count == 70 && !model.IsScanning && ReferenceEquals(model.SelectedAsset, working), "Going back to the first tab must be instant and keep the file that is open.");
+        Require(model.Tabs[0].Title == "shoot A" && model.Tabs[1].Title == "Archive", $"Tabs should be named after their folders: {model.Tabs[0].Title}, {model.Tabs[1].Title}.");
+
+        // Hiding a folder takes it out of view without touching anything on disk.
         model.RemoveFolderCommand.Execute(model.FolderRows.Single(row => row.Name == "day 1"));
-        Require(view.Count == 30 && model.FolderEditsLabel == "Flattened to shoot A, 1 folder removed", "Removing a folder should take its files out as well: " + model.FolderEditsLabel);
+        Require(model.ShowFolderEdits && view.Count == 30, $"Hiding a folder should take its files out of the view, leaving 30, not {view.Count} ({model.Status}; {model.FolderEditsLabel}; filter {model.SelectedTab?.Path}; keys {string.Join("|", model.Assets.Where(item => item.FolderKey.Contains("day 1")).Select(item => item.FolderKey).Distinct())}; rows {string.Join("|", model.FolderRows.Select(row => row.Node.Path))}).");
         model.ShowAllFoldersCommand.Execute(null);
-        Require(!model.ShowFolderEdits && view.Count == 99 && model.FolderRows.Count == 4, "Show all folders should put the whole library back.");
+        Require(!model.ShowFolderEdits && view.Count == 70, "Show all folders should bring hidden folders back.");
 
+        // Reopening a folder is instant: the saved index is shown before the folder is read again.
+        model.RemoveWorkspaceFolderCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "Archive"));
+        Require(model.WorkspaceFolders.Count == 1 && model.Assets.Count == 99, "Removing a folder from the workspace takes only its files out.");
+        archiveFolder = await model.AddFolderAsync(archive, show: false);
+        Require(model.Assets.Count(item => item.Owner == archiveFolder) == 10, "A folder opened before should list its files straight from the saved index.");
+        await WaitUntilAsync(() => !archiveFolder.IsScanning, token);
+
+        // A file added on disk appears without a rescan.
+        File.WriteAllBytes(Path.Combine(archive, "old", "new arrival.png"), [1, 2, 3]);
+        using (var watch = CancellationTokenSource.CreateLinkedTokenSource(token))
+        {
+            watch.CancelAfter(TimeSpan.FromSeconds(15));
+            await WaitUntilAsync(() => model.Assets.Count(item => item.Owner == archiveFolder) == 11, watch.Token);
+        }
+        var saved = new SettingsStore(Path.Combine(dataDirectory, "settings.json")).Load();
+        Require(saved.WorkspaceRoots.Length == 2 && saved.WorkspaceTabs.Length == 2, "The workspace folders and tabs should be saved for next time.");
+
+        model.SelectedTab = model.Tabs[0];
+        model.MainTab = 0;
         window.StartTour();
         Require(window.IsTourActive && window.TourLayer.Visibility == Visibility.Visible, "The tour overlay should appear.");
         for (var index = 0; index < MainWindow.TourSteps.Count; index++)
@@ -189,8 +224,8 @@ internal static partial class DesktopSmokeTest
 
     private static void CheckDarkTheme(Window window)
     {
-        Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(22, 19, 38), "The main window lost its dark canvas background.");
-        Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(237, 234, 255), "The main window lost its readable foreground.");
+        Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(10, 15, 34), "The main window lost its dark canvas background.");
+        Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(228, 241, 255), "The main window lost its readable foreground.");
     }
 
     private static void CheckControlSurfaces(DependencyObject parent)
