@@ -48,7 +48,8 @@ try {
     $executable = Join-Path $root "src\MediaWorkbench.App\bin\$Configuration\net10.0-windows\MediaWorkbench.exe"
     $smokeDirectory = Join-Path $root ('artifacts\smoke-' + [Guid]::NewGuid().ToString('N'))
     $process = Start-Process -FilePath $executable -ArgumentList @('--smoke-test', '--data-dir', ('"' + $smokeDirectory + '"')) -WindowStyle Hidden -PassThru
-    if (-not $process.WaitForExit(60000)) {
+    # The full desktop check plays, scans, tags and exports real media; it takes a few minutes.
+    if (-not $process.WaitForExit(600000)) {
         $process.Kill()
         throw "Desktop startup timed out. Inspect $smokeDirectory."
     }

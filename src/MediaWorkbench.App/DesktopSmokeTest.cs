@@ -243,6 +243,10 @@ internal static partial class DesktopSmokeTest
     private static void CheckDarkTheme(Window window)
     {
         Require(window.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(10, 15, 34), "The main window lost its dark canvas background.");
+        // The display font is the Cascadia Mono built into the app, not a fallback, even on a PC that does not have it installed.
+        var display = (FontFamily)Application.Current.Resources["DisplayFont"];
+        Require(new Typeface(display, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).TryGetGlyphTypeface(out var glyphs) && glyphs.FamilyNames.Values.Contains("Cascadia Mono"),
+            "The display font should load Cascadia Mono from the app itself: " + display.Source);
         Require(window.Foreground is SolidColorBrush foreground && foreground.Color == Color.FromRgb(228, 241, 255), "The main window lost its readable foreground.");
     }
 

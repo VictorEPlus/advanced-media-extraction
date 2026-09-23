@@ -25,7 +25,7 @@ Custom-drawn controls (timeline, crop surface, folder graph) read these tokens a
 
 ## Type
 
-- **Consolas** (monospace) for anything that reads like a terminal: panel titles (`▍ WORKSPACE`), view and tab names, button labels, readouts, counts, the status line, tags. Titles, view names and button labels are capitals.
+- **Cascadia Mono** (monospace, built into the app from `src/MediaWorkbench.App/Fonts`, SIL Open Font License) for anything that reads like a terminal: panel titles (`▍ WORKSPACE`), view and tab names, button labels, readouts, counts, the status line, tags. Titles, view names and button labels are capitals.
 - **Segoe UI** 12.5 for body text: file names, details values, explanations.
 
 Numbers that change while you work use tabular figures so they never jitter.

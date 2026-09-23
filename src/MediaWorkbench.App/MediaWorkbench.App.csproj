@@ -12,6 +12,9 @@
   <ItemGroup>
     <!-- The same mark as a resource, so the window and taskbar show it as well as the .exe in Explorer. -->
     <Resource Include="Assets\MediaWorkbench.ico" />
+    <!-- Cascadia Mono (SIL Open Font License, Fonts\OFL.txt) is built into the app, so it looks the same on a PC without it installed. -->
+    <Resource Include="Fonts\CascadiaMono.ttf" />
+    <Content Include="Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../MediaWorkbench.Core/MediaWorkbench.Core.csproj" />

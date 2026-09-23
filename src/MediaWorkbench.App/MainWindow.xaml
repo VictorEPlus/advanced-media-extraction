@@ -560,11 +560,11 @@
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <local:SpacedPanel Orientation="Vertical">
                                     <DockPanel x:Name="StageToRow" Visibility="{Binding HasCollections, Converter={StaticResource BoolVisibility}}">
-                                        <Button DockPanel.Dock="Right" Width="60" Content="{Binding StageVerb}" Command="{Binding StageSelectedCommand}" IsEnabled="{Binding HasSelection}" Margin="6,0,0,0" ToolTip="{Binding StageButtonToolTip}" />
+                                        <Button DockPanel.Dock="Right" Width="76" Content="{Binding StageVerb}" Command="{Binding StageSelectedCommand}" IsEnabled="{Binding HasSelection}" Margin="6,0,0,0" ToolTip="{Binding StageButtonToolTip}" />
                                         <ComboBox x:Name="StageToBox" ItemsSource="{Binding Collections}" SelectedItem="{Binding SelectedCollection}" DisplayMemberPath="Name" AutomationProperties.Name="Collection to add to" ToolTip="The collection that S and the button above the preview add to" />
                                     </DockPanel>
                                     <DockPanel x:Name="ManageCollectionsExpander">
-                                        <Button DockPanel.Dock="Right" Width="60" Content="+ NEW" Command="{Binding CreateCollectionCommand}" Margin="6,0,0,0" ToolTip="Make a collection with this name; the open file goes in it" />
+                                        <Button DockPanel.Dock="Right" Width="76" Content="+ NEW" Command="{Binding CreateCollectionCommand}" Margin="6,0,0,0" ToolTip="Make a collection with this name; the open file goes in it" />
                                         <TextBox x:Name="NewCollectionBox" Text="{Binding CollectionName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New collection name" ToolTip="Name for a new collection. The open file goes in it." />
                                     </DockPanel>
                                 </local:SpacedPanel>

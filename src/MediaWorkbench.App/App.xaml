@@ -39,7 +39,8 @@
         <SolidColorBrush x:Key="ChartPhotoBrush" Color="#5A8CFF" />
         <SolidColorBrush x:Key="ChartVideoBrush" Color="#E85C2A" />
         <SolidColorBrush x:Key="ChartAudioBrush" Color="#00AC75" />
-        <FontFamily x:Key="DisplayFont">Consolas, Lucida Console, Segoe UI</FontFamily>
+        <!-- Cascadia Mono ships inside the app (Fonts\CascadiaMono.ttf); Consolas only if it could not be loaded. -->
+        <FontFamily x:Key="DisplayFont">pack://application:,,,/Fonts/#Cascadia Mono, Consolas, Segoe UI</FontFamily>
         <FontFamily x:Key="BodyFont">Segoe UI</FontFamily>
         <Thickness x:Key="PanelPadding">12,10,12,12</Thickness>
 
