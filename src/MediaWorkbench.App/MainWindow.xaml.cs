@@ -207,6 +207,44 @@ public partial class MainWindow : Window
     private void OnFolderTagRequested(object? sender, EventArgs args) =>
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => FolderTagBox.Focus());
 
+    /// <summary>The rename box takes the cursor with its text selected as soon as it appears.</summary>
+    private void RenameBoxVisible(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (sender is TextBox { IsVisible: true } box)
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => { box.Focus(); box.SelectAll(); });
+    }
+
+    private void RenameBoxKeyDown(object sender, KeyEventArgs args)
+    {
+        if (sender is not TextBox { DataContext: FolderRowViewModel row }) return;
+        if (args.Key is Key.Enter or Key.Escape)
+        {
+            viewModel.FinishRename(row, keep: args.Key == Key.Enter);
+            FolderTreeList.Focus();
+            args.Handled = true;
+        }
+    }
+
+    private void RenameBoxLostFocus(object sender, KeyboardFocusChangedEventArgs args)
+    {
+        if (sender is TextBox { DataContext: FolderRowViewModel row }) viewModel.FinishRename(row, keep: true);
+    }
+
+    /// <summary>Overview cards fetch their covers once they are scrolled into view, like the rows of the tree.</summary>
+    private void OverviewScrollChanged(object sender, ScrollChangedEventArgs args)
+    {
+        var viewport = new Rect(0, 0, OverviewScroller.ViewportWidth, OverviewScroller.ViewportHeight);
+        for (var index = 0; index < OverviewFolderCards.Items.Count; index++)
+        {
+            if (OverviewFolderCards.ItemContainerGenerator.ContainerFromIndex(index) is not FrameworkElement card || !card.IsVisible
+                || card.DataContext is not FolderRowViewModel { CoversRequested: false } row)
+                continue;
+            var bounds = card.TransformToAncestor(OverviewScroller).TransformBounds(new Rect(card.RenderSize));
+            if (bounds.IntersectsWith(viewport))
+                _ = viewModel.LoadFolderCoversAsync(row);
+        }
+    }
+
     private void OnCollectionNameRequested(object? sender, EventArgs args) =>
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => NewCollectionBox.Focus());
 
@@ -221,6 +259,7 @@ public partial class MainWindow : Window
 
     private void FolderTreeDoubleClick(object sender, MouseButtonEventArgs args)
     {
+        if (Keyboard.FocusedElement is TextBox) return;
         if (FolderTreeList.SelectedItem is FolderRowViewModel row)
             viewModel.ToggleFolderRowCommand.Execute(row);
     }
@@ -234,6 +273,13 @@ public partial class MainWindow : Window
 
     private void FolderTreeKeyDown(object sender, KeyEventArgs args)
     {
+        if (args.OriginalSource is TextBox) return;
+        if (args.Key == Key.F2 && FolderTreeList.SelectedItem is FolderRowViewModel { IsWorkspaceFolder: true } renamed)
+        {
+            viewModel.StartRenameCommand.Execute(renamed);
+            args.Handled = true;
+            return;
+        }
         if (FolderTreeList.SelectedItem is not FolderRowViewModel { HasChildren: true } row) return;
         if ((args.Key == Key.Right && !row.IsExpanded) || (args.Key == Key.Left && row.IsExpanded))
         {

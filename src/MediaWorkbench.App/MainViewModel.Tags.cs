@@ -73,6 +73,7 @@ public sealed partial class MainViewModel
         }
         foreach (var item in Assets) item.Tags = TagsFor(item.Asset);
         ShowTagsOf(SelectedAsset);
+        UpdateOverviewTags();
         ShowFolderTags();
         UpdateSuggestions();
     }

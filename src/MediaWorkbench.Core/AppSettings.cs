@@ -28,6 +28,8 @@ public sealed record AppSettings
     /// <summary>The folder views open as tabs over the filmstrip, as workspace folder keys (the folder's label, then its subfolders).</summary>
     public string[] WorkspaceTabs { get; init; } = [];
     public int SelectedTab { get; init; }
+    /// <summary>Names given to workspace folders, by folder path. Only what is shown changes; the folder on disk keeps its name.</summary>
+    public Dictionary<string, string> WorkspaceNames { get; init; } = [];
 
     /// <summary>Returns settings with <paramref name="root"/> moved to the front of the recent list, bounded and de-duplicated.</summary>
     public AppSettings WithRecentLibrary(string root)
@@ -43,7 +45,8 @@ public sealed record AppSettings
         && CacheMegabytes == other.CacheMegabytes && SortMethod == other.SortMethod && ThumbnailHeight.Equals(other.ThumbnailHeight)
         && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && FollowFilmstrip == other.FollowFilmstrip && TourOffered == other.TourOffered && LayoutVersion == other.LayoutVersion
         && RecentLibraries.SequenceEqual(other.RecentLibraries, StringComparer.Ordinal)
-        && WorkspaceRoots.SequenceEqual(other.WorkspaceRoots, StringComparer.Ordinal) && WorkspaceTabs.SequenceEqual(other.WorkspaceTabs, StringComparer.Ordinal) && SelectedTab == other.SelectedTab;
+        && WorkspaceRoots.SequenceEqual(other.WorkspaceRoots, StringComparer.Ordinal) && WorkspaceTabs.SequenceEqual(other.WorkspaceTabs, StringComparer.Ordinal) && SelectedTab == other.SelectedTab
+        && WorkspaceNames.Count == other.WorkspaceNames.Count && WorkspaceNames.All(pair => other.WorkspaceNames.TryGetValue(pair.Key, out var name) && name == pair.Value);
 
     public override int GetHashCode() => HashCode.Combine(ExportDirectory, FfmpegDirectory, LastLibrary, CacheMegabytes, SortMethod, ThumbnailHeight,
         HashCode.Combine(ShowSources, ShowInspector, TourOffered, FollowFilmstrip, WorkspaceRoots.Length, WorkspaceTabs.Length, SelectedTab), RecentLibraries.Length);

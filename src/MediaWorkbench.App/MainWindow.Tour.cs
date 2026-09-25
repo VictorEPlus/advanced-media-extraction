@@ -48,6 +48,8 @@ public partial class MainWindow
 
         new("MainTabs", "Overview, Preview and Stitch", "Overview charts the folder in the filmstrip. Preview shows the selected file with its tools. Stitch combines a few pictures into one. Selecting a file opens Preview.", Library),
         new("LibrarySummaryBlock", "Totals", "How many files are in the folder shown in the filmstrip, in how many subfolders, their size and the split between photos, videos and sound.", Library),
+        new("OverviewTagsSection", "Tags in here", "Every tag the files in this folder carry, with how many. Click one to show only those files in the filmstrip; click it again to show everything.", Library),
+        new("OverviewFolderCards", "Folders inside", "A card for each folder inside this one, with its first and last picture. Click a card to go in, Up to come back out.", Library),
         new("FolderChartPanel", "Folder graph", "A bar for each subfolder: length is the number of files, colours split photos, videos and sound. Hover for exact numbers; click a bar to go into that folder.", Library),
 
         new("SelectionHeader", "Selected file", "The open file's name, its shape and a one-line summary. It stays open while you browse other folders; Not in view says the filmstrip is showing somewhere else.", Preview),
@@ -68,7 +70,7 @@ public partial class MainWindow
         new("PlaybackButton", "Play and pause", "Plays from exactly the frame you are looking at; pausing keeps the frame that was showing. Shortcut: Space.", Preview),
         new("NextFrameButton", "Next frame", "One frame forward. Shortcuts: period, or Right while the preview has focus.", Preview),
         new("PlayRangeButton", "Play the marked range", "Plays from the in point and stops on the out point, to check a selection before exporting it.", Preview),
-        new("CopyButton", "Copy", "Copies the full-resolution picture, or just the crop area, to the clipboard. Shortcut: Ctrl+C.", Preview),
+        new("CopyButton", "Copy", "Copies the full-resolution picture, or just the crop area. It is also saved as a PNG in the output folder, so it pastes as a picture into apps and as a file into Explorer or an upload box. Shortcut: Ctrl+C.", Preview),
         new("CropButton", "Crop", "Drag on the picture to choose an area for Copy; its size shows at the top of the picture. Esc clears it. Exports are never cropped.", Preview),
         new("ExportFrameButton", "Export", "Saves the frame or photo on screen as a full-resolution PNG in the output folder. Shortcut: E.", Preview),
         new("MoreActionsButton", "More", "Add to stitch, Crop and rotate the whole video, Snip marked sound to WAV, and Clear the crop area.", Preview),

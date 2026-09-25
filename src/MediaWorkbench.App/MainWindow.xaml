@@ -218,6 +218,7 @@
                                 <DockPanel Height="26" Margin="{Binding Indent}" ToolTip="{Binding ToolTipText}" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}" Background="Transparent">
                                     <DockPanel.ContextMenu>
                                         <ContextMenu>
+                                            <MenuItem Header="Rename&#x2026;" InputGestureText="F2" ToolTip="Give this workspace folder the name you want to see. The folder on disk keeps its name." Visibility="{Binding IsWorkspaceFolder, Converter={StaticResource BoolVisibility}}" Command="{Binding PlacementTarget.Tag.StartRenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Open in a new tab" Command="{Binding PlacementTarget.Tag.OpenInNewTabCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Move out to its own workspace folder" ToolTip="Shows this folder as its own entry in the workspace and no longer inside this one. Nothing on disk moves; removing it from the workspace puts it back." Command="{Binding PlacementTarget.Tag.AddSubfolderToWorkspaceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
                                             <MenuItem Header="Show in Explorer" Command="{Binding PlacementTarget.Tag.RevealFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" />
@@ -236,12 +237,16 @@
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Style="{StaticResource Readout}" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,4,0" />
                                     <TextBlock DockPanel.Dock="Right" Text="#" Style="{StaticResource Readout}" Foreground="{StaticResource TagBrush}" VerticalAlignment="Center" Margin="4,0,0,0" Visibility="{Binding HasFolderTags, Converter={StaticResource BoolVisibility}}" ToolTip="This folder has tags; every file under it carries them" />
                                     <TextBlock DockPanel.Dock="Right" Text="&#x25CF;&#x25CF;&#x25CF;" FontSize="7" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Visibility="{Binding Folder.IsScanning, Converter={StaticResource BoolVisibility}, FallbackValue=Collapsed}" ToolTip="{Binding Folder.State}" />
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
-                                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource InkBrush}" /><Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsWorkspaceFolder}" Value="True"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{StaticResource AccentBrush}" /></DataTrigger>
-                                            <DataTrigger Binding="{Binding IsAllFolders}" Value="True"><Setter Property="FontFamily" Value="{StaticResource DisplayFont}" /><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /></DataTrigger>
-                                        </Style.Triggers></Style></TextBlock.Style>
-                                    </TextBlock>
+                                    <Grid>
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource InkBrush}" /><Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsWorkspaceFolder}" Value="True"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{StaticResource AccentBrush}" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding IsAllFolders}" Value="True"><Setter Property="FontFamily" Value="{StaticResource DisplayFont}" /><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /></DataTrigger>
+                                            </Style.Triggers></Style></TextBlock.Style>
+                                        </TextBlock>
+                                        <!-- Rename (F2): covers the name in place, so the row keeps its height. -->
+                                        <TextBox Height="22" Padding="4,0" VerticalContentAlignment="Center" Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsRenaming, Converter={StaticResource BoolVisibility}}" IsVisibleChanged="RenameBoxVisible" KeyDown="RenameBoxKeyDown" LostKeyboardFocus="RenameBoxLostFocus" AutomationProperties.Name="Workspace folder name" ToolTip="Enter keeps the name, Esc cancels. Empty goes back to the folder's own name." />
+                                    </Grid>
                                 </DockPanel>
                             </DataTemplate></ListBox.ItemTemplate>
                         </ListBox>
@@ -289,17 +294,58 @@
                             </local:SpacedPanel>
                         </StackPanel>
                     </ContentControl>
+                    <!-- Overview: the folder in the filmstrip. Its totals, the tags its files carry (click to filter), a card for each
+                         folder inside it to click through, and the breakdown graph folded away underneath. -->
                     <ContentControl x:Name="FolderChartPanel" Style="{StaticResource GlassPanel}" Visibility="{Binding ShowLibraryMap, Converter={StaticResource BoolVisibility}}">
-                        <DockPanel>
-                            <StackPanel x:Name="LibrarySummaryBlock" DockPanel.Dock="Top" Margin="0,0,0,12">
-                                <TextBlock Text="{Binding LibrarySummary}" FontFamily="{StaticResource DisplayFont}" FontSize="18" />
-                                <TextBlock Text="{Binding LibraryKindSummary}" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0" />
+                        <ScrollViewer x:Name="OverviewScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OverviewScrollChanged">
+                            <StackPanel Margin="0,0,10,0">
+                                <DockPanel x:Name="LibrarySummaryBlock" Margin="0,0,0,16">
+                                    <Button x:Name="OverviewUpButton" DockPanel.Dock="Left" Style="{StaticResource GhostButton}" Content="&#x25C2; UP" Width="64" Command="{Binding OverviewUpCommand}" Visibility="{Binding CanGoUp, Converter={StaticResource BoolHidden}}" VerticalAlignment="Top" Margin="0,0,14,0" ToolTip="Go to the folder around this one" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding OverviewTitle}" Style="{StaticResource PanelTitle}" Foreground="{StaticResource AccentBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding LibrarySummary}" FontFamily="{StaticResource DisplayFont}" FontSize="18" Margin="0,4,0,0" />
+                                        <TextBlock Text="{Binding LibraryKindSummary}" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <StackPanel x:Name="OverviewTagsSection" Margin="0,0,0,18">
+                                    <TextBlock Text="TAGS IN HERE" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
+                                    <TextBlock Text="No file in here has a tag yet. Tags you add in the Tags tab show up here, to filter the filmstrip with one click." Style="{StaticResource Hint}" TextWrapping="Wrap" Visibility="{Binding HasNoOverviewTags, Converter={StaticResource BoolVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding OverviewTags}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate>
+                                        <ToggleButton Style="{StaticResource ToggleChip}" Margin="0,0,6,6" IsChecked="{Binding IsActive, Mode=OneWay}" Command="{Binding DataContext.ToggleOverviewTagCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" ToolTip="Show only the files with this tag; click again to show everything">
+                                            <TextBlock><Run Text="{Binding Tag, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Files, Mode=OneWay, StringFormat=N0}" Foreground="{StaticResource FaintBrush}" /></TextBlock>
+                                        </ToggleButton>
+                                    </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                </StackPanel>
+
+                                <TextBlock Text="{Binding OverviewFoldersTitle}" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" Visibility="{Binding HasOverviewFolders, Converter={StaticResource BoolVisibility}}" />
+                                <ItemsControl x:Name="OverviewFolderCards" ItemsSource="{Binding OverviewFolders}" AutomationProperties.Name="Folders inside this one"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate>
+                                    <Button Style="{StaticResource FolderCard}" Command="{Binding DataContext.OpenOverviewFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" ToolTip="{Binding ToolTipText}">
+                                        <StackPanel>
+                                            <!-- The first and last picture in the folder, like the tree's album covers but larger. -->
+                                            <UniformGrid Columns="2" Height="96">
+                                                <Border Background="{StaticResource MonitorBrush}" ClipToBounds="True"><Grid><TextBlock Text="&#x25A3;" Foreground="{StaticResource FaintBrush}" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center" /><Image Source="{Binding CoverFirst}" Stretch="UniformToFill" /></Grid></Border>
+                                                <Border Background="{StaticResource MonitorBrush}" ClipToBounds="True" Margin="1,0,0,0"><Image Source="{Binding CoverLast}" Stretch="UniformToFill" /></Border>
+                                            </UniformGrid>
+                                            <DockPanel Margin="8,7,8,0">
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Style="{StaticResource Readout}" Foreground="{StaticResource MutedBrush}" Margin="6,0,0,0" />
+                                                <TextBlock DockPanel.Dock="Right" Text="#" Style="{StaticResource Readout}" Foreground="{StaticResource TagBrush}" Margin="6,0,0,0" Visibility="{Binding HasFolderTags, Converter={StaticResource BoolVisibility}}" />
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource InkBrush}" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding KindText}" Style="{StaticResource Hint}" TextTrimming="CharacterEllipsis" Margin="8,2,8,8" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                <TextBlock Text="{Binding OverviewMoreText}" Style="{StaticResource Hint}" Margin="0,4,0,0" />
+
+                                <Expander x:Name="OverviewBreakdown" Header="BREAKDOWN" Margin="0,14,0,0" ToolTip="A bar for each folder inside this one; length is the number of files, subfolders included. Click a bar to open the folder.">
+                                    <StackPanel Margin="0,8,0,0">
+                                        <TextBlock Text="{Binding ChartTitle}" Style="{StaticResource PanelTitle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ChartSubtitle}" Margin="0,0,0,6" />
+                                        <local:FolderChart x:Name="FolderChartView" Nodes="{Binding ChartNodes}" SelectedPath="{Binding ChartSelectedPath, Mode=TwoWay}" CurrentPath="{Binding SelectedFolderRow.Node.Path, FallbackValue=''}" AutomationProperties.Name="Files per subfolder by media type" />
+                                    </StackPanel>
+                                </Expander>
                             </StackPanel>
-                            <TextBlock DockPanel.Dock="Top" Text="{Binding ChartTitle}" Style="{StaticResource PanelTitle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ChartSubtitle}" Margin="0,0,0,6" />
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ToolTip="Bar length is the number of files, subfolders included; the percentage is that folder's share. Click a bar to open the folder.">
-                                <local:FolderChart x:Name="FolderChartView" Nodes="{Binding ChartNodes}" SelectedPath="{Binding ChartSelectedPath, Mode=TwoWay}" CurrentPath="{Binding SelectedFolderRow.Node.Path, FallbackValue=''}" AutomationProperties.Name="Files per subfolder by media type" />
-                            </ScrollViewer>
-                        </DockPanel>
+                        </ScrollViewer>
                     </ContentControl>
                     <ItemsControl ItemsSource="{Binding Notifications}" ItemTemplate="{StaticResource NotificationTemplate}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12" MaxWidth="440" AutomationProperties.Name="Notifications" />
                 </Grid>

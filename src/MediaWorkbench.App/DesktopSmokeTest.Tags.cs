@@ -74,5 +74,17 @@ internal static partial class DesktopSmokeTest
             "The Tags tab should list a file's own tags apart from the ones it carries from its folder.");
         model.InspectorTab = 1;
         Render(window, Path.Combine(dataDirectory, "workspace-tags.png"));
+
+        // The overview lists the tags of the files in the folder shown; a click filters the filmstrip to exactly that tag.
+        model.SelectFolder("tagging");
+        var strip = (System.Windows.Data.ListCollectionView)model.LibraryView;
+        Require(model.OverviewTags.Any(tag => tag.Tag == "client A" && tag.Files == 2) && model.OverviewTags.Any(tag => tag.Tag == "job 7" && tag.Files == 2),
+            "The overview should count the tags in the folder: " + string.Join(", ", model.OverviewTags.Select(tag => $"{tag.Tag} {tag.Files}")));
+        model.ToggleOverviewTagCommand.Execute(model.OverviewTags.Single(tag => tag.Tag == "client A"));
+        Require(strip.Count == 2 && model.OverviewTags.Single(tag => tag.Tag == "client A").IsActive, $"A tag chip should filter the filmstrip to its files, not {strip.Count}.");
+        model.MainTab = 0;
+        Render(window, Path.Combine(dataDirectory, "workspace-overview-tags.png"));
+        model.ToggleOverviewTagCommand.Execute(model.OverviewTags.Single(tag => tag.Tag == "client A"));
+        Require(model.TagFilter.Length == 0 && strip.Count > 2, "Clicking the chip again should show every file again.");
     }
 }

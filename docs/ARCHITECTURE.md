@@ -48,7 +48,7 @@ Focus view is window state (`ApplyFocusView`): it collapses the header, filter b
 
 `DetectContentBoundsAsync` runs `cropdetect` on a dozen frames at five moments spread along the video (one for very short videos) and joins the results, so a dark scene at one moment cannot shrink the answer. `ExportTransformedVideoAsync` re-encodes the whole video (`-fps_mode vfr`, so variable frame rates keep their timing) with the first audio track; `TrimVideoAsync` takes the same transform after its frame-exact `trim`. Integration tests detect the bars of a generated letterboxed video, check the turned output size and frame count, and confirm that detection on the result finds no border left.
 
-The video crop is separate from the clipboard crop (`CropSelection`), which stays transient and never reaches a file. The two modes switch each other off.
+The video crop is separate from the copy crop (`CropSelection`), which only shapes what Copy saves as a PNG and puts on the clipboard (as a bitmap, a PNG stream and the saved file); it never changes the original. The two modes switch each other off.
 
 ## Instant preview and following the filmstrip
 

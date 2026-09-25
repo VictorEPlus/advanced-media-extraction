@@ -48,12 +48,12 @@ public sealed partial class MainViewModel
     public bool IsVisual => IsPhoto || IsVideo;
     public bool HasCrop => CropSelection is not null;
     public bool CanCopy => PreviewImage is BitmapSource && !IsFrameLoading && !ShowPlayback;
-    public string CopyLabel => HasCrop ? "Copy crop" : IsVideo ? "Copy frame" : "Copy image";
+    public string CopyLabel => (HasCrop ? "Copy crop" : IsVideo ? "Copy frame" : "Copy image") + " (Ctrl+C): saved as a PNG in the output folder and put on the clipboard as a picture and as a file";
     public string ExportLabel => IsPhoto ? "EXPORT PNG" : "EXPORT FRAME";
     public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.DescribeAspect(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
     public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString().ToUpperInvariant() ?? "NO SELECTION";
     public string SourceSummary => CurrentFolder is { IsVirtual: false } folder ? folder.Path : SourceName;
-    public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files" + (HasFolderFilter ? $" in {folderFilter}" : "");
+    public string VisibleCount => $"{visibleCount:N0} of {Assets.Count:N0} files" + (HasFolderFilter ? $" in {DisplayKey(folderFilter)}" : "");
     public bool IsCollectionView => CurrentFolder?.CollectionPath is not null;
     public double ThumbnailWidth => ThumbnailHeight * 1.6;
     public double FilmstripHeight => ThumbnailHeight + 48;
@@ -124,7 +124,13 @@ public sealed partial class MainViewModel
     }
 
     partial void OnSortMethodChanged(string value) => ApplySort();
-    partial void OnTagFilterChanged(string value) => RefreshView();
+    partial void OnTagFilterChanged(string value)
+    {
+        // Typing in the tag box matches any tag containing the text; only a tag chip asks for one exact tag.
+        if (!settingTagFilter) exactTagFilter = false;
+        RefreshView();
+        UpdateOverviewTags();
+    }
     partial void OnThumbnailHeightChanged(double value) { OnPropertyChanged(nameof(ThumbnailWidth)); OnPropertyChanged(nameof(FilmstripHeight)); }
     partial void OnSourceNameChanged(string value) => OnPropertyChanged(nameof(SourceSummary));
     partial void OnCropSelectionChanged(PixelCrop? value) { OnPropertyChanged(nameof(CopyLabel)); OnPropertyChanged(nameof(CropLabel)); OnPropertyChanged(nameof(HasCrop)); }
@@ -428,14 +434,47 @@ public sealed partial class MainViewModel
     private void ToggleCrop() { if (!IsCropping) IsFraming = false; IsCropping = !IsCropping; }
     [RelayCommand]
     private void ResetCrop() { CropSelection = null; IsCropping = false; }
+    /// <summary>
+    /// Copy saves the picture as a PNG in the output folder as well, and puts both on the clipboard: the picture for apps that
+    /// paste pictures, the saved file for Explorer, upload boxes and anything else that pastes files.
+    /// </summary>
     [RelayCommand]
-    private void CopyPreview() => Guard(() =>
+    private async Task CopyPreviewAsync()
     {
-        if (!CanCopy) throw new InvalidOperationException("Wait for a still preview before copying. Pause video to copy its current frame.");
-        Clipboard.SetImage(BuildClipboardImage());
-        Status = HasCrop ? "Cropped pixels copied to clipboard. No media file saved or changed." : "Image pixels copied to clipboard. No media file saved or changed.";
-        Notify(NotificationKind.Success, HasCrop ? $"Copied {CropSelection!.Width} x {CropSelection.Height} px to the clipboard." : "Copied the full image to the clipboard.");
-    });
+        try
+        {
+            if (!CanCopy) throw new InvalidOperationException("Wait for a still preview before copying. Pause video to copy its current frame.");
+            var (data, path) = await ExportForClipboardAsync();
+            Clipboard.SetDataObject(data, copy: true);
+            Status = $"Copied, and saved as {path}.";
+            Notify(NotificationKind.Success, $"Copied {Path.GetFileName(path)}. Paste it as a picture or as a file.", "Open output", () => RevealPath(path));
+        }
+        catch (Exception exception) { ReportError(exception); }
+    }
+
+    /// <summary>Saves what Copy copies and returns the clipboard contents for it. Kept apart from the clipboard so the checks can use it.</summary>
+    internal async Task<(DataObject Data, string Path)> ExportForClipboardAsync()
+    {
+        if (SelectedAsset is not { } item) throw new InvalidOperationException("Select a file to copy from.");
+        var image = BuildClipboardImage();
+        var stem = Path.GetFileNameWithoutExtension(item.Name) + (IsVideo ? $"_frame_{Math.Max(0, DisplayedFrame):000000}" : "_copy")
+            + (CropSelection is { } crop ? $"_crop_{crop.Width}x{crop.Height}" : "");
+        var directory = settings.ExportDirectory;
+        var path = await Task.Run(() =>
+        {
+            var bytes = ImageLoader.Encode(image);
+            using var output = OutputReservation.Create(directory, stem, ".png");
+            File.WriteAllBytes(output.Path, bytes);
+            output.Complete();
+            return output.Path;
+        });
+        var data = new DataObject();
+        data.SetImage(image);
+        // PNG as well as the plain bitmap: browsers, Office and chat apps prefer it and it keeps transparency.
+        data.SetData("PNG", new MemoryStream(await File.ReadAllBytesAsync(path)), autoConvert: false);
+        data.SetFileDropList([path]);
+        return (data, path);
+    }
 
     internal BitmapSource BuildClipboardImage()
     {

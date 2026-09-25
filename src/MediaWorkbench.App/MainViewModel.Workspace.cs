@@ -22,6 +22,8 @@ public sealed partial class WorkspaceFolder(string path, string label, string? c
     public string? CollectionPath { get; } = collectionPath;
     [ObservableProperty] private bool isScanning;
     [ObservableProperty] private string state = "";
+    /// <summary>The name shown for it. Starts as the label; renaming changes only this, never the label that folder keys begin with.</summary>
+    [ObservableProperty] private string displayName = label;
     internal CancellationTokenSource? Scan;
     internal FileSystemWatcher? Watcher;
     internal DispatcherTimer? Settle;
@@ -64,6 +66,8 @@ public sealed partial class MainViewModel
             return open;
         }
         var added = new WorkspaceFolder(path, Workspace.Label(path, WorkspaceFolders.Select(folder => folder.Label)));
+        if (settings.WorkspaceNames.FirstOrDefault(pair => string.Equals(pair.Key, path, StringComparison.OrdinalIgnoreCase)).Value is { Length: > 0 } name)
+            added.DisplayName = name;
         WorkspaceFolders.Add(added);
         hasSource = true;
         var reselect = MoveOutOfParents(added);
@@ -446,9 +450,73 @@ public sealed partial class MainViewModel
         foreach (var tab in Tabs)
         {
             var node = folderRoot is null ? null : FolderTree.Find(folderRoot, tab.Path);
-            tab.Title = tab.Path.Length == 0 ? "All folders" : node?.Name.Split('\\')[^1] ?? tab.Path.Split('\\')[^1];
+            tab.Title = tab.Path.Length == 0 ? "All folders" : node is not null ? NodeTitle(node).Split('\\')[^1] : tab.Path.Split('\\')[^1];
             tab.CountText = node is null ? "" : node.Total.ToString("N0");
         }
+    }
+
+    /// <summary>
+    /// The names given to workspace folders. Names of folders not open right now are kept too, so a folder added back gets its
+    /// name back, and so restoring the workspace one folder at a time never drops the names of the ones still to come.
+    /// </summary>
+    private Dictionary<string, string> SavedNames()
+    {
+        var open = WorkspaceFolders.Where(folder => !folder.IsVirtual).ToList();
+        var names = settings.WorkspaceNames
+            .Where(pair => !open.Any(folder => folder.Path.Equals(pair.Key, StringComparison.OrdinalIgnoreCase)))
+            .Take(64)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in open.Where(folder => folder.DisplayName != folder.Label))
+            names[folder.Path] = folder.DisplayName;
+        return names;
+    }
+
+    /// <summary>A folder key as shown: the workspace folder's given name in place of its label.</summary>
+    internal string DisplayKey(string key)
+    {
+        var label = key.Split('\\', 2)[0];
+        return FolderOf(key) is { } folder && folder.DisplayName != folder.Label ? folder.DisplayName + key[label.Length..] : key;
+    }
+
+    /// <summary>A tree node's name as shown: a workspace folder's given name, otherwise the folder's own name.</summary>
+    private string NodeTitle(FolderNode node) =>
+        node.Path.Length > 0 && !node.Path.Contains('\\') && FolderOf(node.Path) is { } folder ? folder.DisplayName : node.Name;
+
+    /// <summary>F2 or Rename in the tree: the row's name becomes a text box.</summary>
+    [RelayCommand]
+    private void StartRename(FolderRowViewModel? row)
+    {
+        if (row is not { IsWorkspaceFolder: true, Folder: { } folder }) return;
+        foreach (var other in FolderRows.Where(other => other.IsRenaming)) other.IsRenaming = false;
+        row.RenameText = folder.DisplayName;
+        row.IsRenaming = true;
+    }
+
+    /// <summary>Enter or leaving the box keeps the name; Esc drops it.</summary>
+    internal void FinishRename(FolderRowViewModel row, bool keep)
+    {
+        if (!row.IsRenaming) return;
+        row.IsRenaming = false;
+        if (keep && row.Folder is { } folder) RenameWorkspaceFolder(folder, row.RenameText);
+    }
+
+    /// <summary>
+    /// Gives a workspace folder the name shown for it in the tree, the tabs, the overview and the file count. The folder on disk
+    /// is not renamed. An empty name goes back to the folder's own name.
+    /// </summary>
+    internal void RenameWorkspaceFolder(WorkspaceFolder folder, string name)
+    {
+        name = name.Trim().Replace('\\', ' ');
+        if (name.Length == 0) name = folder.Label;
+        if (name.Length > 80) name = name[..80];
+        if (name == folder.DisplayName) return;
+        folder.DisplayName = name;
+        foreach (var row in FolderRows.Concat(OverviewFolders).Where(row => row.Folder == folder)) row.RefreshName();
+        SaveWorkspace();
+        UpdateTabs();
+        UpdateChart();
+        OnPropertyChanged(nameof(VisibleCount));
+        Status = name == folder.Label ? $"{folder.Label} has its own name again." : $"{folder.Label} now shows as {name}. The folder on disk keeps its name.";
     }
 
     private void SaveWorkspace()
@@ -458,7 +526,8 @@ public sealed partial class MainViewModel
         {
             WorkspaceRoots = WorkspaceFolders.Where(folder => !folder.IsVirtual).Select(folder => folder.Path).Take(AppSettings.WorkspaceRootLimit).ToArray(),
             WorkspaceTabs = Tabs.Select(tab => tab.Path).Take(AppSettings.WorkspaceTabLimit).ToArray(),
-            SelectedTab = SelectedTab is null ? 0 : Math.Max(0, Tabs.IndexOf(SelectedTab))
+            SelectedTab = SelectedTab is null ? 0 : Math.Max(0, Tabs.IndexOf(SelectedTab)),
+            WorkspaceNames = SavedNames()
         };
         Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
     }

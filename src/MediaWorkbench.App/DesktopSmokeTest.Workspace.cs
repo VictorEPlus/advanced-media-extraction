@@ -24,6 +24,12 @@ internal static partial class DesktopSmokeTest
         model.CropSelection = new PixelCrop(10, 20, 80, 60);
         var cropped = model.BuildClipboardImage();
         Require(cropped.PixelWidth == 80 && cropped.PixelHeight == 60, "Clipboard crop dimensions are incorrect.");
+        // Copy saves the crop as a file too, and offers the picture, a PNG and the file, so it pastes into Explorer as well as into apps.
+        var (copied, copiedPath) = await model.ExportForClipboardAsync();
+        var saved = ImageLoader.Load(copiedPath).Image;
+        Require(File.Exists(copiedPath) && saved.PixelWidth == 80 && saved.PixelHeight == 60 && Path.GetFileName(copiedPath).Contains("_crop_80x60")
+            && copied.GetDataPresent(DataFormats.Bitmap) && copied.GetDataPresent("PNG") && copied.GetFileDropList().Cast<string>().SequenceEqual([copiedPath]),
+            "Copy should save the crop as a PNG and put the picture, the PNG and the saved file on the clipboard: " + copiedPath);
         var source = (BitmapSource)model.PreviewImage!;
         var stride = (80 * source.Format.BitsPerPixel + 7) / 8;
         var expected = new byte[stride * 60];
@@ -31,7 +37,8 @@ internal static partial class DesktopSmokeTest
         source.CopyPixels(new Int32Rect(10, 20, 80, 60), expected, stride, 0);
         cropped.CopyPixels(actual, stride, 0);
         Require(expected.SequenceEqual(actual), "Crop copying changed or shifted the source pixels.");
-        Require(beforeHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(photo.Asset.FullPath))) && beforeExports == Directory.GetFiles(model.ExportDirectory).Length, "Cropping must not save or modify media.");
+        Require(beforeHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(photo.Asset.FullPath))) && beforeExports + 1 == Directory.GetFiles(model.ExportDirectory).Length,
+            "Cropping and copying must leave the original untouched; Copy saves exactly one new file.");
         model.IsCropping = true;
         Render(window, Path.Combine(dataDirectory, "workspace-photo-crop.png"));
         model.ResetCropCommand.Execute(null);
@@ -159,7 +166,8 @@ internal static partial class DesktopSmokeTest
         Require(window.PreviewSurface.ActualWidth > 600 && window.PreviewSurface.ActualHeight > 185, $"Compact layout should reclaim space when Sources is collapsed (picture {window.PreviewSurface.ActualWidth:0} x {window.PreviewSurface.ActualHeight:0}, filmstrip {window.FilmstripPanel.ActualHeight:0}, dock {window.PreviewDock.ActualHeight:0}, header {window.CenterHeader.ActualHeight:0}).");
         // Every button is 28 tall; only the small inline icons (a tab close cross, the tree arrows) are deliberately smaller.
         var inline = window.FindResource("QuietIconButton");
-        foreach (var button in VisualChildren(content).OfType<Button>().Where(button => button.ActualHeight > 0 && button.Visibility == Visibility.Visible && button.Style is not null && !ReferenceEquals(button.Style, inline)))
+        var card = window.FindResource("FolderCard");
+        foreach (var button in VisualChildren(content).OfType<Button>().Where(button => button.ActualHeight > 0 && button.Visibility == Visibility.Visible && button.Style is not null && !ReferenceEquals(button.Style, inline) && !ReferenceEquals(button.Style, card)))
             if (button.Command is not null) Require(Math.Abs(button.ActualHeight - 28) < 0.1, $"Action button heights should be consistent: {button.Name} \"{button.Content}\" is {button.ActualHeight:0.#} tall, not 28.");
 
         var loader = new ThumbnailLoader();

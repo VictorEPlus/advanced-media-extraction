@@ -319,7 +319,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         return IsFolderIncluded(item)
             && FolderTree.Contains(folderFilter, item.FolderKey)
             && (!FavoritesOnly || item.IsFavorite)
-            && (string.IsNullOrWhiteSpace(TagFilter) || item.Tags.Any(tag => tag.Contains(TagFilter.Trim(), StringComparison.OrdinalIgnoreCase)))
+            && MatchesTagFilter(item)
             && (string.IsNullOrWhiteSpace(SearchText) || item.Asset.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
             && (MediaFilter == "All media" || MediaFilter == "Photos" && item.Asset.Kind == MediaKind.Photo
                 || MediaFilter == "Videos" && item.Asset.Kind == MediaKind.Video || MediaFilter == "Audio" && item.Asset.Kind == MediaKind.Audio);

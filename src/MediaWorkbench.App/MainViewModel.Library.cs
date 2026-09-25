@@ -18,7 +18,11 @@ public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool 
     public Thickness Indent => new(Depth * 18, 0, 0, 0);
     /// <summary>All folders is always open, so it has no arrow to click.</summary>
     public string Glyph => !HasChildren || Depth == 0 ? "" : IsExpanded ? "▾" : "▸";
-    public string Name => Node.Name;
+    /// <summary>A workspace folder shows the name it was given, if any; everything else shows the folder's own name.</summary>
+    public string Name => IsWorkspaceFolder && Folder is { } folder && Node.Name == folder.Label ? folder.DisplayName : Node.Name;
+    [ObservableProperty] private bool isRenaming;
+    [ObservableProperty] private string renameText = "";
+    internal void RefreshName() => OnPropertyChanged(nameof(Name));
     public string CountText => Node.Total.ToString("N0");
     public string KindText => MainViewModel.DescribeKinds(Node.Photos, Node.Videos, Node.Audio, percentages: true);
     /// <summary>This folder as a share of its parent folder, for example 71%. Empty for the root.</summary>
@@ -164,9 +168,11 @@ public sealed partial class MainViewModel
     public bool ShowLibraryMap => !ShowLibraryEmpty;
     public bool HasFolderFilter => folderFilter.Length > 0;
     public string FolderFilterLabel => HasFolderFilter ? "Folder: " + folderFilter : "";
-    public string LibrarySummary => folderRoot is not { Total: > 0 } root ? "" :
-        $"{root.Total:N0} files in {root.FolderCount + (root.DirectTotal > 0 ? 1 : 0):N0} {(root.FolderCount + (root.DirectTotal > 0 ? 1 : 0) == 1 ? "folder" : "folders")}, {DescribeSize(root.Bytes)}";
-    public string LibraryKindSummary => folderRoot is not { Total: > 0 } root ? "" : DescribeKinds(root.Photos, root.Videos, root.Audio, percentages: true);
+    /// <summary>The folder the overview describes: the one shown in the filmstrip, or everything.</summary>
+    private FolderNode? ShownNode => folderRoot is null ? null : FolderTree.Find(folderRoot, folderFilter) ?? folderRoot;
+    public string LibrarySummary => ShownNode is not { Total: > 0 } node ? "" :
+        $"{node.Total:N0} files in {node.FolderCount + (node.DirectTotal > 0 ? 1 : 0):N0} {(node.FolderCount + (node.DirectTotal > 0 ? 1 : 0) == 1 ? "folder" : "folders")}, {DescribeSize(node.Bytes)}";
+    public string LibraryKindSummary => ShownNode is not { Total: > 0 } node ? "" : DescribeKinds(node.Photos, node.Videos, node.Audio, percentages: true);
 
     partial void OnMainTabChanged(int value)
     {
@@ -405,7 +411,7 @@ public sealed partial class MainViewModel
 
     private void UpdateChart()
     {
-        if (folderRoot is null) { ChartNodes = []; ChartTitle = ""; ChartSubtitle = ""; return; }
+        if (folderRoot is null) { ChartNodes = []; ChartTitle = ""; ChartSubtitle = ""; UpdateOverview(); return; }
         var node = FolderTree.Find(folderRoot, folderFilter) ?? folderRoot;
         var bars = new List<FolderNode>();
         var children = node.Children.OrderByDescending(child => child.Total).ThenBy(child => child.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -419,8 +425,9 @@ public sealed partial class MainViewModel
                 DirectPhotos = node.DirectPhotos, DirectVideos = node.DirectVideos, DirectAudio = node.DirectAudio, DirectBytes = node.DirectBytes
             });
         ChartNodes = bars;
-        ChartTitle = children.Count == 0 ? $"Inside {node.Name}" : $"Subfolders of {node.Name}";
+        ChartTitle = children.Count == 0 ? $"Inside {NodeTitle(node)}" : $"Subfolders of {NodeTitle(node)}";
         ChartSubtitle = $"{node.Total:N0} files: {DescribeKinds(node.Photos, node.Videos, node.Audio, percentages: true)}. Each bar shows its share of this folder.";
+        UpdateOverview();
     }
 
     private static FolderNode Synthetic(string name, string path, IEnumerable<FolderNode> nodes)

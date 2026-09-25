@@ -151,6 +151,27 @@ internal static partial class DesktopSmokeTest
         Render(window, Path.Combine(dataDirectory, "workspace-library.png"));
         Require(model.VisibleCount == @"70 of 99 files in Shoots\shoot A", $"The file count should name the folder being shown: {model.VisibleCount}");
 
+        // The overview has a card for each folder inside the one shown, to click through, and Up to come back out.
+        Require(model.OverviewFolders.Select(card => card.Name).SequenceEqual(["day 1", "day 2"]) && model.CanGoUp && model.OverviewTitle == @"SHOOTS\SHOOT A",
+            $"The overview should show the folders inside shoot A: {string.Join(", ", model.OverviewFolders.Select(card => card.Name))} ({model.OverviewTitle}).");
+        model.OpenOverviewFolderCommand.Execute(model.OverviewFolders.Single(card => card.Name == "day 2"));
+        Require(view.Count == 30 && model.OverviewFolders.Count == 0 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A\day 2", "Clicking a folder card should go into that folder.");
+        model.OverviewUpCommand.Execute(null);
+        Require(view.Count == 70 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A", "Up should go back to the folder around it.");
+        model.MainTab = 0;
+        Render(window, Path.Combine(dataDirectory, "workspace-overview.png"));
+
+        // Renaming a workspace folder changes the name shown, not the folder or anything keyed by it.
+        var renamedFolder = model.WorkspaceFolders.Single(folder => folder.Label == "Shoots");
+        model.RenameWorkspaceFolder(renamedFolder, "Client shoots");
+        var renamedSettings = new SettingsStore(Path.Combine(dataDirectory, "settings.json")).Load();
+        Require(model.FolderRows.Single(row => row.Node.Path == "Shoots").Name == "Client shoots" && model.VisibleCount == @"70 of 99 files in Client shoots\shoot A"
+            && view.Count == 70 && renamedSettings.WorkspaceNames.Values.Contains("Client shoots"),
+            $"A renamed workspace folder should show its new name everywhere and keep it for next time: {model.VisibleCount}");
+        model.RenameWorkspaceFolder(renamedFolder, "");
+        Require(model.FolderRows.Single(row => row.Node.Path == "Shoots").Name == "Shoots" && new SettingsStore(Path.Combine(dataDirectory, "settings.json")).Load().WorkspaceNames.Count == 0,
+            "An empty name should give the folder its own name back.");
+
         // A second folder joins the workspace in a tab of its own; the first tab stays where it was.
         model.NewTabCommand.Execute(null);
         var archiveFolder = await model.AddFolderAsync(archive);
