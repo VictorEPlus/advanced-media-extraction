@@ -1245,12 +1245,34 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string ExportDestination => settings.ExportDirectory;
 
     [RelayCommand]
-    private void RevealFile() => Guard(() =>
+    private void RevealFile() => RevealAsset(null);
+
+    /// <summary>
+    /// Open in Explorer: the file's own folder, with the file selected. Right-click in the filmstrip passes the file clicked;
+    /// everywhere else it is the open file. A file that has gone opens its folder, if that is still there.
+    /// </summary>
+    [RelayCommand]
+    private void RevealAsset(AssetViewModel? item) => Guard(() =>
     {
-        if (SelectedAsset is null)
+        if ((item ?? SelectedAsset) is not { } target)
             return;
-        RevealPath(SelectedAsset.Asset.FullPath);
+        var path = target.Asset.FullPath;
+        var folder = Path.GetDirectoryName(path) ?? "";
+        if (File.Exists(path))
+        {
+            RevealPath(path);
+            Status = $"Opened {folder} in Explorer with {target.Name} selected.";
+        }
+        else if (Directory.Exists(folder))
+        {
+            RevealPath(folder);
+            Notify(NotificationKind.Info, $"{target.Name} is no longer in {folder}; opened the folder. Rescan to catch up.");
+        }
+        else throw new FileNotFoundException($"{target.Name} and its folder are gone: {folder}", path);
     });
+
+    /// <summary>What Explorer is started with to open a file's folder with the file selected.</summary>
+    internal static string ExplorerSelectArguments(string path) => $"/select,\"{path}\"";
 
     [RelayCommand]
     private void OpenExports() => Guard(() =>
@@ -1262,7 +1284,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private static void RevealPath(string path)
     {
         if (File.Exists(path))
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("explorer.exe", ExplorerSelectArguments(path)) { UseShellExecute = true });
         else if (Directory.Exists(path))
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         else

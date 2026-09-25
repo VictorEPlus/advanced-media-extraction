@@ -124,6 +124,7 @@ Queued jobs badge the **Export** tab and show progress inline without switching 
 | `S` | Stage the current file |
 | `E` | Export the displayed frame or photo as PNG |
 | `Ctrl+C` | Copy the image, frame or crop |
+| `Ctrl+Shift+E` | Open in Explorer: the file's own folder with the file selected (also the folder button beside ★, **More**, right-click in the filmstrip, and **EXPLORER** in Details) |
 | `C`, `Esc` | Clipboard crop on or off; clear it |
 | `Space` | Play or pause |
 | `Home` | Restart: back to the first frame and play |

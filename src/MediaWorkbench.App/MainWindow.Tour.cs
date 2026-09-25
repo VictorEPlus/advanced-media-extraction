@@ -54,6 +54,7 @@ public partial class MainWindow
 
         new("SelectionHeader", "Selected file", "The open file's name, its shape and a one-line summary. It stays open while you browse other folders; Not in view says the filmstrip is showing somewhere else.", Preview),
         new("AspectChip", "Shape", "The picture's shape, such as 16:9. A tilde means it is only close to that everyday shape.", Preview),
+        new("OpenInExplorerButton", "Open in Explorer", "Opens the folder this file is in, with the file selected. Shortcut: Ctrl+Shift+E.", Preview),
         new("FavoriteButton", "Favorite", "Stars the file, or takes the star off. Shortcut: F.", Preview),
         new("StageButton", "Collect", "Names the collection it adds to. With a tick, the file is already in it, and a click takes it out. Shortcut: S. The Tags tab lists every collection the file is in.", Preview),
         new("FocusViewButton", "Focus view", "Only the picture, the timeline and the buttons. F11 or Esc brings everything back.", Preview),
@@ -80,7 +81,7 @@ public partial class MainWindow
 
         new("InspectorPanel", "The inspector", "Details, Tags, Export and Advanced, for the selected file and the app.", Inspector(0)),
         new("DetailsTabContent", "Details", "A one-line summary, then everything known about the file: dimensions, size, dates, camera data, codec and frame rate.", Inspector(0)),
-        new("RevealFileButton", "Reveal", "Shows the file in Windows Explorer.", Inspector(0)),
+        new("RevealFileButton", "Explorer", "Opens the folder the file is in, with the file selected. Also beside the star above the preview, under More, on right-click in the filmstrip, and Ctrl+Shift+E.", Inspector(0)),
         new("TagBox", "Tags", "Type tags separated by commas and press Add. Tags are kept by the app, never written into the file. They follow the file when it is renamed or moved, and exact copies of it get them too.", Inspector(1)),
         new("FileCollectionsSection", "In collections", "Every collection this file is in; click a name to open it, or the cross to take the file out. Below: choose the collection that S adds to, or name a new one and press + New to start it with this file.", Inspector(1)),
         new("SuggestedTagsSection", "Suggested tags", "Tags of files that resemble this one: same camera on the same day, the same numbered sequence, the same folder, the same technical profile, or a picture that looks the same. Each says why; click one to add it. Shown when there is something to suggest.", Inspector(1)),

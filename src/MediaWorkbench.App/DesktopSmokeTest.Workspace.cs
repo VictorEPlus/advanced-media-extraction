@@ -19,6 +19,9 @@ internal static partial class DesktopSmokeTest
         Require(model.Metadata.Any(row => row.Name == "Aspect ratio" && row.Value == "16:9"), "Photo metadata should include the reduced aspect ratio.");
         Require(model.Metadata.Any(row => row.Name == "DPI"), "Native image metadata was not loaded.");
         Require(model.Metadata.All(row => !row.IsSelected), "Metadata tag candidates must start unconfirmed.");
+        // Open in Explorer selects the file in its own folder; the header button is there for every file.
+        Require(MainViewModel.ExplorerSelectArguments(photo.Asset.FullPath) == $"/select,\"{photo.Asset.FullPath}\"" && window.OpenInExplorerButton.Visibility == Visibility.Visible
+            && model.RevealAssetCommand.CanExecute(photo) && model.RevealFileCommand.CanExecute(null), "Open in Explorer should be available for the open file.");
         var beforeHash = SHA256.HashData(File.ReadAllBytes(photo.Asset.FullPath));
         var beforeExports = Directory.GetFiles(model.ExportDirectory).Length;
         model.CropSelection = new PixelCrop(10, 20, 80, 60);

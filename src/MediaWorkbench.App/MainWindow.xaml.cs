@@ -304,6 +304,12 @@ public partial class MainWindow : Window
         var focused = Keyboard.FocusedElement as DependencyObject;
         if (focused is TextBoxBase or PasswordBox or ComboBox)
             return;
+        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && args.Key == Key.E)
+        {
+            viewModel.RevealFileCommand.Execute(null);
+            args.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers == ModifierKeys.Control && args.Key == Key.C)
         {
             viewModel.CopyPreviewCommand.Execute(null);

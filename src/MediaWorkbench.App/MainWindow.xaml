@@ -269,6 +269,9 @@
                     <DockPanel x:Name="SelectionHeader" Grid.Column="1" Margin="16,0,0,4" VerticalAlignment="Center" Visibility="{Binding IsPreviewTab, Converter={StaticResource BoolVisibility}}">
                         <local:SpacedPanel DockPanel.Dock="Right" Margin="10,0,0,0" Visibility="{Binding HasSelection, Converter={StaticResource BoolHidden}}">
                             <Button x:Name="FavoriteButton" Style="{StaticResource IconButton}" Content="&#x2605;" Command="{Binding ToggleFavoriteCommand}" ToolTip="Favorite on or off (F)" AutomationProperties.Name="Favorite" />
+                            <Button x:Name="OpenInExplorerButton" Style="{StaticResource IconButton}" Command="{Binding RevealFileCommand}" ToolTip="Open in Explorer: the folder this file is in, with the file selected (Ctrl+Shift+E)" AutomationProperties.Name="Open in Explorer">
+                                <Path Data="M 0.5,2.5 H 5.5 L 7,4 H 13.5 V 12.5 H 0.5 Z M 0.5,6 H 13.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1" />
+                            </Button>
                             <Button x:Name="StageButton" Width="150" Command="{Binding StageSelectedCommand}" ToolTip="{Binding StageButtonToolTip}" HorizontalContentAlignment="Left"><TextBlock Text="{Binding StageButtonLabel}" TextTrimming="CharacterEllipsis" /></Button>
                             <Button x:Name="FocusViewButton" Style="{StaticResource IconButton}" Content="&#x26F6;" Command="{Binding ToggleFocusViewCommand}" ToolTip="Focus view: only the picture, the timeline and the buttons (F11)" AutomationProperties.Name="Focus view" />
                         </local:SpacedPanel>
@@ -454,6 +457,8 @@
                                 <Button x:Name="MoreActionsButton" Content="MORE &#x25BE;" Click="MoreActionsClicked" ToolTip="Add to stitch, crop and rotate the whole video, snip the sound, clear the crop area">
                                     <Button.ContextMenu>
                                         <ContextMenu>
+                                            <MenuItem x:Name="OpenInExplorerMenuItem" Header="Open in Explorer" InputGestureText="Ctrl+Shift+E" Command="{Binding RevealFileCommand}" ToolTip="Opens the folder this file is in, with the file selected." />
+                                            <Separator />
                                             <MenuItem x:Name="AddToStitchButton" Header="Add to stitch" Command="{Binding AddToStitchCommand}" IsEnabled="{Binding CanCopy}" ToolTip="Puts the picture on screen into the Stitch view, where a few pictures can be combined into one." />
                                             <MenuItem x:Name="FramingButton" Header="Crop and rotate the whole video&#x2026;" Command="{Binding ToggleFramingCommand}" IsEnabled="{Binding CanFrame}" IsChecked="{Binding IsFraming, Mode=OneWay}" Visibility="{Binding IsVideo, Converter={StaticResource BoolVisibility}}" ToolTip="Adjust four edges and turn the video in quarter turns, then export a new MP4" />
                                             <MenuItem x:Name="SnipAudioButton" Header="Snip marked sound to WAV" Command="{Binding ExportAudioCommand}" IsEnabled="{Binding CanSnipAudio}" Visibility="{Binding HasAudio, Converter={StaticResource BoolVisibility}}" ToolTip="Saves only the marked section of sound as a WAV file in the output folder. The original is not changed." />
@@ -558,7 +563,7 @@
                         <DockPanel x:Name="DetailsTabContent">
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,10,8">
                                 <DockPanel Margin="0,0,0,6">
-                                    <Button x:Name="RevealFileButton" DockPanel.Dock="Right" Content="REVEAL" Command="{Binding RevealFileCommand}" IsEnabled="{Binding HasSelection}" ToolTip="Show the file in Windows Explorer" />
+                                    <Button x:Name="RevealFileButton" DockPanel.Dock="Right" Content="EXPLORER" Command="{Binding RevealFileCommand}" IsEnabled="{Binding HasSelection}" ToolTip="Open in Explorer: the folder this file is in, with the file selected (Ctrl+Shift+E)" />
                                     <TextBlock Text="{Binding SelectedKindLabel}" Style="{StaticResource PanelTitle}" />
                                 </DockPanel>
                                 <TextBlock Text="{Binding MediaSummary}" Style="{StaticResource Readout}" FontSize="13" TextWrapping="Wrap" />
@@ -796,6 +801,7 @@
                             <StackPanel Width="{Binding DataContext.ThumbnailWidth, RelativeSource={RelativeSource AncestorType=Window}}" ToolTip="{Binding Details}" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
                                 <StackPanel.ContextMenu>
                                     <ContextMenu>
+                                        <MenuItem Header="Open in Explorer" InputGestureText="Ctrl+Shift+E" Command="{Binding PlacementTarget.Tag.RevealAssetCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" ToolTip="Opens the folder this file is in, with the file selected." />
                                         <MenuItem Header="Add to stitch" Command="{Binding PlacementTarget.Tag.AddToStitchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" ToolTip="Adds this file's picture to the Stitch view." />
                                     </ContextMenu>
                                 </StackPanel.ContextMenu>
