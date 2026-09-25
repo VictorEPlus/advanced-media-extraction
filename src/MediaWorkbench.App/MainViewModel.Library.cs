@@ -16,7 +16,8 @@ public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool 
     public bool IsExpanded { get; } = isExpanded;
     public bool HasChildren => Node.Children.Count > 0;
     public Thickness Indent => new(Depth * 18, 0, 0, 0);
-    public string Glyph => !HasChildren ? "" : IsExpanded ? "▾" : "▸";
+    /// <summary>All folders is always open, so it has no arrow to click.</summary>
+    public string Glyph => !HasChildren || Depth == 0 ? "" : IsExpanded ? "▾" : "▸";
     public string Name => Node.Name;
     public string CountText => Node.Total.ToString("N0");
     public string KindText => MainViewModel.DescribeKinds(Node.Photos, Node.Videos, Node.Audio, percentages: true);
@@ -240,11 +241,14 @@ public sealed partial class MainViewModel
     private void ToggleFolderRow(FolderRowViewModel? row)
     {
         if (row is not { HasChildren: true } || row.Node.Path.Length == 0) return;
+        // Decided by what the row shows, so a click always does the opposite of what is on screen.
         if (row.IsWorkspaceFolder)
         {
-            if (!collapsedTops.Remove(row.Node.Path)) collapsedTops.Add(row.Node.Path);
+            if (row.IsExpanded) collapsedTops.Add(row.Node.Path);
+            else collapsedTops.Remove(row.Node.Path);
         }
-        else if (!expandedFolders.Remove(row.Node.Path)) expandedFolders.Add(row.Node.Path);
+        else if (row.IsExpanded) expandedFolders.Remove(row.Node.Path);
+        else expandedFolders.Add(row.Node.Path);
         RebuildFolderRows();
     }
 
@@ -289,6 +293,9 @@ public sealed partial class MainViewModel
         for (var node = folderRoot; node is not null && !node.Path.Equals(path, StringComparison.OrdinalIgnoreCase);
              node = node.Children.FirstOrDefault(child => FolderTree.Contains(child.Path, path)))
             if (node.Path.Length > 0) expandedFolders.Add(node.Path);
+        // A workspace folder is opened and closed by collapsedTops alone; going into one of its subfolders opens it.
+        if (path.Contains('\\'))
+            collapsedTops.Remove(path.Split('\\', 2)[0]);
         RebuildFolderRows(path);
         ApplyFolder(path);
     }
@@ -357,7 +364,9 @@ public sealed partial class MainViewModel
                 FolderRows.Clear();
                 foreach (var row in rows) FolderRows.Add(row);
             }
-            SelectedFolderRow = FolderRows.FirstOrDefault(row => row.Node.Path.Equals(select, StringComparison.OrdinalIgnoreCase)) ?? FolderRows.FirstOrDefault();
+            // When the open folder is inside a folder that was just closed, nothing is highlighted rather than the wrong row;
+            // the filmstrip stays where it is, and clicking any row goes there.
+            SelectedFolderRow = FolderRows.FirstOrDefault(row => row.Node.Path.Equals(select, StringComparison.OrdinalIgnoreCase));
         }
         finally { suppressFolderSelection = false; }
     }
@@ -386,7 +395,8 @@ public sealed partial class MainViewModel
     private void AddRows(FolderNode node, int depth, int parentTotal, List<FolderRowViewModel> rows)
     {
         // Workspace folders start open, so their first level is in view the moment they are added.
-        var expanded = node.Path.Length == 0 || expandedFolders.Contains(node.Path) || depth == 1 && !collapsedTops.Contains(node.Path);
+        // Workspace folders start open and are closed only through collapsedTops; deeper folders start closed.
+        var expanded = depth == 0 || (depth == 1 ? !collapsedTops.Contains(node.Path) : expandedFolders.Contains(node.Path));
         rows.Add(new FolderRowViewModel(node, depth, expanded, parentTotal) { IsWorkspaceFolder = depth == 1, Folder = depth == 1 ? FolderOf(node.Path) : null, HasFolderTags = depth > 0 && FolderHasTags(node) });
         if (!expanded) return;
         foreach (var child in node.Children)

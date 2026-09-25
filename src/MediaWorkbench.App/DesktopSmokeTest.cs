@@ -135,6 +135,18 @@ internal static partial class DesktopSmokeTest
         Require(model.FolderRows.Count == 7 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A", "Opening a folder should reveal its subfolders and keep it selected.");
         model.ChartSelectedPath = @"Shoots\shoot A\day 2";
         Require(view.Count == 30 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A\day 2" && model.ChartSelectedPath is null, "Clicking a graph bar should go into that folder.");
+        // Closing folders: a workspace folder closes even after going into its subfolders, and closing the folder around the
+        // open one leaves the filmstrip where it is.
+        Require(model.FolderRows[0].Glyph.Length == 0, "All folders is always open and should have no arrow.");
+        model.ToggleFolderRowCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "Shoots"));
+        Require(model.FolderRows.Count == 2 && view.Count == 30 && model.SelectedFolderRow is null,
+            $"Clicking an open workspace folder should close it, keeping the filmstrip ({model.FolderRows.Count} rows, {view.Count} files).");
+        model.ToggleFolderRowCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "Shoots"));
+        Require(model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A\day 2", "Opening it again should show the open folder highlighted again.");
+        model.ToggleFolderRowCommand.Execute(model.FolderRows.Single(row => row.Node.Path == @"Shoots\shoot A"));
+        Require(!model.FolderRows.Single(row => row.Node.Path == @"Shoots\shoot A").IsExpanded && view.Count == 30, "A subfolder should close when clicked, even with a folder inside it open.");
+        model.ToggleFolderRowCommand.Execute(model.FolderRows.Single(row => row.Node.Path == @"Shoots\shoot A"));
+        Require(model.FolderRows.Single(row => row.Node.Path == @"Shoots\shoot A").IsExpanded, "Clicking it again should open it.");
         model.SelectFolder(@"Shoots\shoot A");
         Render(window, Path.Combine(dataDirectory, "workspace-library.png"));
         Require(model.VisibleCount == @"70 of 99 files in Shoots\shoot A", $"The file count should name the folder being shown: {model.VisibleCount}");
