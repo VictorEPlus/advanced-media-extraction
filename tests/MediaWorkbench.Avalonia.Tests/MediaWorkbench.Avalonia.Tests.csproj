@@ -20,5 +20,8 @@
     <!-- VLC's native files, copied next to the tests so playback can be checked too. -->
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
     <Using Include="Xunit" />
+    <!-- The WPF on-screen checks, copied in and half adapted (about 40 compile errors left); see docs/AVALONIA-HANDOFF.md. -->
+    <Compile Remove="DesktopChecks/**" />
+    <None Include="DesktopChecks/**" />
   </ItemGroup>
 </Project>

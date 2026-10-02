@@ -85,10 +85,16 @@ public partial class MainWindow
         viewModel.StepFrames(-notches * ((args.KeyModifiers & KeyModifiers.Shift) != 0 ? 10 : 1));
     }
 
-    /// <summary>For checks that cannot turn a real wheel: notches towards you are negative, as with a mouse.</summary>
-    internal void TurnFrameWheel(int notches)
+    /// <summary>For checks that cannot turn a real wheel. In Windows wheel units: 120 is one notch away from you, negative is towards you.</summary>
+    internal void TurnFrameWheel(int delta)
     {
-        if (!viewModel.IsVideo || !viewModel.HasFrames) return;
+        if (!viewModel.IsVideo || !viewModel.HasFrames || IsTourActive)
+            return;
+        frameWheelRemainder += delta / 120.0;
+        var notches = (int)Math.Truncate(frameWheelRemainder);
+        if (notches == 0)
+            return;
+        frameWheelRemainder -= notches;
         viewModel.StepFrames(-notches);
     }
 
