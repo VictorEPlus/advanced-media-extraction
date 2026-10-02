@@ -29,13 +29,13 @@ internal static partial class DesktopSmokeTest
         await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         Require(model.CurrentFrame == 3 && model.DisplayedFrame == 3 && Math.Abs(model.AudioPosition - 0.5) < 0.002, "Clicking the sound should go to the frame showing at that moment.");
         Layout(window);
-        var root = (UIElement)window.Content;
+        var root = (Visual)window.Content!;
         Require(Shown(window.FrameRateReadout) && Shown(window.VideoWaveform) && window.VideoWaveform.Bounds.Height >= 26 && model.CanSnipAudio, "The frame rate and the waveform should be visible, and the sound can be snipped, for a video with sound.");
-        var timelineLeft = window.Timeline.TranslatePoint(new Point(0, 0), root).X;
-        var waveformLeft = window.VideoWaveform.TranslatePoint(new Point(0, 0), root).X;
+        var timelineLeft = window.Timeline.TranslatePoint(new Point(0, 0), root)!.Value.X;
+        var waveformLeft = window.VideoWaveform.TranslatePoint(new Point(0, 0), root)!.Value.X;
         Require(Math.Abs(timelineLeft - waveformLeft) < 0.5 && Math.Abs(window.Timeline.Bounds.Width - window.VideoWaveform.Bounds.Width) < 0.5, "The waveform must line up with the frame timeline above it.");
-        var tabs = window.MainTabs.TranslatePoint(new Point(0, 0), root);
-        var header = window.SelectionHeader.TranslatePoint(new Point(0, 0), root);
+        var tabs = window.MainTabs.TranslatePoint(new Point(0, 0), root)!.Value;
+        var header = window.SelectionHeader.TranslatePoint(new Point(0, 0), root)!.Value;
         Require(Shown(window.SelectionHeader) && header.X > tabs.X + window.MainTabs.Bounds.Width && header.Y < tabs.Y + window.MainTabs.Bounds.Height && header.Y + window.SelectionHeader.Bounds.Height > tabs.Y,
             $"The selected-file header should sit on the same row as the Library and Preview tabs (tabs {tabs} {window.MainTabs.Bounds.Width:0}x{window.MainTabs.Bounds.Height:0}, header {header} {window.SelectionHeader.Bounds.Width:0}x{window.SelectionHeader.Bounds.Height:0}).");
         Render(window, Path.Combine(dataDirectory, "workspace-sound.png"));
@@ -64,21 +64,20 @@ internal static partial class DesktopSmokeTest
         model.IsIndexing = false;
     }
 
-    private static void Layout(Window window)
+    /// <summary>Gives the window the size the WPF checks measured at (1440 x 900 unless said otherwise) and lays it out.</summary>
+    private static void Layout(Window window, double width = 1440, double height = 900)
     {
-        var content = (FrameworkElement)window.Content;
-        for (var pass = 0; pass < 2; pass++)
-        {
-            content.InvalidateMeasure();
-            content.Measure(new Size(1440, 900));
-            content.Arrange(new Rect(0, 0, 1440, 900));
-            content.UpdateLayout();
-        }
+        window.Width = width;
+        window.Height = height;
+        Settle(window);
     }
 
     /// <summary>Visible up the tree, not kept hidden in place, and with a real size.</summary>
     private static bool Shown(Control element)
     {
+        // WPF lays a window out on its own between steps; headless Avalonia only when asked.
+        if (TopLevel.GetTopLevel(element) is Window window)
+            Settle(window);
         for (Visual? current = element; current is not null; current = current.GetVisualParent())
             if (!current.IsVisible || current is Control { Classes: var classes } && classes.Contains("hidden"))
                 return false;

@@ -305,6 +305,7 @@ internal static partial class DesktopSmokeTest
         Require(Application.Current!.TryFindResource("MonoFont", out var font) && font is FontFamily family
             && FontManager.Current.TryGetGlyphTypeface(new Typeface(family), out var glyphs) && glyphs.FamilyName.Contains("Cascadia", StringComparison.OrdinalIgnoreCase),
             "The numbers font should load Cascadia Mono from the app itself.");
+        Require(window.Foreground is ISolidColorBrush { Color: var ink } && ink.R > 200 && ink.G > 200 && ink.B > 200, "The main window lost its readable foreground.");
     }
 
     private static void CheckControlSurfaces(Visual parent)
@@ -332,6 +333,10 @@ internal static partial class DesktopSmokeTest
         foreach (var child in parent.GetVisualDescendants())
             yield return child;
     }
+
+    /// <summary>What a button reads on screen: its text, or the label among its parts that is showing.</summary>
+    private static string? ShownText(ContentControl control) => control.Content as string
+        ?? control.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.IsEffectivelyVisible)?.Text;
 
     /// <summary>Kept in place but invisible and not clickable: the "hidden" style class.</summary>
     private static bool IsHidden(Control control) => control.Classes.Contains("hidden") || !control.IsVisible;

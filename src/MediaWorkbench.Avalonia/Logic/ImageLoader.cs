@@ -65,7 +65,7 @@ internal static class ImageLoader
 
     /// <summary>A small upright picture for the filmstrip and the folder covers, no wider or taller than <paramref name="size"/>.</summary>
     public static Bitmap Thumbnail(string path, int size) =>
-        PhotoDecoder.Decode(path, size)?.Bitmap ?? throw new NotSupportedException("This picture format cannot be read directly.");
+        PhotoDecoder.Decode(path, size, size)?.Bitmap ?? throw new NotSupportedException("This picture format cannot be read directly.");
 
     public static byte[] Encode(Bitmap image) => Pixels.EncodePng(image);
 

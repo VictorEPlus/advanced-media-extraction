@@ -67,7 +67,7 @@ internal static partial class DesktopSmokeTest
         model.ShowSources = true;
         model.ShowInspector = true;
         Layout(window);
-        var root = (UIElement)window.Content;
+        var root = (Visual)window.Content!;
         var normal = Bounds(window.PreviewMonitor, root);
         model.ToggleFocusViewCommand.Execute(null);
         Layout(window);

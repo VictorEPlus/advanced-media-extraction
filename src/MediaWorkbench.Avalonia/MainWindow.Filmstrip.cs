@@ -257,6 +257,9 @@ public partial class MainWindow
     /// <summary>For checks that cannot turn a real wheel: follow whatever is under the marker right now.</summary>
     internal void FollowMarkerNow() => UpdateFollowFocus(true);
 
+    internal string FollowDiagnostics => FilmstripScroll is not { } scroll ? "no scroll viewer"
+        : $"offset {scroll.Offset.X:0} scrollable {ScrollableWidth:0} viewport {scroll.Viewport.Width:0}x{scroll.Viewport.Height:0} live thumbnails {Filmstrip.GetRealizedContainers().Count()}";
+
     private void OnFollowFilmstripChanged()
     {
         StopGlide();

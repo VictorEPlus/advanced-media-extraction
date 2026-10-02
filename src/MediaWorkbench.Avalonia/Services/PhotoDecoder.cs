@@ -7,7 +7,7 @@ namespace MediaWorkbench.Avalonia.Services;
 
 /// <summary>
 /// Decodes photos the way a camera meant them: turned upright by the EXIF orientation phones write instead of rotating the pixels,
-/// and no wider than asked for. JPEGs are scaled down while they are decoded, which is far quicker than decoding them whole and
+/// and no wider (or taller) than asked for. JPEGs are scaled down while they are decoded, which is far quicker than decoding them whole and
 /// shrinking afterwards. Returns null for a file Skia cannot read, so the caller can hand it to FFmpeg.
 /// </summary>
 public static class PhotoDecoder
@@ -15,7 +15,7 @@ public static class PhotoDecoder
     /// <summary>A decoded photo, and the photo's own upright size (the bitmap may be smaller).</summary>
     public sealed record Photo(Bitmap Bitmap, int Width, int Height);
 
-    public static Photo? Decode(string path, int maximumWidth)
+    public static Photo? Decode(string path, int maximumWidth, int maximumHeight = int.MaxValue)
     {
         using var stream = File.OpenRead(path);
         using var codec = SKCodec.Create(stream);
@@ -26,7 +26,8 @@ public static class PhotoDecoder
         var source = codec.Info;
         // The width that matters is the upright one: for a turned photo that is the stored height.
         var uprightWidth = turned ? source.Height : source.Width;
-        var scale = Math.Min(1f, maximumWidth / (float)uprightWidth);
+        var uprightHeight = turned ? source.Width : source.Height;
+        var scale = Math.Min(1f, Math.Min(maximumWidth / (float)uprightWidth, maximumHeight / (float)uprightHeight));
         var sampled = codec.GetScaledDimensions(scale);
         var info = new SKImageInfo(sampled.Width, sampled.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
         using var decoded = new SKBitmap(info);
@@ -34,13 +35,13 @@ public static class PhotoDecoder
         if (result is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
             return null;
         // The codec only scales in steps (1/2, 1/4, 1/8 for JPEG); the rest is a high-quality resize.
-        var targetWidth = (int)Math.Round(source.Width * scale);
-        var targetHeight = (int)Math.Round(source.Height * scale);
-        using var sized = decoded.Width > targetWidth + 1
+        var targetWidth = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var targetHeight = Math.Max(1, (int)Math.Round(source.Height * scale));
+        using var sized = decoded.Width > targetWidth + 1 || decoded.Height > targetHeight + 1
             ? decoded.Resize(new SKImageInfo(targetWidth, targetHeight, SKColorType.Bgra8888, SKAlphaType.Premul), new SKSamplingOptions(SKCubicResampler.Mitchell)) ?? decoded.Copy()
             : decoded.Copy();
         using var upright = Orient(sized, origin);
-        return new Photo(ToAvalonia(upright), uprightWidth, turned ? source.Width : source.Height);
+        return new Photo(ToAvalonia(upright), uprightWidth, uprightHeight);
     }
 
     /// <summary>Applies the EXIF orientation: the eight ways a camera can store a picture, as a turn and possibly a mirror.</summary>

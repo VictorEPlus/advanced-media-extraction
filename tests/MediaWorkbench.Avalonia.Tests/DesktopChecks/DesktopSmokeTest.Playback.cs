@@ -29,7 +29,7 @@ internal static partial class DesktopSmokeTest
         var engine = new MediaEngine(tools, Path.Combine(dataDirectory, "cache"));
         var info = await engine.ProbeAsync(asset.FullPath, token);
         var frames = await engine.IndexFramesAsync(asset, info, token);
-        var candidates = new List<(int Frame, BitmapSource Image)>();
+        var candidates = new List<(int Frame, Bitmap Image)>();
         for (var frame = 0; frame < frames.Count; frame++)
             candidates.Add((frame, MainViewModel.DecodeImage(await engine.GetFrameAsync(asset, frame, frames, info, token), FrameMatcher.CompareWidth * 2)));
 

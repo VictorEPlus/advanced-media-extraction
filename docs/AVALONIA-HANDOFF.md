@@ -1,6 +1,6 @@
 # Avalonia rewrite: handoff
 
-Status as of 2 October 2026, branch `avalonia-shell` (committed, **not pushed**). Read this first when picking the work up.
+Status as of 2 October 2026, branch `avalonia-shell` (**not pushed**). Read this first when picking the work up.
 
 ## Goal and decisions
 
@@ -47,30 +47,30 @@ Porting rules used (keep using them): `BitmapSource/BitmapImage/ImageSource` -> 
 ## Verified
 
 - `dotnet build AdvancedMediaExtraction.slnx` clean; WPF unit tests (141) pass.
-- `tests/MediaWorkbench.Avalonia.Tests` (xunit v3 + Avalonia.Headless.XUnit, real FFmpeg/VLC): 4 pass - folder tree through real
-  clicks and keys (open/close by arrow, quick double click, Right/Left keep working), photo + Copy (file, bitmap, PNG), video
-  exact stepping, play and pause through VLC, EXIF orientation and no-upscale.
+- `tests/MediaWorkbench.Avalonia.Tests` (xunit v3 + Avalonia.Headless.XUnit, real FFmpeg/VLC): 6 pass.
+  - `DesktopChecks/`: **the whole WPF on-screen check, ported and passing** (same sections and the same number of checks as
+    `src/MediaWorkbench.App/DesktopSmokeTest*.cs`): video stepping, sound and waveform, pause matching, filters, favorites,
+    export queue and history, instant preview, workspace (photo crop, Copy, tags, collections, related files, EXIF, 5,000-file
+    filmstrip, follow marker, thumbnails), audio files, video crop and turn, compact layout, zoom and focus view, stitch, tags and
+    suggestions, workspace tree and tabs, the tour. Set `MEDIAWORKBENCH_KEEP_CHECKS=1` to keep the pictures it draws
+    (`%TEMP%\MediaWorkbench.Avalonia.Tests\checks-*`).
+  - `ShellTests`: the folder tree through real clicks and keys; photo + Copy; exact stepping, play and pause through VLC.
+  - `PhotoDecoderTests`: EXIF orientation, no upscaling, RGBA pictures keep their colours.
 - Ran by hand on this PC with the owner's real folders (~6,800 files): tree with covers, video, timeline, waveform row, transport,
   filmstrip and tabs all appear and work.
 
-## In progress: porting the WPF on-screen checks
+Adapting the checks changed only Avalonia-specific details: `Layout(window, w, h)` sets the window size and lays it out
+(headless lays out only when asked, so `Shown()` does that first); Copy is checked through the `DataTransfer` it builds; the EXIF
+JPEG is written byte by byte (`JpegWithExif`); the button-height rule compares text buttons with each other (icon, play, folder
+card, row, link, star and small buttons are sized on purpose); `ShownText()` reads the label showing in a button.
 
-`tests/MediaWorkbench.Avalonia.Tests/DesktopChecks/` holds the WPF `DesktopSmokeTest*.cs` copied over plus `DesktopChecksTest.cs`
-(the `[AvaloniaFact]` that runs them). It is **excluded from compilation** in the csproj (`<Compile Remove="DesktopChecks/**" />`)
-until it builds. About 40 errors remain, all WPF-isms in the checks themselves:
-- `Workspace.cs`: SHA256 needs `using System.Security.Cryptography;`; Copy check -> use `((IDataTransfer)copied).Contains(DataFormat.Bitmap / MainViewModel.PngFormat)`
-  (no file item in headless); pixel compare via `Pixels.Bytes`; `CheckExifAsync` must write the EXIF JPEG itself (see
-  `PhotoDecoderTests.MakeJpeg`); `CroppedBitmap` -> `PictureOps.Crop`; tall image via SkiaSharp; button-height rule uses WPF styles
-  (`QuietIconButton`, `FolderCard`) -> check by class (`quiet`, `folderCard`, `icon`, `play`) and the new heights (32/34/44);
-  `IsFrozen` -> drop; `content.Measure(1080,700)` -> set window Width/Height and `Settle(window)`.
-- `TransportControls.Visibility == Hidden` -> `IsHidden(window.TransportControls)` (helper exists).
-- `Audio.cs`, `Layout.cs`, `Zoom.cs`: `UIElement/FrameworkElement` -> `Control/Visual`; `TranslatePoint` returns `Point?`.
-- `Follow.cs`: `FollowDiagnostics` (add to MainWindow.Filmstrip if wanted) and `ContainerFromItem` (ListBox has it directly).
-- `Playback.cs` / `Stitch.cs`: `BitmapSource` -> `Bitmap`.
-Expect real app bugs to surface once it runs; fix them in the app, keeping WPF behaviour.
+App bugs the checks found and that are fixed: thumbnails of very tall pictures were only limited in width (now fit 220 x 220,
+like WPF); `Pixels.ToSkia` assumed BGRA, so RGBA pictures came out with red and blue swapped.
 
 ## Known differences / to check
 
+- Next: the styling and colour pass (owner's order: last). Seen in the check pictures: the tree's open/close arrows are tiny;
+  Expander headers (COLLECTIONS, TAGS, BREAKDOWN) and some labels are in capitals.
 - Text casing: the ported view model still produces WPF's capitals (`EXPORT FRAME`, `+ TRAINING-CLAUDE`, overview titles). Change
   in the styling pass (Avalonia `Logic/` is a copy, independent of WPF tests).
 - Expander, ComboBox, TabControl still mostly Fluent defaults; the styling pass is last (owner's order).

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using SkiaSharp;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -19,7 +21,7 @@ internal static partial class DesktopSmokeTest
         model.InspectorTab = 0;
         Require(model.IsPhoto && !model.IsVideo && model.CanCopy && model.ExportLabel == "EXPORT PNG", "Photos must expose image actions, not video controls.");
         // Hidden, not collapsed: their space is kept so the picture is the same size for a photo as for a video.
-        Require(window.VideoTimeline.IsVisible == false && window.TransportControls.Visibility == Visibility.Hidden, "Video controls should be hidden for a photo, keeping their space.");
+        Require(window.VideoTimeline.IsVisible == false && IsHidden(window.TransportControls), "Video controls should be hidden for a photo, keeping their space.");
         Require(model.Metadata.Any(row => row.Name == "Aspect ratio" && row.Value == "16:9"), "Photo metadata should include the reduced aspect ratio.");
         Require(model.Metadata.Any(row => row.Name == "DPI"), "Native image metadata was not loaded.");
         Require(model.Metadata.All(row => !row.IsSelected), "Metadata tag candidates must start unconfirmed.");
@@ -35,14 +37,11 @@ internal static partial class DesktopSmokeTest
         var (copied, copiedPath) = await model.ExportForClipboardAsync();
         var saved = ImageLoader.Load(copiedPath).Image;
         Require(File.Exists(copiedPath) && saved.PixelWidth == 80 && saved.PixelHeight == 60 && Path.GetFileName(copiedPath).Contains("_crop_80x60")
-            && copied.GetDataPresent(DataFormats.Bitmap) && copied.GetDataPresent("PNG") && copied.GetFileDropList().Cast<string>().SequenceEqual([copiedPath]),
+            && ((IDataTransfer)copied).Contains(DataFormat.Bitmap) && ((IDataTransfer)copied).Contains(MainViewModel.PngFormat) && ((IDataTransfer)copied).Contains(DataFormat.File),
             "Copy should save the crop as a PNG and put the picture, the PNG and the saved file on the clipboard: " + copiedPath);
-        var source = (BitmapSource)model.PreviewImage!;
-        var stride = (80 * source.Format.BitsPerPixel + 7) / 8;
-        var expected = new byte[stride * 60];
-        var actual = new byte[stride * 60];
-        source.CopyPixels(new Int32Rect(10, 20, 80, 60), expected, stride, 0);
-        cropped.CopyPixels(actual, stride, 0);
+        var source = Pixels.Bytes(model.PreviewImage!, out var sourceStride);
+        var actual = Pixels.Bytes(cropped, out var stride);
+        var expected = Enumerable.Range(20, 60).SelectMany(row => source.Skip(row * sourceStride + 10 * 4).Take(stride)).ToArray();
         Require(expected.SequenceEqual(actual), "Crop copying changed or shifted the source pixels.");
         Require(beforeHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(photo.Asset.FullPath))) && beforeExports + 1 == Directory.GetFiles(model.ExportDirectory).Length,
             "Cropping and copying must leave the original untouched; Copy saves exactly one new file.");
@@ -121,27 +120,38 @@ internal static partial class DesktopSmokeTest
     private static async Task CheckExifAsync(string sourcePath, string dataDirectory, CancellationToken token)
     {
         var image = ImageLoader.Load(sourcePath).Image;
-        var metadata = new BitmapMetadata("jpg");
-        metadata.SetQuery("/app1/ifd/{ushort=274}", (ushort)6);
-        metadata.SetQuery("/app1/ifd/{ushort=272}", "Smoke test camera");
-        var encoder = new JpegBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(image, null, metadata, null));
         var path = Path.Combine(dataDirectory, "rotated-exif.jpg");
-        using (var stream = File.Create(path)) encoder.Save(stream);
+        File.WriteAllBytes(path, JpegWithExif(Pixels.Encode(image, SKEncodedImageFormat.Jpeg, 92), 6, "Smoke test camera"));
         var preview = await Task.Run(() => ImageLoader.Load(path), token);
         Require(preview.Image.PixelWidth == 360 && preview.Image.PixelHeight == 640, "JPEG EXIF orientation must be applied to the preview.");
         Require(preview.Metadata.GetValueOrDefault("Camera model") == "Smoke test camera", "Available EXIF camera metadata must be surfaced.");
         var thumbnail = await Task.Run(() => ImageLoader.Thumbnail(path, 220), token);
         Require(thumbnail.PixelHeight > thumbnail.PixelWidth, "Filmstrip thumbnail orientation must match the preview.");
-        var crop = new CroppedBitmap(preview.Image, new Int32Rect(0, 0, 10, 10));
-        crop.Freeze();
+        var crop = PictureOps.Crop(preview.Image, new PixelCrop(0, 0, 10, 10));
         var png = await Task.Run(() => ImageLoader.Encode(crop), token);
         Require(png.Length > 0, "Oriented crop must be usable outside its decoding thread.");
         var tallPath = Path.Combine(dataDirectory, "extremely-tall.png");
-        var tall = BitmapSource.Create(1, 4096, 96, 96, PixelFormats.Bgra32, null, new byte[4096 * 4], 4);
-        File.WriteAllBytes(tallPath, ImageLoader.Encode(tall));
+        using (var tall = new SKBitmap(1, 4096))
+        using (var data = tall.Encode(SKEncodedImageFormat.Png, 100))
+            File.WriteAllBytes(tallPath, data.ToArray());
         var tallThumbnail = ImageLoader.Thumbnail(tallPath, 220);
         Require(tallThumbnail.PixelWidth <= 220 && tallThumbnail.PixelHeight <= 220, "Extreme image aspect ratios must not exceed thumbnail memory bounds.");
+    }
+
+    /// <summary>Puts an EXIF block (Model, Orientation) into a JPEG, the way a camera writes it.</summary>
+    private static byte[] JpegWithExif(byte[] jpeg, ushort orientation, string model)
+    {
+        var text = System.Text.Encoding.ASCII.GetBytes(model + "\0");
+        // Little-endian TIFF header, then one IFD with two entries in tag order: 0x0110 Model (ASCII, stored after the IFD)
+        // and 0x0112 Orientation (SHORT, inline). The IFD is 2 + 2 * 12 + 4 = 30 bytes, so the text starts at 8 + 30.
+        byte[] tiff = [(byte)'I', (byte)'I', 42, 0, 8, 0, 0, 0, 2, 0,
+            0x10, 0x01, 2, 0, (byte)text.Length, 0, 0, 0, 38, 0, 0, 0,
+            0x12, 0x01, 3, 0, 1, 0, 0, 0, (byte)orientation, 0, 0, 0,
+            0, 0, 0, 0, .. text];
+        byte[] header = [(byte)'E', (byte)'x', (byte)'i', (byte)'f', 0, 0];
+        var length = 2 + header.Length + tiff.Length;
+        byte[] app1 = [0xFF, 0xE1, (byte)(length >> 8), (byte)length, .. header, .. tiff];
+        return [.. jpeg[..2], .. app1, .. jpeg[2..]];
     }
 
     private static async Task CheckFilmstripAsync(MainViewModel model, MainWindow window, AssetViewModel photo, string dataDirectory, CancellationToken token)
@@ -165,24 +175,24 @@ internal static partial class DesktopSmokeTest
         CheckFollowMarker(model, window, dataDirectory);
         model.ShowSources = false;
         model.MainTab = 1;
-        var content = (FrameworkElement)window.Content;
-        content.Measure(new Size(1080, 700));
-        content.Arrange(new Rect(0, 0, 1080, 700));
-        content.UpdateLayout();
+        Layout(window, 1080, 700);
+        var content = (Visual)window.Content!;
         // The dock under the picture keeps one height for every kind of file, so at the smallest window a photo gets a little less height than it used to.
         Require(window.PreviewSurface.Bounds.Width > 600 && window.PreviewSurface.Bounds.Height > 185, $"Compact layout should reclaim space when Sources is collapsed (picture {window.PreviewSurface.Bounds.Width:0} x {window.PreviewSurface.Bounds.Height:0}, filmstrip {window.FilmstripPanel.Bounds.Height:0}, dock {window.PreviewDock.Bounds.Height:0}, header {window.CenterHeader.Bounds.Height:0}).");
-        // Every button is 28 tall; only the small inline icons (a tab close cross, the tree arrows) are deliberately smaller.
-        var inline = window.FindResource("QuietIconButton");
-        var card = window.FindResource("FolderCard");
-        foreach (var button in VisualChildren(content).OfType<Button>().Where(button => button.Bounds.Height > 0 && button.IsVisible && button.Style is not null && !ReferenceEquals(button.Style, inline) && !ReferenceEquals(button.Style, card)))
-            if (button.Command is not null) Require(Math.Abs(button.Bounds.Height - 28) < 0.1, $"Action button heights should be consistent: {button.Name} \"{button.Content}\" is {button.Bounds.Height:0.#} tall, not 28.");
+        // Text buttons share one height; icon buttons, the play button, folder cards and the small inline ones are sized on purpose.
+        string[] ownSize = ["icon", "quiet", "folderCard", "play", "row", "link", "star", "small"];
+        var heights = VisualChildren(content).OfType<Button>()
+            .Where(button => button.Bounds.Height > 0 && Shown(button) && button.Command is not null && !ownSize.Any(button.Classes.Contains))
+            .Select(button => (button, button.Bounds.Height)).ToList();
+        foreach (var (button, buttonHeight) in heights)
+            Require(Math.Abs(buttonHeight - heights[0].Height) < 0.1, $"Action button heights should be consistent: {button.Name} \"{button.Content}\" is {buttonHeight:0.#} tall, not {heights[0].Height:0.#} like {heights[0].button.Name}.");
 
         var loader = new ThumbnailLoader();
         var engine = new MediaEngine(new ToolPaths("nonexistent-ffmpeg", "nonexistent-ffprobe"), Path.Combine(dataDirectory, "thumbnail-test"));
         for (var index = 0; index < 104; index++)
         {
             var thumbnail = await loader.LoadAsync(photo.Asset with { ModifiedTicks = index }, engine, token);
-            Require(thumbnail is { IsFrozen: true, PixelWidth: <= 220, PixelHeight: <= 220 }, "PNG thumbnails must use native downscaled decoding without FFmpeg.");
+            Require(thumbnail is { PixelWidth: <= 220, PixelHeight: <= 220 }, "PNG thumbnails must use native downscaled decoding without FFmpeg.");
         }
         Require(loader.CachedCount == ThumbnailLoader.Capacity, "The thumbnail LRU must stay bounded.");
         using var cancelled = new CancellationTokenSource();

@@ -30,7 +30,7 @@ internal static partial class DesktopSmokeTest
         await new ProcessRunner().RunAsync(tools.Ffmpeg, ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=300x500", "-frames:v", "1", Path.Combine(directory, "Tall photo.png")], cancellationToken: token);
         await new ProcessRunner().RunAsync(tools.Ffmpeg, ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=1", Path.Combine(directory, "Tone.wav")], cancellationToken: token);
         await model.OpenLibraryAsync(directory);
-        var root = (UIElement)window.Content;
+        var root = (Visual)window.Content!;
 
         Rect? monitorPlace = null, dockPlace = null, buttonsPlace = null;
         foreach (var name in new[] { "Wide.mkv", "Tall.mkv", "Tall photo.png", "Tone.wav", "Wide.mkv" })

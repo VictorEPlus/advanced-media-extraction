@@ -23,8 +23,8 @@ public sealed class DesktopChecksTest : IDisposable
 
     public void Dispose()
     {
-        // Kept when a check fails, for the pictures it drew; removed when everything passed.
-        if (passed)
+        // Kept when a check fails, for the pictures it drew, or when MEDIAWORKBENCH_KEEP_CHECKS is set; otherwise removed.
+        if (passed && Environment.GetEnvironmentVariable("MEDIAWORKBENCH_KEEP_CHECKS") is null)
             try { Directory.Delete(dataDirectory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 

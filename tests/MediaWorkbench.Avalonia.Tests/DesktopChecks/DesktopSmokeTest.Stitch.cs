@@ -38,7 +38,7 @@ internal static partial class DesktopSmokeTest
         model.StitchGap = 0;
         model.StitchMatchSizes = true;
         var height = Math.Min(first.PixelHeight, second.PixelHeight);
-        Require(model.StitchPreview is BitmapSource row && row.PixelWidth > row.PixelHeight, "Side by side should come out wider than it is tall for two landscape pictures.");
+        Require(model.StitchPreview is Bitmap row && row.PixelWidth > row.PixelHeight, "Side by side should come out wider than it is tall for two landscape pictures.");
         Require(model.StitchSizeLabel.Contains('×', StringComparison.Ordinal), "The combined size should be shown: " + model.StitchSizeLabel);
 
         model.StitchArrangement = "Stacked";

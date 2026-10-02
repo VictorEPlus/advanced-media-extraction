@@ -69,8 +69,8 @@ internal static partial class DesktopSmokeTest
         Layout(window);
         window.FollowMarkerNow();
         Require(model.PeekedAsset is { } peeked && model.SelectionLabel == peeked.Name && model.ShowInstantLayer, "With follow on, the file under the marker should be previewed: " + window.FollowDiagnostics);
-        var container = (FrameworkElement)window.Filmstrip.ItemContainerGenerator.ContainerFromItem(model.PeekedAsset);
-        var centre = container.TranslatePoint(new Point(container.Bounds.Width / 2, 0), window.Filmstrip).X;
+        var container = window.Filmstrip.ContainerFromItem(model.PeekedAsset!)!;
+        var centre = container.TranslatePoint(new Point(container.Bounds.Width / 2, 0), window.Filmstrip)!.Value.X;
         var marker = Canvas.GetLeft(window.FollowMarkerShape);
         Require(Math.Abs(centre - marker) <= container.Bounds.Width / 2 + 6, $"The previewed file should be the one under the marker (thumbnail centre {centre:0}, marker {marker:0}).");
         Require(Math.Abs(marker - window.Filmstrip.Bounds.Width / 2) < 12, "In the middle of a long filmstrip the marker should sit in the middle.");

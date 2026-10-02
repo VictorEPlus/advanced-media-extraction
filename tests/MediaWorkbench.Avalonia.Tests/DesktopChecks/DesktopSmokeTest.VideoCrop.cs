@@ -63,7 +63,7 @@ internal static partial class DesktopSmokeTest
             $"Auto-fit should put the edges on the picture inside the black bars: {model.VideoCrop} ({model.Status})");
         await WaitUntilAsync(() => model.AutoFitCropCommand.CanExecute(null), token);
         Layout(window);
-        Require(window.AutoFitButton.IsEnabled && (string)window.AutoFitButton.Content == "Auto-fit edges", $"Auto-fit should be available again once it has finished (can execute {model.AutoFitCropCommand.CanExecute(null)}, running {model.AutoFitCropCommand.IsRunning}, enabled {window.AutoFitButton.IsEnabled}, content {window.AutoFitButton.Content}).");
+        Require(window.AutoFitButton.IsEnabled && ShownText(window.AutoFitButton) == "Auto-fit edges", $"Auto-fit should be available again once it has finished (can execute {model.AutoFitCropCommand.CanExecute(null)}, running {model.AutoFitCropCommand.IsRunning}, enabled {window.AutoFitButton.IsEnabled}, content {ShownText(window.AutoFitButton)}).");
         model.CurrentFrame = 12;
         await WaitUntilAsync(() => !model.IsPreviewBusy, token);
         Require(model.VideoCrop is not null && model.IsFraming && model.DisplayedFrame == 12, "Stepping through the video keeps the crop so it can be checked at other moments.");

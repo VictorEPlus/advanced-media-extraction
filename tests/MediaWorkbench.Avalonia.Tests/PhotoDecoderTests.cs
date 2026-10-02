@@ -63,6 +63,19 @@ public sealed class PhotoDecoderTests : IDisposable
         Assert.Equal((40, 20), (small.Width, small.Height));
     }
 
+    [AvaloniaFact]
+    public void PicturesKeptInRgbaOrderComeOutWithTheirOwnColours()
+    {
+        // A rendered window is RGBA; reading it as BGRA swaps red and blue, so amber exports as sky blue.
+        var bitmap = new global::Avalonia.Media.Imaging.WriteableBitmap(new PixelSize(1, 1), new Vector(96, 96),
+            global::Avalonia.Platform.PixelFormat.Rgba8888, global::Avalonia.Platform.AlphaFormat.Premul);
+        using (var buffer = bitmap.Lock())
+            System.Runtime.InteropServices.Marshal.Copy(new byte[] { 0xF2, 0xA5, 0x41, 0xFF }, 0, buffer.Address, 4);
+        Assert.Equal([0x41, 0xA5, 0xF2, 0xFF], Pixels.Bytes(bitmap, out _));
+        using var skia = Pixels.ToSkia(bitmap);
+        Assert.Equal(new SKColor(0xF2, 0xA5, 0x41), skia.GetPixel(0, 0));
+    }
+
     private static unsafe (byte Red, byte Green, byte Blue) Pixel(global::Avalonia.Media.Imaging.Bitmap bitmap, int x, int y)
     {
         var buffer = new byte[bitmap.PixelSize.Width * bitmap.PixelSize.Height * 4];
