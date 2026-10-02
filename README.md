@@ -6,6 +6,9 @@ What it does, in short: a map of where your media lives, a filmstrip you can scr
 
 **Contents:** [Requirements](#requirements) · [Clone, verify and launch](#clone-verify-and-launch) · [Using the app](#using-the-app) · [Shortcuts](#shortcuts) · [Export folder](#what-the-export-folder-looks-like) · [Tests](#tests) · [Portable release](#build-a-portable-windows-release) · [Local data and privacy](#local-data-and-privacy) · [Current boundaries](#current-boundaries) · [Troubleshooting](#troubleshooting)
 
+
+> **New Avalonia version in progress** (branch `avalonia-shell`): a rebuilt interface over the same core. Start it with `Launch-Avalonia.cmd`; see [docs/AVALONIA-HANDOFF.md](docs/AVALONIA-HANDOFF.md) for its status. `Launch.cmd` still starts this WPF app.
+
 ## Requirements
 
 - Windows 10/11 **x64**. ARM64 and other operating systems are not tested.

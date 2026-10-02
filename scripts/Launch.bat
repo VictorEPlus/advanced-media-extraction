@@ -7,6 +7,8 @@ rem No absolute paths: everything is resolved relative to this script's folder, 
 set "AME_ROOT=%~dp0.."
 for %%I in ("%AME_ROOT%") do set "AME_ROOT=%%~fI"
 set "AME_EXE=%AME_ROOT%\src\MediaWorkbench.App\bin\Release\net10.0-windows\MediaWorkbench.exe"
+rem "Launch.bat avalonia" (or Launch-Avalonia.cmd) starts the new Avalonia app instead of the WPF one.
+if /i "%~1"=="avalonia" set "AME_EXE=%AME_ROOT%\src\MediaWorkbench.Avalonia\bin\Release\net10.0\MediaWorkbench.Avalonia.exe"
 
 where dotnet >nul 2>nul
 if errorlevel 1 goto :no_sdk
