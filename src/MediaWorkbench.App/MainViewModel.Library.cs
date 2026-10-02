@@ -66,7 +66,8 @@ public sealed partial class MainViewModel
     private FolderNode? folderRoot;
     private readonly HashSet<string> expandedFolders = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Workspace folders are open by default; these are the ones closed by hand.</summary>
-    private readonly HashSet<string> collapsedTops = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Workspace folders open in the tree. Every workspace folder starts closed.</summary>
+    private readonly HashSet<string> openTops = new(StringComparer.OrdinalIgnoreCase);
     private string folderFilter = "";
     private bool suppressFolderSelection;
     private DateTime lastFolderTreeBuild = DateTime.MinValue;
@@ -142,7 +143,7 @@ public sealed partial class MainViewModel
     /// subfolder into one row, and that folder is still perfectly good to look at.
     /// </summary>
     private bool HasFolder(string path) =>
-        path.Length == 0 || FolderOf(path) is not null && (!path.Contains('\\') || Assets.Any(item => IsFolderIncluded(item) && FolderTree.Contains(path, item.FolderKey)));
+        path.Length == 0 || FolderOf(path) is { } folder && (!path.Contains('\\') || folder.IsScanning || Assets.Any(item => IsFolderIncluded(item) && FolderTree.Contains(path, item.FolderKey)));
 
     private void NotifyFolderEdits()
     {
@@ -250,8 +251,8 @@ public sealed partial class MainViewModel
         // Decided by what the row shows, so a click always does the opposite of what is on screen.
         if (row.IsWorkspaceFolder)
         {
-            if (row.IsExpanded) collapsedTops.Add(row.Node.Path);
-            else collapsedTops.Remove(row.Node.Path);
+            if (row.IsExpanded) openTops.Remove(row.Node.Path);
+            else openTops.Add(row.Node.Path);
         }
         else if (row.IsExpanded) expandedFolders.Remove(row.Node.Path);
         else expandedFolders.Add(row.Node.Path);
@@ -264,7 +265,7 @@ public sealed partial class MainViewModel
         if (folderRoot is null) return;
         void Walk(FolderNode node) { foreach (var child in node.Children) { if (child.Children.Count > 0) expandedFolders.Add(child.Path); Walk(child); } }
         Walk(folderRoot);
-        collapsedTops.Clear();
+        foreach (var folder in WorkspaceFolders) openTops.Add(folder.Label);
         RebuildFolderRows();
     }
 
@@ -272,7 +273,7 @@ public sealed partial class MainViewModel
     private void CollapseAllFolders()
     {
         expandedFolders.Clear();
-        foreach (var folder in WorkspaceFolders) collapsedTops.Add(folder.Label);
+        openTops.Clear();
         RebuildFolderRows();
     }
 
@@ -299,9 +300,9 @@ public sealed partial class MainViewModel
         for (var node = folderRoot; node is not null && !node.Path.Equals(path, StringComparison.OrdinalIgnoreCase);
              node = node.Children.FirstOrDefault(child => FolderTree.Contains(child.Path, path)))
             if (node.Path.Length > 0) expandedFolders.Add(node.Path);
-        // A workspace folder is opened and closed by collapsedTops alone; going into one of its subfolders opens it.
+        // A workspace folder is opened and closed by openTops alone; going into one of its subfolders opens it.
         if (path.Contains('\\'))
-            collapsedTops.Remove(path.Split('\\', 2)[0]);
+            openTops.Add(path.Split('\\', 2)[0]);
         RebuildFolderRows(path);
         ApplyFolder(path);
     }
@@ -336,6 +337,9 @@ public sealed partial class MainViewModel
         folderRoot = FolderTree.Build(Assets.Where(IsFolderIncluded).Select(item => (item.FolderKey, item.Asset)), "All folders");
         // Workspace folders are never merged into their only subfolder: each keeps a row of its own at the top.
         folderRoot = KeepWorkspaceRows(folderRoot);
+        // A workspace folder with no media (yet) still gets its row, so adding one never looks like nothing happened.
+        foreach (var folder in WorkspaceFolders.Where(folder => !folderRoot.Children.Any(child => child.Path.Equals(folder.Label, StringComparison.OrdinalIgnoreCase))))
+            folderRoot.Children.Add(new FolderNode(folder.Label, folder.Label));
         if (!HasFolder(folderFilter) && !IsScanning)
         {
             folderFilter = "";
@@ -401,8 +405,8 @@ public sealed partial class MainViewModel
     private void AddRows(FolderNode node, int depth, int parentTotal, List<FolderRowViewModel> rows)
     {
         // Workspace folders start open, so their first level is in view the moment they are added.
-        // Workspace folders start open and are closed only through collapsedTops; deeper folders start closed.
-        var expanded = depth == 0 || (depth == 1 ? !collapsedTops.Contains(node.Path) : expandedFolders.Contains(node.Path));
+        // Workspace folders open and close through openTops, deeper folders through expandedFolders; all start closed.
+        var expanded = depth == 0 || (depth == 1 ? openTops.Contains(node.Path) : expandedFolders.Contains(node.Path));
         rows.Add(new FolderRowViewModel(node, depth, expanded, parentTotal) { IsWorkspaceFolder = depth == 1, Folder = depth == 1 ? FolderOf(node.Path) : null, HasFolderTags = depth > 0 && FolderHasTags(node) });
         if (!expanded) return;
         foreach (var child in node.Children)

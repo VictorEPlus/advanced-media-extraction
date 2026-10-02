@@ -555,5 +555,13 @@ public sealed partial class MainViewModel
         }
     }
 
-    private AppSettings WithBrowsingPreferences(AppSettings value) => value with { SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector, FollowFilmstrip = FollowFilmstrip, LayoutVersion = 2 };
+    private AppSettings WithBrowsingPreferences(AppSettings value) => value with
+    {
+        SortMethod = SortMethod, ThumbnailHeight = ThumbnailHeight, ShowSources = ShowSources, ShowInspector = ShowInspector, FollowFilmstrip = FollowFilmstrip, LayoutVersion = 2,
+        // Only once the last session has been put back; until then these are still the saved ones.
+        OpenFolders = workspaceRestored ? OpenFolderKeys() : value.OpenFolders,
+        SelectedFile = !workspaceRestored ? value.SelectedFile : SelectedAsset is { Owner.IsVirtual: false } open ? open.Asset.FullPath : "",
+        MainTab = workspaceRestored ? MainTab : value.MainTab,
+        InspectorTab = workspaceRestored ? InspectorTab : value.InspectorTab
+    };
 }

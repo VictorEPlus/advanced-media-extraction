@@ -30,6 +30,16 @@ public partial class MainWindow : Window
         ApplyInspectorVisibility();
         ApplySourcesVisibility();
         SyncFilmstripSelection();
+        if (viewModel.SavedWindow() is var (bounds, maximized))
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = bounds.Left;
+            Top = bounds.Top;
+            Width = bounds.Width;
+            Height = bounds.Height;
+            if (maximized) WindowState = WindowState.Maximized;
+        }
+        Closing += (_, _) => viewModel.RememberWindow(WindowState == WindowState.Normal ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds, WindowState == WindowState.Maximized);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)

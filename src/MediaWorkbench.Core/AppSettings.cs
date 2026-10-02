@@ -30,6 +30,16 @@ public sealed record AppSettings
     public int SelectedTab { get; init; }
     /// <summary>Names given to workspace folders, by folder path. Only what is shown changes; the folder on disk keeps its name.</summary>
     public Dictionary<string, string> WorkspaceNames { get; init; } = [];
+    /// <summary>The folders open in the tree when the app was closed, as folder keys. Workspace folders not listed start closed.</summary>
+    public string[] OpenFolders { get; init; } = [];
+    /// <summary>The file that was open when the app was closed, opened again at start if it is still there.</summary>
+    public string SelectedFile { get; init; } = "";
+    /// <summary>Overview, Preview or Stitch, and Details, Tags, Export or Advanced, as they were left.</summary>
+    public int MainTab { get; init; }
+    public int InspectorTab { get; init; }
+    /// <summary>The window's normal position and size (left, top, width, height), and whether it was maximized.</summary>
+    public double[] WindowBounds { get; init; } = [];
+    public bool WindowMaximized { get; init; }
 
     /// <summary>Returns settings with <paramref name="root"/> moved to the front of the recent list, bounded and de-duplicated.</summary>
     public AppSettings WithRecentLibrary(string root)
@@ -46,7 +56,9 @@ public sealed record AppSettings
         && ShowSources == other.ShowSources && ShowInspector == other.ShowInspector && FollowFilmstrip == other.FollowFilmstrip && TourOffered == other.TourOffered && LayoutVersion == other.LayoutVersion
         && RecentLibraries.SequenceEqual(other.RecentLibraries, StringComparer.Ordinal)
         && WorkspaceRoots.SequenceEqual(other.WorkspaceRoots, StringComparer.Ordinal) && WorkspaceTabs.SequenceEqual(other.WorkspaceTabs, StringComparer.Ordinal) && SelectedTab == other.SelectedTab
-        && WorkspaceNames.Count == other.WorkspaceNames.Count && WorkspaceNames.All(pair => other.WorkspaceNames.TryGetValue(pair.Key, out var name) && name == pair.Value);
+        && WorkspaceNames.Count == other.WorkspaceNames.Count && WorkspaceNames.All(pair => other.WorkspaceNames.TryGetValue(pair.Key, out var name) && name == pair.Value)
+        && OpenFolders.SequenceEqual(other.OpenFolders, StringComparer.Ordinal) && SelectedFile == other.SelectedFile && MainTab == other.MainTab && InspectorTab == other.InspectorTab
+        && WindowBounds.SequenceEqual(other.WindowBounds) && WindowMaximized == other.WindowMaximized;
 
     public override int GetHashCode() => HashCode.Combine(ExportDirectory, FfmpegDirectory, LastLibrary, CacheMegabytes, SortMethod, ThumbnailHeight,
         HashCode.Combine(ShowSources, ShowInspector, TourOffered, FollowFilmstrip, WorkspaceRoots.Length, WorkspaceTabs.Length, SelectedTab), RecentLibraries.Length);

@@ -62,7 +62,11 @@ public sealed partial class MainViewModel
             throw new DirectoryNotFoundException($"Not found: {path}");
         if (WorkspaceFolders.FirstOrDefault(folder => !folder.IsVirtual && folder.Path.Equals(path, StringComparison.OrdinalIgnoreCase)) is { } open)
         {
-            if (show) ShowFolder(open.Label);
+            if (show)
+            {
+                ShowFolder(open.Label);
+                Notify(NotificationKind.Info, $"{path} is already in the workspace as {open.DisplayName}; showing it.");
+            }
             return open;
         }
         var added = new WorkspaceFolder(path, Workspace.Label(path, WorkspaceFolders.Select(folder => folder.Label)));
@@ -103,6 +107,8 @@ public sealed partial class MainViewModel
         Assets.Clear();
         Tabs.Clear();
         var added = await AddFolderAsync(root);
+        openTops.Add(added.Label);
+        RebuildFolderRows();
         LibraryRoot = added.Path;
         SourceName = added.Label;
         while (added.IsScanning || added.Scan is not null)
@@ -245,6 +251,12 @@ public sealed partial class MainViewModel
                 _ = ScanFolderAsync(folder, firstTime: false);
             else if (WorkspaceFolders.Contains(folder) && !cancellation.IsCancellationRequested)
                 _ = ReconcileTagsAsync(folder);
+            // Said once, after the first read: an empty folder is easy to mistake for an add that did nothing.
+            if (firstTime && WorkspaceFolders.Contains(folder) && !cancellation.IsCancellationRequested && !Assets.Any(item => item.Owner == folder))
+            {
+                folder.State = "No media found";
+                Notify(NotificationKind.Info, $"{folder.DisplayName} was added, but no photos, videos or sound files were found in {folder.Path}. It stays in the workspace and shows files as they arrive.");
+            }
         }
     }
 
@@ -380,6 +392,7 @@ public sealed partial class MainViewModel
     /// <summary>Everything that depends on the set of files: counts, the tree and the empty states.</summary>
     private void AfterAssetsChanged()
     {
+        ReopenRestoredFile();
         OnPropertyChanged(nameof(LibraryLabel));
         UpdateVisibleCount();
         RebuildFolderTree();
@@ -532,23 +545,100 @@ public sealed partial class MainViewModel
         Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
     }
 
-    /// <summary>Opens the folders and tabs of the last session, each from its saved index, then checks them for changes one after another.</summary>
+    /// <summary>
+    /// Opens the folders and tabs of the last session, each from its saved index, then checks them for changes one after another,
+    /// and puts back what was open: the folders open in the tree, the file, and the tabs of the centre and the inspector.
+    /// Everything is read before the first folder is added, because adding one saves the settings.
+    /// </summary>
     private async Task RestoreWorkspaceAsync()
     {
         var roots = settings.WorkspaceRoots.Length > 0 ? settings.WorkspaceRoots
             : Directory.Exists(settings.LastLibrary) ? [settings.LastLibrary] : [];
         var tabs = settings.WorkspaceTabs;
         var selected = settings.SelectedTab;
+        var openFolders = settings.OpenFolders;
+        var file = settings.SelectedFile;
+        var mainTab = settings.MainTab;
+        var inspectorTab = settings.InspectorTab;
         foreach (var root in roots.Where(Directory.Exists))
             await AddFolderAsync(root, show: false);
         Tabs.Clear();
         foreach (var path in tabs.Length > 0 ? tabs : WorkspaceFolders.Take(1).Select(folder => folder.Label))
-            Tabs.Add(new FolderTab { Path = folderRoot is not null && FolderTree.Find(folderRoot, path) is not null ? path : "" });
+            // Kept while its workspace folder is still being read the first time; its subfolders are not listed yet.
+            Tabs.Add(new FolderTab { Path = folderRoot is not null && FolderTree.Find(folderRoot, path) is not null || FolderOf(path) is { IsScanning: true } ? path : "" });
         if (Tabs.Count == 0 && WorkspaceFolders.Count > 0)
             Tabs.Add(new FolderTab { Path = WorkspaceFolders[0].Label });
         OnPropertyChanged(nameof(CanCloseTab));
         if (Tabs.Count > 0)
             SelectedTab = Tabs[Math.Clamp(selected, 0, Tabs.Count - 1)];
+        ApplySavedSession(openFolders, file, mainTab, inspectorTab);
+    }
+
+    /// <summary>Puts back the tree, the open file and the two tab rows as they were saved.</summary>
+    internal void ApplySavedSession(IEnumerable<string> openFolders, string file, int mainTab, int inspectorTab)
+    {
+        RestoreOpenFolders(openFolders);
+        if (file.Length > 0 && Assets.FirstOrDefault(item => item.Owner is { IsVirtual: false } && string.Equals(item.Asset.FullPath, file, StringComparison.OrdinalIgnoreCase)) is { } reopened)
+            SelectedAsset = reopened;
+        else if (file.Length > 0)
+            restoreSelection = (file, mainTab);
+        if (mainTab is >= 0 and <= 2 && (mainTab != 1 || SelectedAsset is not null))
+            MainTab = mainTab;
+        if (inspectorTab is >= 0 and <= 3)
+            InspectorTab = inspectorTab;
+    }
+
+    /// <summary>
+    /// The tree as it was left: only the folders that were open are open. Going to the saved tab opens the folders around it, so
+    /// this comes after, and puts back exactly what was saved.
+    /// </summary>
+    private void RestoreOpenFolders(IEnumerable<string> keys)
+    {
+        openTops.Clear();
+        expandedFolders.Clear();
+        foreach (var key in keys)
+        {
+            if (!key.Contains('\\')) openTops.Add(key);
+            else expandedFolders.Add(key);
+        }
+        RebuildFolderRows();
+    }
+
+    /// <summary>The file left open last time, while the folder it is in is still being read; dropped as soon as another file is chosen.</summary>
+    private (string File, int MainTab)? restoreSelection;
+
+    /// <summary>Opens the file left open last time once its folder has been read far enough to list it.</summary>
+    private void ReopenRestoredFile()
+    {
+        if (restoreSelection is not var (file, mainTab)
+            || Assets.FirstOrDefault(item => item.Owner is { IsVirtual: false } && string.Equals(item.Asset.FullPath, file, StringComparison.OrdinalIgnoreCase)) is not { } match)
+            return;
+        restoreSelection = null;
+        SelectedAsset = match;
+        if (mainTab is >= 0 and <= 2) MainTab = mainTab;
+    }
+
+    /// <summary>The folders open in the tree, for next time.</summary>
+    internal string[] OpenFolderKeys() =>
+        openTops.Where(label => FolderOf(label) is { IsVirtual: false }).Concat(expandedFolders.Where(key => FolderOf(key) is { IsVirtual: false })).Take(500).ToArray();
+
+    /// <summary>The window remembers where it was and how big, so it opens there next time.</summary>
+    public void RememberWindow(Rect bounds, bool maximized)
+    {
+        if (bounds.Width > 100 && bounds.Height > 100 && !double.IsInfinity(bounds.Left))
+            settings = settings with { WindowBounds = [bounds.Left, bounds.Top, bounds.Width, bounds.Height], WindowMaximized = maximized };
+    }
+
+    /// <summary>Where the window was last time, if that is still on one of the screens.</summary>
+    public (Rect Bounds, bool Maximized)? SavedWindow()
+    {
+        if (settings.WindowBounds is not [var left, var top, var width, var height] || width < 400 || height < 300)
+            return null;
+        var bounds = new Rect(left, top, width, height);
+        var screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        // At least the title bar must be reachable on some screen.
+        var titleBar = new Rect(left + 40, top, Math.Max(1, width - 80), 30);
+        return screens.IntersectsWith(titleBar) ? (bounds, settings.WindowMaximized) : null;
     }
 
     private void DisposeWorkspace()

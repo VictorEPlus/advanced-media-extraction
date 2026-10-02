@@ -37,6 +37,25 @@ public sealed class LibraryAndFavoritesTests
     }
 
     [Fact]
+    public void ScanDoesNotFollowJunctionsSoNothingIsListedTwice()
+    {
+        using var temporary = new TemporaryDirectory();
+        Directory.CreateDirectory(temporary.FilePath("real"));
+        File.WriteAllBytes(temporary.FilePath("real/photo.png"), [1]);
+        var junction = temporary.FilePath("link");
+        using (var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{temporary.FilePath("real")}\"") { CreateNoWindow = true, UseShellExecute = false })!)
+            process.WaitForExit();
+        Assert.True(Directory.Exists(Path.Combine(junction, "")), "The junction could not be made for the test.");
+        try
+        {
+            var assets = new LibraryScanner().Scan(temporary.Path).ToArray();
+            Assert.Equal(["real" + Path.DirectorySeparatorChar + "photo.png"], assets.Select(asset => asset.RelativePath));
+        }
+        // Removing the link itself, not what it points to, before the folder is cleaned up.
+        finally { Directory.Delete(Path.GetFullPath(junction)); }
+    }
+
+    [Fact]
     public void ScanHonorsCancellation()
     {
         using var temporary = new TemporaryDirectory();

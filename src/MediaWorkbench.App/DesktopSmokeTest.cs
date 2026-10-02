@@ -151,6 +151,17 @@ internal static partial class DesktopSmokeTest
         Render(window, Path.Combine(dataDirectory, "workspace-library.png"));
         Require(model.VisibleCount == @"70 of 99 files in Shoots\shoot A", $"The file count should name the folder being shown: {model.VisibleCount}");
 
+        // The state the app is closed in comes back: the same folders open in the tree, the same file and tabs.
+        var openKeys = model.OpenFolderKeys();
+        var rowsBefore = model.FolderRows.Select(row => row.Node.Path).ToArray();
+        Require(openKeys.Contains("Shoots") && openKeys.Contains(@"Shoots\shoot A"), "The open folders should be remembered: " + string.Join("|", openKeys));
+        model.CollapseAllFoldersCommand.Execute(null);
+        Require(model.FolderRows.Count == 2, "Closing everything should leave All folders and the closed workspace folder.");
+        model.ApplySavedSession(openKeys, "", 0, 2);
+        Require(model.FolderRows.Select(row => row.Node.Path).SequenceEqual(rowsBefore) && model.InspectorTab == 2 && view.Count == 70,
+            $"The tree should open exactly as it was left: {string.Join("|", model.FolderRows.Select(row => row.Node.Path))}");
+        model.InspectorTab = 0;
+
         // The overview has a card for each folder inside the one shown, to click through, and Up to come back out.
         Require(model.OverviewFolders.Select(card => card.Name).SequenceEqual(["day 1", "day 2"]) && model.CanGoUp && model.OverviewTitle == @"SHOOTS\SHOOT A",
             $"The overview should show the folders inside shoot A: {string.Join(", ", model.OverviewFolders.Select(card => card.Name))} ({model.OverviewTitle}).");
@@ -224,6 +235,20 @@ internal static partial class DesktopSmokeTest
         }
         var saved = new SettingsStore(Path.Combine(dataDirectory, "settings.json")).Load();
         Require(saved.WorkspaceRoots.Length == 2 && saved.WorkspaceTabs.Length == 2, "The workspace folders and tabs should be saved for next time.");
+
+        // A second folder with the same name as one already open joins as its own entry, labelled with its parent folder.
+        var twin = Path.Combine(dataDirectory, "workspace", "Elsewhere", "Archive");
+        Directory.CreateDirectory(twin);
+        for (var index = 0; index < 4; index++)
+            File.WriteAllBytes(Path.Combine(twin, $"twin{index}.png"), [1, 2, 3]);
+        var tabsBefore = model.Tabs.Count;
+        var twinFolder = await model.AddFolderAsync(twin);
+        await WaitUntilAsync(() => !twinFolder.IsScanning, token);
+        Require(model.WorkspaceFolders.Count(folder => !folder.IsVirtual) == 3 && twinFolder.Label == "Archive (Elsewhere)"
+            && model.Assets.Count(item => item.Owner == twinFolder) == 4 && model.FolderRows.Any(row => row.Node.Path == "Archive (Elsewhere)")
+            && model.SelectedTab?.Path == "Archive (Elsewhere)" && ((System.Windows.Data.ListCollectionView)model.LibraryView).Count == 4,
+            $"A folder with the same name as an open one should be added and shown: label {twinFolder.Label}, {model.Assets.Count(item => item.Owner == twinFolder)} files, tab {model.SelectedTab?.Path}, rows {string.Join("|", model.FolderRows.Select(row => row.Node.Path))}.");
+        model.RemoveWorkspaceFolderCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "Archive (Elsewhere)"));
 
         model.SelectedTab = model.Tabs[0];
         model.MainTab = 0;

@@ -60,6 +60,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private bool slowDecode;
     /// <summary>The last decode of the requested frame failed; the previous frame is still showing.</summary>
     private bool decodeFailed;
+    /// <summary>Set once the last session's folders, file and tabs have been put back, after which the current ones are saved.</summary>
+    private bool workspaceRestored;
     /// <summary>Why the selected file could not be opened, shown in place of the picture.</summary>
     private string? openFailure;
     private readonly LiveVideo live;
@@ -185,6 +187,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             if (scanLastLibrary)
                 await RestoreWorkspaceAsync();
+            workspaceRestored = true;
             _ = LearnTaggedDetailsAsync();
         }
         catch (Exception exception) { ReportError(exception); }
@@ -195,6 +198,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnFavoritesOnlyChanged(bool value) => RefreshView();
     partial void OnSelectedAssetChanged(AssetViewModel? value)
     {
+        restoreSelection = null;
         // The centre shows the Library map while nothing is selected and the Preview once a file is chosen. Stitching stays
         // put: picking the next picture to add must not throw you out of the tab you are adding it to.
         if (!IsStitchTab)
@@ -299,6 +303,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Re-syncs the filmstrip highlight after a collection reset and honours a pending drop/recent file selection.</summary>
     private void AfterBatchAdded()
     {
+        ReopenRestoredFile();
         OnPropertyChanged(nameof(LibraryLabel));
         UpdateVisibleCount();
         RebuildFolderTreeThrottled();

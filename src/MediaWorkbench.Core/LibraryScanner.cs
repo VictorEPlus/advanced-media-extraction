@@ -18,14 +18,7 @@ public sealed class LibraryScanner
         if (!Directory.Exists(root))
             throw new DirectoryNotFoundException($"Media folder not found: {root}");
 
-        var options = new EnumerationOptions
-        {
-            RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
-            AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.System,
-            ReturnSpecialDirectories = false
-        };
-        foreach (var path in Directory.EnumerateFiles(root, "*", options))
+        foreach (var path in EnumerateMediaCandidates(root, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!Extensions.TryGetValue(Path.GetExtension(path), out var kind) || IsMacSidecar(path))
@@ -41,6 +34,47 @@ public sealed class LibraryScanner
             if (asset is not null)
                 yield return asset;
         }
+    }
+
+    /// <summary>
+    /// Every file under the folder. Folders that are links (junctions and symbolic links) are not followed, so nothing is read
+    /// twice and no loop is possible. Files and folders that OneDrive or another sync app keeps online-only are reparse points too,
+    /// but not links, so they are listed like any other.
+    /// </summary>
+    private static IEnumerable<string> EnumerateMediaCandidates(string root, CancellationToken cancellationToken)
+    {
+        var options = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System, ReturnSpecialDirectories = false };
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var folder = pending.Pop();
+            IEnumerable<string> files, folders;
+            try
+            {
+                files = Directory.EnumerateFiles(folder, "*", options).ToList();
+                folders = Directory.EnumerateDirectories(folder, "*", options).ToList();
+            }
+            catch (IOException) { continue; }
+            catch (UnauthorizedAccessException) { continue; }
+            foreach (var file in files)
+                yield return file;
+            foreach (var child in folders.Reverse())
+                if (!IsLink(child))
+                    pending.Push(child);
+        }
+    }
+
+    private static bool IsLink(string folder)
+    {
+        try
+        {
+            var info = new DirectoryInfo(folder);
+            return info.Attributes.HasFlag(FileAttributes.ReparsePoint) && info.LinkTarget is not null;
+        }
+        catch (IOException) { return true; }
+        catch (UnauthorizedAccessException) { return true; }
     }
 
     /// <summary>
