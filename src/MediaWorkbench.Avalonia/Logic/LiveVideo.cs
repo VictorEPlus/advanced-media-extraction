@@ -5,7 +5,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using LibVLCSharp.Shared;
 
-namespace MediaWorkbench.Avalonia.Services;
+namespace MediaWorkbench.Avalonia;
 
 /// <summary>
 /// Playing video drawn by the app itself. VLC decodes every picture into memory; the newest one is copied into a
@@ -13,7 +13,7 @@ namespace MediaWorkbench.Avalonia.Services;
 /// separate VLC window, so nothing can flicker between "playing" and "paused" pictures and the preview can be zoomed or drawn on.
 /// Ported from the WPF app's LiveVideo.
 /// </summary>
-public sealed class VideoBridge : IDisposable
+internal sealed class LiveVideo : IDisposable
 {
     /// <summary>Wider pictures are scaled down by VLC to this width while playing.</summary>
     public const int MaximumWidth = 2560;
@@ -32,9 +32,10 @@ public sealed class VideoBridge : IDisposable
     private int pictures;
     private int copiedPictures;
     private bool pullQueued;
+    private bool frozen;
     private bool disposed;
 
-    public VideoBridge()
+    public LiveVideo()
     {
         format = OnFormat;
         cleanup = OnCleanup;
@@ -45,8 +46,19 @@ public sealed class VideoBridge : IDisposable
     /// <summary>The picture VLC showed last, on the UI thread. A new bitmap is made when the video size changes.</summary>
     public WriteableBitmap? Bitmap { get; private set; }
 
+    /// <summary>Pictures copied into <see cref="Bitmap"/> so far. Goes up by one for every picture shown.</summary>
+    public int PictureCount => copiedPictures;
+
     /// <summary>Raised on the UI thread after a new picture has been copied into <see cref="Bitmap"/>.</summary>
     public event EventHandler? PictureShown;
+
+    /// <summary>Stops copying new pictures, so what is on screen stays put while it is being identified. <see cref="Thaw"/> undoes it.</summary>
+    public void Freeze() { lock (gate) frozen = true; }
+
+    public void Thaw() { lock (gate) frozen = false; }
+
+    /// <summary>A copy of the picture on screen that later pictures do not change, or null when nothing has been shown.</summary>
+    public Bitmap? Capture() => Bitmap is { } bitmap ? Pixels.Copy(bitmap) : null;
 
     public void Attach(MediaPlayer player)
     {
@@ -102,7 +114,7 @@ public sealed class VideoBridge : IDisposable
     {
         lock (gate)
         {
-            if (disposed || decodeBuffer == IntPtr.Zero)
+            if (disposed || decodeBuffer == IntPtr.Zero || frozen)
                 return;
             var bytes = (long)pitch * height;
             Buffer.MemoryCopy((void*)decodeBuffer, (void*)latestBuffer, bytes, bytes);

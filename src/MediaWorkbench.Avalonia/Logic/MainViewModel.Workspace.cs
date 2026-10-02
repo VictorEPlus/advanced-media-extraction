@@ -1,0 +1,645 @@
+using System.Collections.ObjectModel;
+using System.IO;
+using Avalonia;
+using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using MediaWorkbench.Core;
+
+namespace MediaWorkbench.Avalonia;
+
+/// <summary>
+/// One folder open in the workspace, or a collection or tag search shown alongside them. Everything inside it has a folder key
+/// that begins with <see cref="Label"/>, so the one tree, filter and filmstrip serve every folder at once.
+/// </summary>
+public sealed partial class WorkspaceFolder(string path, string label, string? collectionPath = null, bool isVirtual = false) : ObservableObject
+{
+    /// <summary>The folder on disk; empty for a collection or a tag search.</summary>
+    public string Path { get; } = path;
+    public string Label { get; } = label;
+    public bool IsVirtual { get; } = isVirtual;
+    /// <summary>For a collection: the JSON file that lists its files.</summary>
+    public string? CollectionPath { get; } = collectionPath;
+    [ObservableProperty] private bool isScanning;
+    [ObservableProperty] private string state = "";
+    /// <summary>The name shown for it. Starts as the label; renaming changes only this, never the label that folder keys begin with.</summary>
+    [ObservableProperty] private string displayName = label;
+    internal CancellationTokenSource? Scan;
+    internal FileSystemWatcher? Watcher;
+    internal DispatcherTimer? Settle;
+    internal bool ChangedWhileScanning;
+}
+
+/// <summary>A folder view open as a tab over the filmstrip. Clicking a folder in the tree moves the selected tab there, like a browser.</summary>
+public sealed partial class FolderTab : ObservableObject
+{
+    [ObservableProperty] private string path = "";
+    [ObservableProperty] private string title = "";
+    [ObservableProperty] private string countText = "";
+}
+
+public sealed partial class MainViewModel
+{
+    public ObservableCollection<WorkspaceFolder> WorkspaceFolders { get; } = [];
+    public ObservableCollection<FolderTab> Tabs { get; } = [];
+    [ObservableProperty] private FolderTab? selectedTab;
+    public bool CanCloseTab => Tabs.Count > 1;
+
+    /// <summary>The workspace folder the selected tab is in, or null for the view of everything.</summary>
+    public WorkspaceFolder? CurrentFolder => FolderOf(folderFilter);
+
+    private WorkspaceFolder? FolderOf(string key)
+    {
+        var label = key.Split('\\', 2)[0];
+        return label.Length == 0 ? null : WorkspaceFolders.FirstOrDefault(folder => folder.Label.Equals(label, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Adds a folder beside the ones already open. A folder opened before shows at once from its saved index; changes are picked up in the background.</summary>
+    public async Task<WorkspaceFolder> AddFolderAsync(string path, bool show = true)
+    {
+        path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        if (!Directory.Exists(path))
+            throw new DirectoryNotFoundException($"Not found: {path}");
+        if (WorkspaceFolders.FirstOrDefault(folder => !folder.IsVirtual && folder.Path.Equals(path, StringComparison.OrdinalIgnoreCase)) is { } open)
+        {
+            if (show)
+            {
+                ShowFolder(open.Label);
+                Notify(NotificationKind.Info, $"{path} is already in the workspace as {open.DisplayName}; showing it.");
+            }
+            return open;
+        }
+        var added = new WorkspaceFolder(path, Workspace.Label(path, WorkspaceFolders.Select(folder => folder.Label)));
+        if (settings.WorkspaceNames.FirstOrDefault(pair => string.Equals(pair.Key, path, StringComparison.OrdinalIgnoreCase)).Value is { Length: > 0 } name)
+            added.DisplayName = name;
+        WorkspaceFolders.Add(added);
+        hasSource = true;
+        var reselect = MoveOutOfParents(added);
+        var indexed = await Task.Run(() => catalog.ReadIndex(path), lifetime.Token);
+        if (!WorkspaceFolders.Contains(added))
+            return added;
+        indexed = indexed.Where(entry => !ClaimedElsewhere(added, entry.Asset)).ToList();
+        Assets.AddRange(indexed.Select(entry => CreateItem(added, entry.Asset, entry.Favorite)));
+        added.State = indexed.Count == 0 ? "Reading…" : $"{indexed.Count:N0} files";
+        AfterAssetsChanged();
+        if (show) ShowFolder(added.Label);
+        if (reselect is not null)
+        {
+            if (Assets.FirstOrDefault(item => item.Owner == added && string.Equals(item.Asset.FullPath, reselect, StringComparison.OrdinalIgnoreCase)) is { } again)
+            {
+                if (show) ShowFolder(again.FolderKey);
+                SelectedAsset = again;
+            }
+            else pendingSelectionPath = reselect;
+        }
+        SaveWorkspace();
+        Watch(added);
+        _ = ScanFolderAsync(added, firstTime: indexed.Count == 0);
+        return added;
+    }
+
+    /// <summary>For the tests and the probe: the workspace holds only this folder, fully scanned, with it selected.</summary>
+    public async Task OpenLibraryAsync(string root)
+    {
+        foreach (var folder in WorkspaceFolders.ToArray())
+            CloseFolder(folder, save: false);
+        SelectedAsset = null;
+        Assets.Clear();
+        Tabs.Clear();
+        var added = await AddFolderAsync(root);
+        openTops.Add(added.Label);
+        RebuildFolderRows();
+        LibraryRoot = added.Path;
+        SourceName = added.Label;
+        while (added.IsScanning || added.Scan is not null)
+            await Task.Delay(20, lifetime.Token);
+    }
+
+    /// <summary>
+    /// A folder added inside another workspace folder is moved out of it: from then on it shows only as its own entry, not also
+    /// under the folder around it, and tabs, hidden folders and the open file follow it. Nothing on disk moves. Returns the path of
+    /// the open file when it was inside, so it can be opened again from the new entry.
+    /// </summary>
+    private string? MoveOutOfParents(WorkspaceFolder added)
+    {
+        var parents = WorkspaceFolders.Where(folder => folder != added && !folder.IsVirtual && IsInside(added.Path, folder.Path)).ToList();
+        if (parents.Count == 0)
+            return null;
+        string? reselect = null;
+        if (SelectedAsset is { Owner: { } owner } selected && parents.Contains(owner) && IsInside(selected.Asset.FullPath, added.Path))
+        {
+            reselect = selected.Asset.FullPath;
+            SelectedAsset = null;
+        }
+        foreach (var parent in parents)
+        {
+            var key = Workspace.FolderKey(parent.Label, Path.GetRelativePath(parent.Path, added.Path));
+            foreach (var tab in Tabs.Where(tab => FolderTree.Contains(key, tab.Path)))
+                tab.Path = added.Label + tab.Path[key.Length..];
+            removedFolders.RemoveWhere(hidden => FolderTree.Contains(key, hidden));
+        }
+        NotifyFolderEdits();
+        Assets.RemoveWhere(item => item.Owner is { } itemOwner && parents.Contains(itemOwner) && IsInside(item.Asset.FullPath, added.Path));
+        Status = $"{added.Label} now has its own entry in the workspace and no longer shows inside {parents[^1].Label}. Nothing on disk was moved.";
+        return reselect;
+    }
+
+    /// <summary>True when the file is inside another workspace folder that is itself inside this one: that one shows it, this one does not.</summary>
+    private bool ClaimedElsewhere(WorkspaceFolder folder, MediaAsset asset) => IsClaimed(NestedRoots(folder), asset);
+
+    /// <summary>The workspace folders inside this one.</summary>
+    private string[] NestedRoots(WorkspaceFolder folder) => folder.IsVirtual ? []
+        : WorkspaceFolders.Where(other => other != folder && !other.IsVirtual && IsInside(other.Path, folder.Path)).Select(other => other.Path).ToArray();
+
+    private static bool IsClaimed(string[] nestedRoots, MediaAsset asset) => nestedRoots.Length > 0 && nestedRoots.Any(root => IsInside(asset.FullPath, root));
+
+    private static bool IsInside(string path, string folder) =>
+        path.Length > folder.Length && path.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && (path[folder.Length] == '\\' || folder.EndsWith('\\'));
+
+    private AssetViewModel CreateItem(WorkspaceFolder folder, MediaAsset asset, bool favorite) =>
+        new(asset, favorite)
+        {
+            Owner = folder,
+            Tags = TagsFor(asset),
+            // A folder on disk: its label, then the file's subfolders. A collection or tag search: its label, then the file's whole folder.
+            FolderKey = folder.IsVirtual ? Workspace.FolderKey(folder.Label, FolderTree.Normalize(asset.Root)) : Workspace.FolderKey(folder.Label, Path.GetDirectoryName(asset.RelativePath))
+        };
+
+    /// <summary>
+    /// Reads the folder and brings the workspace up to date with it. The first time, files appear in batches as they are found;
+    /// after that the whole folder is listed first and only what changed is added, updated or removed, in one step.
+    /// </summary>
+    private async Task ScanFolderAsync(WorkspaceFolder folder, bool firstTime)
+    {
+        if (folder.IsVirtual)
+            return;
+        if (folder.Scan is not null)
+        {
+            folder.ChangedWhileScanning = true;
+            return;
+        }
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        folder.Scan = cancellation;
+        folder.IsScanning = true;
+        folder.ChangedWhileScanning = false;
+        UpdateScanning();
+        var root = folder.Path;
+        var nested = NestedRoots(folder);
+        try
+        {
+            if (firstTime)
+            {
+                var favorites = catalog.GetFavorites(root);
+                await Task.Run(async () =>
+                {
+                    var batch = new List<MediaAsset>(500);
+                    foreach (var asset in new LibraryScanner().Scan(root, cancellation.Token))
+                    {
+                        if (IsClaimed(nested, asset)) continue;
+                        batch.Add(asset);
+                        if (batch.Count < 500) continue;
+                        await AddScannedAsync(folder, batch.ToArray(), favorites, cancellation.Token);
+                        batch.Clear();
+                    }
+                    if (batch.Count > 0)
+                        await AddScannedAsync(folder, batch.ToArray(), favorites, cancellation.Token);
+                }, cancellation.Token);
+            }
+            else
+            {
+                var current = Assets.Where(item => item.Owner == folder).Select(item => item.Asset).ToList();
+                var (added, changed, removed) = await Task.Run(() =>
+                {
+                    var scanned = new LibraryScanner().Scan(root, cancellation.Token).ToList();
+                    var difference = Workspace.Diff(current, scanned.Where(asset => !IsClaimed(nested, asset)).ToList());
+                    catalog.Index(difference.Added.Concat(difference.Changed), cancellation.Token);
+                    catalog.Prune(root, scanned.Select(asset => asset.RelativePath).ToList());
+                    return difference;
+                }, cancellation.Token);
+                if (added.Count + changed.Count + removed.Count > 0)
+                {
+                    var gone = new HashSet<string>(removed.Concat(changed.Select(asset => asset.RelativePath)), StringComparer.OrdinalIgnoreCase);
+                    var favorites = changed.Count > 0 ? catalog.GetFavorites(root) : [];
+                    Assets.RemoveWhere(item => item.Owner == folder && gone.Contains(item.Asset.RelativePath));
+                    Assets.AddRange(added.Concat(changed).Where(asset => !ClaimedElsewhere(folder, asset)).Select(asset => CreateItem(folder, asset, favorites.Contains(asset.RelativePath))));
+                    AfterAssetsChanged();
+                    Status = $"{folder.Label}: {added.Count:N0} new, {changed.Count:N0} changed, {removed.Count:N0} gone.";
+                }
+            }
+            settings = settings.WithRecentLibrary(root);
+            Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
+            RefreshRecentLibraries();
+            if (pendingSelectionPath is { } missing && missing.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                pendingSelectionPath = null;
+                Notify(NotificationKind.Info, $"{Path.GetFileName(missing)} was not found in {folder.Label}.");
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { ReportError(exception); }
+        finally
+        {
+            if (folder.Scan == cancellation)
+            {
+                folder.Scan = null;
+                folder.IsScanning = false;
+                folder.State = $"{Assets.Count(item => item.Owner == folder):N0} files";
+            }
+            UpdateScanning();
+            AfterAssetsChanged();
+            if (folder.ChangedWhileScanning && WorkspaceFolders.Contains(folder))
+                _ = ScanFolderAsync(folder, firstTime: false);
+            else if (WorkspaceFolders.Contains(folder) && !cancellation.IsCancellationRequested)
+                _ = ReconcileTagsAsync(folder);
+            // Said once, after the first read: an empty folder is easy to mistake for an add that did nothing.
+            if (firstTime && WorkspaceFolders.Contains(folder) && !cancellation.IsCancellationRequested && !Assets.Any(item => item.Owner == folder))
+            {
+                folder.State = "No media found";
+                Notify(NotificationKind.Info, $"{folder.DisplayName} was added, but no photos, videos or sound files were found in {folder.Path}. It stays in the workspace and shows files as they arrive.");
+            }
+        }
+    }
+
+    private async Task AddScannedAsync(WorkspaceFolder folder, MediaAsset[] batch, HashSet<string> favorites, CancellationToken token)
+    {
+        catalog.Index(batch, token);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            token.ThrowIfCancellationRequested();
+            // Checked again here: a folder may have been moved out while this one was being read.
+            Assets.AddRange(batch.Where(asset => !ClaimedElsewhere(folder, asset)).Select(asset => CreateItem(folder, asset, favorites.Contains(asset.RelativePath))));
+            folder.State = $"Reading… {Assets.Count(item => item.Owner == folder):N0} files";
+            AfterBatchAdded();
+        }, DispatcherPriority.Background, token);
+    }
+
+    /// <summary>Changes on disk are picked up while the app runs: a folder that changes is checked again once it has been quiet for a moment.</summary>
+    private void Watch(WorkspaceFolder folder)
+    {
+        try
+        {
+            var watcher = new FileSystemWatcher(folder.Path)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                InternalBufferSize = 64 * 1024
+            };
+            folder.Settle = new DispatcherTimer(TimeSpan.FromMilliseconds(1500), DispatcherPriority.Background, (_, _) =>
+            {
+                folder.Settle?.Stop();
+                if (WorkspaceFolders.Contains(folder))
+                    _ = ScanFolderAsync(folder, firstTime: false);
+            });
+            folder.Settle.Stop();
+            void Changed() => Dispatcher.UIThread.Post(() => { folder.Settle?.Stop(); folder.Settle?.Start(); });
+            watcher.Created += (_, _) => Changed();
+            watcher.Deleted += (_, _) => Changed();
+            watcher.Renamed += (_, _) => Changed();
+            watcher.Changed += (_, _) => Changed();
+            watcher.Error += (_, _) => Changed();
+            watcher.EnableRaisingEvents = true;
+            folder.Watcher = watcher;
+        }
+        catch (Exception exception) when (exception is IOException or ArgumentException or UnauthorizedAccessException or PlatformNotSupportedException) { }
+    }
+
+    [RelayCommand]
+    private void RemoveWorkspaceFolder(FolderRowViewModel? row)
+    {
+        if (row is null || FolderOf(row.Node.Path) is not { } folder)
+            return;
+        CloseFolder(folder, save: true);
+        if (!WorkspaceFolders.Any(other => !other.IsVirtual && IsInside(folder.Path, other.Path)))
+            Status = $"{folder.Label} is no longer in the workspace. Nothing on disk was changed.";
+    }
+
+    /// <summary>A folder that was moved out of another one goes back into it when it leaves the workspace.</summary>
+    private void ReturnToParents(WorkspaceFolder folder)
+    {
+        if (folder.IsVirtual)
+            return;
+        foreach (var parent in WorkspaceFolders.Where(other => !other.IsVirtual && IsInside(folder.Path, other.Path)).ToArray())
+        {
+            _ = ScanFolderAsync(parent, firstTime: false);
+            Status = $"{folder.Label} is back inside {parent.Label}. Nothing on disk was changed.";
+        }
+    }
+
+    private void CloseFolder(WorkspaceFolder folder, bool save)
+    {
+        folder.Scan?.Cancel();
+        folder.Scan = null;
+        folder.Settle?.Stop();
+        folder.Watcher?.Dispose();
+        folder.Watcher = null;
+        WorkspaceFolders.Remove(folder);
+        if (SelectedAsset?.Owner == folder)
+            SelectedAsset = null;
+        Assets.RemoveWhere(item => item.Owner == folder);
+        foreach (var tab in Tabs.Where(tab => FolderTree.Contains(folder.Label, tab.Path)).ToArray())
+            tab.Path = "";
+        hasSource = WorkspaceFolders.Count > 0;
+        UpdateScanning();
+        AfterAssetsChanged();
+        if (save)
+        {
+            SaveWorkspace();
+            ReturnToParents(folder);
+        }
+    }
+
+    /// <summary>Shows a collection or a tag search as one more entry in the workspace, beside the folders rather than instead of them.</summary>
+    private async Task ShowVirtualFolderAsync(string label, string[] paths, string? collectionPath)
+    {
+        if (WorkspaceFolders.FirstOrDefault(folder => folder.IsVirtual && folder.Label.Equals(label, StringComparison.OrdinalIgnoreCase)) is { } previous)
+            CloseFolder(previous, save: false);
+        var folder = new WorkspaceFolder("", Workspace.Label(label, WorkspaceFolders.Select(item => item.Label)), collectionPath, isVirtual: true);
+        WorkspaceFolders.Add(folder);
+        hasSource = true;
+        folder.IsScanning = true;
+        var missing = 0;
+        try
+        {
+            var found = await Task.Run(() =>
+            {
+                var list = new List<MediaAsset>();
+                foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    MediaAsset? asset = null;
+                    try { asset = LibraryScanner.ReadFile(path); }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                    if (asset is null) missing++;
+                    else list.Add(asset);
+                }
+                catalog.Index(list);
+                return list;
+            }, lifetime.Token);
+            var favorites = catalog.GetFavoritePaths();
+            Assets.AddRange(found.Select(asset => CreateItem(folder, asset, favorites.Contains(asset.FullPath))));
+            folder.State = $"{found.Count:N0} files" + (missing > 0 ? $", {missing:N0} missing" : "");
+            if (missing > 0)
+                Notify(NotificationKind.Info, $"{missing:N0} referenced files are missing or unsupported. Their references were kept.");
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            folder.IsScanning = false;
+            AfterAssetsChanged();
+            ShowFolder(folder.Label);
+        }
+    }
+
+    /// <summary>Everything that depends on the set of files: counts, the tree and the empty states.</summary>
+    private void AfterAssetsChanged()
+    {
+        ReopenRestoredFile();
+        OnPropertyChanged(nameof(LibraryLabel));
+        UpdateVisibleCount();
+        RebuildFolderTree();
+        NotifyEmptyState();
+        OnPropertyChanged(nameof(IsSelectionHidden));
+        OnPropertyChanged(nameof(CurrentFolder));
+        OnPropertyChanged(nameof(IsCollectionView));
+    }
+
+    private void UpdateScanning() => IsScanning = WorkspaceFolders.Any(folder => folder.IsScanning);
+
+    /// <summary>Moves the selected tab to a folder (or opens the first tab). Nothing is rescanned; the filmstrip just shows that folder.</summary>
+    public void ShowFolder(string path)
+    {
+        if (SelectedTab is null)
+        {
+            var tab = new FolderTab();
+            Tabs.Add(tab);
+            SelectedTab = tab;
+            OnPropertyChanged(nameof(CanCloseTab));
+        }
+        SelectFolder(path);
+    }
+
+    partial void OnSelectedTabChanged(FolderTab? value)
+    {
+        if (value is null) return;
+        SelectFolder(value.Path);
+        SaveWorkspace();
+    }
+
+    [RelayCommand]
+    private void NewTab()
+    {
+        if (Tabs.Count >= AppSettings.WorkspaceTabLimit) return;
+        var tab = new FolderTab { Path = folderFilter };
+        Tabs.Add(tab);
+        SelectedTab = tab;
+        OnPropertyChanged(nameof(CanCloseTab));
+    }
+
+    /// <summary>Opens a folder from the tree in a tab of its own, keeping the current tab where it is.</summary>
+    [RelayCommand]
+    private void OpenInNewTab(FolderRowViewModel? row)
+    {
+        if (row is null || Tabs.Count >= AppSettings.WorkspaceTabLimit) return;
+        var tab = new FolderTab { Path = row.Node.Path };
+        Tabs.Add(tab);
+        SelectedTab = tab;
+        OnPropertyChanged(nameof(CanCloseTab));
+    }
+
+    [RelayCommand]
+    private void CloseTab(FolderTab? tab)
+    {
+        if (tab is null || Tabs.Count <= 1) return;
+        var index = Tabs.IndexOf(tab);
+        Tabs.Remove(tab);
+        if (ReferenceEquals(SelectedTab, tab) || SelectedTab is null)
+            SelectedTab = Tabs[Math.Clamp(index, 0, Tabs.Count - 1)];
+        OnPropertyChanged(nameof(CanCloseTab));
+        SaveWorkspace();
+    }
+
+    /// <summary>Tab names and counts follow the tree: the folder's own name and how many files it holds, subfolders included.</summary>
+    private void UpdateTabs()
+    {
+        foreach (var tab in Tabs)
+        {
+            var node = folderRoot is null ? null : FolderTree.Find(folderRoot, tab.Path);
+            tab.Title = tab.Path.Length == 0 ? "All folders" : node is not null ? NodeTitle(node).Split('\\')[^1] : tab.Path.Split('\\')[^1];
+            tab.CountText = node is null ? "" : node.Total.ToString("N0");
+        }
+    }
+
+    /// <summary>
+    /// The names given to workspace folders. Names of folders not open right now are kept too, so a folder added back gets its
+    /// name back, and so restoring the workspace one folder at a time never drops the names of the ones still to come.
+    /// </summary>
+    private Dictionary<string, string> SavedNames()
+    {
+        var open = WorkspaceFolders.Where(folder => !folder.IsVirtual).ToList();
+        var names = settings.WorkspaceNames
+            .Where(pair => !open.Any(folder => folder.Path.Equals(pair.Key, StringComparison.OrdinalIgnoreCase)))
+            .Take(64)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in open.Where(folder => folder.DisplayName != folder.Label))
+            names[folder.Path] = folder.DisplayName;
+        return names;
+    }
+
+    /// <summary>A folder key as shown: the workspace folder's given name in place of its label.</summary>
+    internal string DisplayKey(string key)
+    {
+        var label = key.Split('\\', 2)[0];
+        return FolderOf(key) is { } folder && folder.DisplayName != folder.Label ? folder.DisplayName + key[label.Length..] : key;
+    }
+
+    /// <summary>A tree node's name as shown: a workspace folder's given name, otherwise the folder's own name.</summary>
+    private string NodeTitle(FolderNode node) =>
+        node.Path.Length > 0 && !node.Path.Contains('\\') && FolderOf(node.Path) is { } folder ? folder.DisplayName : node.Name;
+
+    /// <summary>F2 or Rename in the tree: the row's name becomes a text box.</summary>
+    [RelayCommand]
+    private void StartRename(FolderRowViewModel? row)
+    {
+        if (row is not { IsWorkspaceFolder: true, Folder: { } folder }) return;
+        foreach (var other in FolderRows.Where(other => other.IsRenaming)) other.IsRenaming = false;
+        row.RenameText = folder.DisplayName;
+        row.IsRenaming = true;
+    }
+
+    /// <summary>Enter or leaving the box keeps the name; Esc drops it.</summary>
+    internal void FinishRename(FolderRowViewModel row, bool keep)
+    {
+        if (!row.IsRenaming) return;
+        row.IsRenaming = false;
+        if (keep && row.Folder is { } folder) RenameWorkspaceFolder(folder, row.RenameText);
+    }
+
+    /// <summary>
+    /// Gives a workspace folder the name shown for it in the tree, the tabs, the overview and the file count. The folder on disk
+    /// is not renamed. An empty name goes back to the folder's own name.
+    /// </summary>
+    internal void RenameWorkspaceFolder(WorkspaceFolder folder, string name)
+    {
+        name = name.Trim().Replace('\\', ' ');
+        if (name.Length == 0) name = folder.Label;
+        if (name.Length > 80) name = name[..80];
+        if (name == folder.DisplayName) return;
+        folder.DisplayName = name;
+        foreach (var row in FolderRows.Concat(OverviewFolders).Where(row => row.Folder == folder)) row.RefreshName();
+        SaveWorkspace();
+        UpdateTabs();
+        UpdateChart();
+        OnPropertyChanged(nameof(VisibleCount));
+        Status = name == folder.Label ? $"{folder.Label} has its own name again." : $"{folder.Label} now shows as {name}. The folder on disk keeps its name.";
+    }
+
+    private void SaveWorkspace()
+    {
+        if (disposed) return;
+        settings = settings with
+        {
+            WorkspaceRoots = WorkspaceFolders.Where(folder => !folder.IsVirtual).Select(folder => folder.Path).Take(AppSettings.WorkspaceRootLimit).ToArray(),
+            WorkspaceTabs = Tabs.Select(tab => tab.Path).Take(AppSettings.WorkspaceTabLimit).ToArray(),
+            SelectedTab = SelectedTab is null ? 0 : Math.Max(0, Tabs.IndexOf(SelectedTab)),
+            WorkspaceNames = SavedNames()
+        };
+        Guard(() => settingsStore.Save(WithBrowsingPreferences(settings)));
+    }
+
+    /// <summary>
+    /// Opens the folders and tabs of the last session, each from its saved index, then checks them for changes one after another,
+    /// and puts back what was open: the folders open in the tree, the file, and the tabs of the centre and the inspector.
+    /// Everything is read before the first folder is added, because adding one saves the settings.
+    /// </summary>
+    private async Task RestoreWorkspaceAsync()
+    {
+        var roots = settings.WorkspaceRoots.Length > 0 ? settings.WorkspaceRoots
+            : Directory.Exists(settings.LastLibrary) ? [settings.LastLibrary] : [];
+        var tabs = settings.WorkspaceTabs;
+        var selected = settings.SelectedTab;
+        var openFolders = settings.OpenFolders;
+        var file = settings.SelectedFile;
+        var mainTab = settings.MainTab;
+        var inspectorTab = settings.InspectorTab;
+        foreach (var root in roots.Where(Directory.Exists))
+            await AddFolderAsync(root, show: false);
+        Tabs.Clear();
+        foreach (var path in tabs.Length > 0 ? tabs : WorkspaceFolders.Take(1).Select(folder => folder.Label))
+            // Kept while its workspace folder is still being read the first time; its subfolders are not listed yet.
+            Tabs.Add(new FolderTab { Path = folderRoot is not null && FolderTree.Find(folderRoot, path) is not null || FolderOf(path) is { IsScanning: true } ? path : "" });
+        if (Tabs.Count == 0 && WorkspaceFolders.Count > 0)
+            Tabs.Add(new FolderTab { Path = WorkspaceFolders[0].Label });
+        OnPropertyChanged(nameof(CanCloseTab));
+        if (Tabs.Count > 0)
+            SelectedTab = Tabs[Math.Clamp(selected, 0, Tabs.Count - 1)];
+        ApplySavedSession(openFolders, file, mainTab, inspectorTab);
+    }
+
+    /// <summary>Puts back the tree, the open file and the two tab rows as they were saved.</summary>
+    internal void ApplySavedSession(IEnumerable<string> openFolders, string file, int mainTab, int inspectorTab)
+    {
+        RestoreOpenFolders(openFolders);
+        if (file.Length > 0 && Assets.FirstOrDefault(item => item.Owner is { IsVirtual: false } && string.Equals(item.Asset.FullPath, file, StringComparison.OrdinalIgnoreCase)) is { } reopened)
+            SelectedAsset = reopened;
+        else if (file.Length > 0)
+            restoreSelection = (file, mainTab);
+        if (mainTab is >= 0 and <= 2 && (mainTab != 1 || SelectedAsset is not null))
+            MainTab = mainTab;
+        if (inspectorTab is >= 0 and <= 3)
+            InspectorTab = inspectorTab;
+    }
+
+    /// <summary>
+    /// The tree as it was left: only the folders that were open are open. Going to the saved tab opens the folders around it, so
+    /// this comes after, and puts back exactly what was saved.
+    /// </summary>
+    private void RestoreOpenFolders(IEnumerable<string> keys)
+    {
+        openTops.Clear();
+        expandedFolders.Clear();
+        foreach (var key in keys)
+        {
+            if (!key.Contains('\\')) openTops.Add(key);
+            else expandedFolders.Add(key);
+        }
+        RebuildFolderRows();
+    }
+
+    /// <summary>The file left open last time, while the folder it is in is still being read; dropped as soon as another file is chosen.</summary>
+    private (string File, int MainTab)? restoreSelection;
+
+    /// <summary>Opens the file left open last time once its folder has been read far enough to list it.</summary>
+    private void ReopenRestoredFile()
+    {
+        if (restoreSelection is not var (file, mainTab)
+            || Assets.FirstOrDefault(item => item.Owner is { IsVirtual: false } && string.Equals(item.Asset.FullPath, file, StringComparison.OrdinalIgnoreCase)) is not { } match)
+            return;
+        restoreSelection = null;
+        SelectedAsset = match;
+        if (mainTab is >= 0 and <= 2) MainTab = mainTab;
+    }
+
+    /// <summary>The folders open in the tree, for next time.</summary>
+    internal string[] OpenFolderKeys() =>
+        openTops.Where(label => FolderOf(label) is { IsVirtual: false }).Concat(expandedFolders.Where(key => FolderOf(key) is { IsVirtual: false })).Take(500).ToArray();
+
+    /// <summary>The window remembers where it was and how big, so it opens there next time.</summary>
+    public void RememberWindow(Rect bounds, bool maximized)
+    {
+        if (bounds.Width > 100 && bounds.Height > 100 && !double.IsInfinity(bounds.Left))
+            settings = settings with { WindowBounds = [bounds.Left, bounds.Top, bounds.Width, bounds.Height], WindowMaximized = maximized };
+    }
+
+    /// <summary>Where the window was last time, in screen pixels; the window checks it is still on a screen.</summary>
+    public (Rect Bounds, bool Maximized)? SavedWindow() =>
+        settings.WindowBounds is [var left, var top, var width, var height] && width >= 400 && height >= 300
+            ? (new Rect(left, top, width, height), settings.WindowMaximized) : null;
+
+    private void DisposeWorkspace()
+    {
+        foreach (var folder in WorkspaceFolders)
+        {
+            folder.Settle?.Stop();
+            folder.Watcher?.Dispose();
+        }
+    }
+}

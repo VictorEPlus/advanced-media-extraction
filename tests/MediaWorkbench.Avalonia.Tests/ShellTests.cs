@@ -1,15 +1,18 @@
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
-using Avalonia.Media.Imaging;
-using MediaWorkbench.Avalonia.ViewModels;
-using MediaWorkbench.Avalonia.Views;
+using Avalonia.Input;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MediaWorkbench.Core;
 
 namespace MediaWorkbench.Avalonia.Tests;
 
 /// <summary>
-/// The new app end to end on made-up media: a folder is added and listed, a video opens on its first exact frame, steps to
-/// another exact frame, plays through VLC into the app's own picture and pauses on a frame, and the window draws all of it.
+/// The Avalonia app end to end on made-up media, through the real window: the folder tree opens and closes from its arrows and
+/// the keyboard, a video opens on its first exact frame, steps to another exact frame, plays through VLC into the app's own
+/// picture and pauses on a frame, and Copy saves what it copies.
 /// </summary>
 public sealed class ShellTests : IDisposable
 {
@@ -22,17 +25,12 @@ public sealed class ShellTests : IDisposable
         catch (UnauthorizedAccessException) { }
     }
 
-    private async Task<(string Media, string Video, string Photo)> MakeMediaAsync()
+    private (MainViewModel Model, MainWindow Window) Open()
     {
-        var media = Path.Combine(workspace, "media");
-        Directory.CreateDirectory(Path.Combine(media, "clips"));
-        var tools = ToolPaths.Resolve();
-        var video = Path.Combine(media, "clips", "count.mp4");
-        var photo = Path.Combine(media, "still.png");
-        await new ProcessRunner().RunAsync(tools.Ffmpeg, ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=3",
-            "-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p", video]);
-        await new ProcessRunner().RunAsync(tools.Ffmpeg, ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "mandelbrot=size=640x360", "-frames:v", "1", photo]);
-        return (media, video, photo);
+        var model = new MainViewModel(Path.Combine(workspace, "data"));
+        var window = new MainWindow(model) { Width = 1500, Height = 940 };
+        window.Show();
+        return (model, window);
     }
 
     private static async Task Until(Func<bool> condition, string message, int seconds = 30)
@@ -41,75 +39,135 @@ public sealed class ShellTests : IDisposable
         while (!condition())
         {
             if (DateTime.UtcNow > deadline) Assert.Fail(message);
-            await Task.Delay(25);
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(20);
         }
     }
 
-    private ShellViewModel NewShell() => new(Path.Combine(workspace, "data")) { ImportClassicWorkspace = false };
-
-    [AvaloniaFact]
-    public async Task AFolderIsListedAndAVideoStepsPlaysAndPausesOnExactFrames()
+    private static void Settle(Window window)
     {
-        var (media, video, photo) = await MakeMediaAsync();
-        using var shell = NewShell();
-        var window = new MainWindow { DataContext = shell };
-        window.Show();
-        await shell.StartAsync();
-        Assert.True(shell.IsEmpty);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+    }
 
-        await shell.AddFolderAsync(media);
-        await Until(() => !shell.IsScanning && shell.Items.Count == 2, $"The folder should list its two files, not {shell.Items.Count}.");
-        Assert.Equal(["media"], shell.Folders.Select(folder => folder.Name));
-        Assert.Equal("2", shell.Folders[0].CountText);
+    /// <summary>Clicks the open/close arrow of a tree row, where a person would.</summary>
+    private static void ClickArrow(MainWindow window, string rowPath)
+    {
+        Settle(window);
+        var list = window.FindControl<ListBox>("FolderTreeList")!;
+        var row = ((MainViewModel)window.DataContext!).FolderRows.Single(row => row.Node.Path == rowPath);
+        var container = list.ContainerFromItem(row) ?? throw new InvalidOperationException("The row is not on screen: " + rowPath);
+        var arrow = container.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "FolderToggle");
+        var point = arrow.TranslatePoint(new Point(arrow.Bounds.Width / 2, arrow.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Settle(window);
+    }
 
-        // A subfolder narrows the filmstrip to it.
-        shell.Folders[0].IsExpanded = true;
-        shell.SelectedFolder = shell.Folders[0].Children.Single(child => child.Name == "clips");
-        Assert.Equal([video], shell.Items.Select(item => item.Asset.FullPath));
-        shell.SelectedFolder = null;
-
-        shell.SelectedItem = shell.Items.Single(item => item.Asset.FullPath == photo);
-        await Until(() => shell.Picture is { PixelSize.Width: 640 } && !shell.IsLoading, "A photo should open at its own size.");
-
-        shell.SelectedItem = shell.Items.Single(item => item.Asset.FullPath == video);
-        await Until(() => shell.CanStep && shell.Picture is { PixelSize.Width: 320 }, "A video should open on its first frame and be indexed.");
-        Assert.Equal(30, shell.MaximumFrame + 1);
-        var first = shell.Picture;
-
-        shell.CurrentFrame = 15;
-        await Until(() => shell.Picture is { } shown && !ReferenceEquals(shown, first), "Stepping should show another decoded frame.");
-        Assert.Equal("16 / 30", shell.FrameText);
-
-        // Play starts on the frame on screen; the live picture keeps changing; pause lands on a later frame.
-        shell.PlayPauseCommand.Execute(null);
-        Assert.True(shell.IsPlaying);
-        var revision = shell.PictureRevision;
-        await Until(() => shell.PictureRevision > revision + 3, "Playing should keep drawing new pictures.");
-        await Task.Delay(400);
-        shell.PlayPauseCommand.Execute(null);
-        Assert.False(shell.IsPlaying);
-        Assert.InRange(shell.CurrentFrame, 16, 29);
-
-        // The window draws the frame, the transport and the filmstrip.
-        var frame = window.CaptureRenderedFrame();
-        Assert.NotNull(frame);
-        Assert.True(frame!.PixelSize.Width > 900);
-        window.Close();
+    /// <summary>Clicks the name of a tree row: selects it and gives the tree the keyboard.</summary>
+    private static void ClickName(MainWindow window, string rowPath)
+    {
+        Settle(window);
+        var list = window.FindControl<ListBox>("FolderTreeList")!;
+        var row = ((MainViewModel)window.DataContext!).FolderRows.Single(row => row.Node.Path == rowPath);
+        var container = list.ContainerFromItem(row)!;
+        var name = container.GetVisualDescendants().OfType<TextBlock>().First(text => text.Classes.Contains("folderName"));
+        var point = name.TranslatePoint(new Point(4, name.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Settle(window);
     }
 
     [AvaloniaFact]
-    public async Task AFolderAlreadyOpenIsNotAddedTwiceAndRemovingItLeavesTheDiskAlone()
+    public async Task TheFolderTreeOpensAndClosesFromItsArrowsAndTheKeyboard()
     {
-        var (media, video, _) = await MakeMediaAsync();
-        using var shell = NewShell();
-        await shell.StartAsync();
-        await shell.AddFolderAsync(media);
-        await shell.AddFolderAsync(media + Path.DirectorySeparatorChar);
-        Assert.Single(shell.Folders);
-        Assert.Contains("already in the workspace", shell.Status);
-        shell.RemoveFolderCommand.Execute(shell.Folders[0]);
-        Assert.Empty(shell.Folders);
-        Assert.True(shell.IsEmpty);
-        Assert.True(File.Exists(video));
+        var root = Path.Combine(workspace, "Shoots");
+        foreach (var folder in new[] { @"shoot A\day 1", @"shoot A\day 2", "shoot B" })
+        {
+            Directory.CreateDirectory(Path.Combine(root, folder));
+            for (var index = 0; index < 3; index++)
+                File.WriteAllBytes(Path.Combine(root, folder, $"file{index}.png"), [1, 2, 3]);
+        }
+        var (model, window) = Open();
+        await model.OpenLibraryAsync(root);
+        Settle(window);
+        string Rows() => string.Join("|", model.FolderRows.Select(row => row.Node.Path));
+        Assert.Equal("|Shoots|Shoots\\shoot A|Shoots\\shoot B", Rows());
+
+        ClickArrow(window, "Shoots");
+        Assert.Equal("|Shoots", Rows());
+        ClickArrow(window, "Shoots");
+        Assert.Equal("|Shoots|Shoots\\shoot A|Shoots\\shoot B", Rows());
+
+        // A subfolder opens from its arrow, and its days show; clicking the arrow again closes it.
+        ClickArrow(window, "Shoots\\shoot A");
+        Assert.Equal("|Shoots|Shoots\\shoot A|Shoots\\shoot A\\day 1|Shoots\\shoot A\\day 2|Shoots\\shoot B", Rows());
+        ClickArrow(window, "Shoots\\shoot A");
+        Assert.Equal("|Shoots|Shoots\\shoot A|Shoots\\shoot B", Rows());
+
+        // Clicking the name selects the folder and shows it in the filmstrip; Right and Left open and close it.
+        ClickName(window, "Shoots\\shoot A");
+        Assert.Equal("Shoots\\shoot A", model.SelectedFolderRow?.Node.Path);
+        Assert.Equal(6, model.LibraryView.Count);
+        window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.ArrowRight, null);
+        Settle(window);
+        Assert.Contains("Shoots\\shoot A\\day 1", Rows());
+        window.KeyPress(Key.Left, RawInputModifiers.None, PhysicalKey.ArrowLeft, null);
+        Settle(window);
+        Assert.DoesNotContain("Shoots\\shoot A\\day 1", Rows());
+        window.Close();
+    }
+
+    private async Task<(string Media, string Video, string Photo)> MakeMediaAsync()
+    {
+        var media = Path.Combine(workspace, "media");
+        Directory.CreateDirectory(Path.Combine(media, "clips"));
+        var tools = ToolPaths.Resolve();
+        var video = Path.Combine(media, "clips", "count.mp4");
+        var photo = Path.Combine(media, "still.png");
+        await new ProcessRunner().RunAsync(tools.Ffmpeg, ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=3",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", video]);
+        await new ProcessRunner().RunAsync(tools.Ffmpeg, ["-v", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "mandelbrot=size=640x360", "-frames:v", "1", photo]);
+        return (media, video, photo);
+    }
+
+    [AvaloniaFact]
+    public async Task AVideoStepsPlaysAndPausesOnExactFramesAndCopySavesWhatItCopies()
+    {
+        var (media, video, photo) = await MakeMediaAsync();
+        var (model, window) = Open();
+        await model.OpenLibraryAsync(media);
+        Assert.Equal(2, model.Assets.Count);
+
+        model.SelectedAsset = model.Assets.Single(item => item.Asset.FullPath == photo);
+        await Until(() => model.PreviewImage is { PixelSize.Width: 640 } && !model.IsPreviewBusy, "A photo should open at its own size.");
+        model.CropSelection = new PixelCrop(10, 20, 80, 60);
+        var (copied, copiedPath) = await model.ExportForClipboardAsync();
+        Assert.True(File.Exists(copiedPath) && copiedPath.Contains("_crop_80x60"), "Copy should save the crop as a PNG: " + copiedPath);
+        Assert.True(((IDataTransfer)copied).Contains(DataFormat.Bitmap) && ((IDataTransfer)copied).Contains(MainViewModel.PngFormat), "Copy should offer the picture and the PNG.");
+        model.CropSelection = null;
+
+        model.SelectedAsset = model.Assets.Single(item => item.Asset.FullPath == video);
+        await Until(() => model.HasFrames && !model.IsPreviewBusy && model.PreviewImage is { PixelSize.Width: 320 }, "A video should open on its first frame and be indexed.");
+        Assert.Equal(29, model.MaximumFrame);
+        var first = model.PreviewImage;
+
+        model.CurrentFrame = 15;
+        await Until(() => model.DisplayedFrame == 15 && !ReferenceEquals(model.PreviewImage, first), "Stepping should show the exact decoded frame.");
+
+        // Play starts on the frame on screen; the live picture keeps changing; pause lands on a later frame.
+        model.TogglePlaybackCommand.Execute(null);
+        await Until(() => model.LiveRevision > 3, "Playing should keep drawing new pictures.");
+        await Task.Delay(300);
+        model.TogglePlaybackCommand.Execute(null);
+        await Until(() => !model.ShowPlayback && !model.IsPreviewBusy, "Pausing should settle on a frame.");
+        Assert.InRange(model.CurrentFrame, 16, 29);
+
+        model.MainTab = 1;
+        Settle(window);
+        var frame = window.CaptureRenderedFrame();
+        Assert.NotNull(frame);
+        window.Close();
     }
 }

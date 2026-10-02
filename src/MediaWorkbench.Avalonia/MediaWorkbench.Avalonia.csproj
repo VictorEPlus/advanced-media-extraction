@@ -15,6 +15,7 @@
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <InternalsVisibleTo Include="MediaWorkbench.Avalonia.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../MediaWorkbench.Core/MediaWorkbench.Core.csproj" />
@@ -24,6 +25,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.3" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="LibVLCSharp" Version="3.10.1" />
+    <PackageReference Include="MetadataExtractor" Version="2.9.3" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
   </ItemGroup>
 </Project>
