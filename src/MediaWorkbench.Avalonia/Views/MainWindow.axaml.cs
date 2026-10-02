@@ -26,8 +26,18 @@ public sealed partial class MainWindow : Window
         Filmstrip.AddHandler(PointerWheelChangedEvent, OnFilmstripWheel, RoutingStrategies.Tunnel);
         DataContextChanged += (_, _) =>
         {
-            if (DataContext is ShellViewModel shell) shell.PropertyChanged += OnShellChanged;
+            if (DataContext is not ShellViewModel shell) return;
+            shell.PropertyChanged += OnShellChanged;
+            if (shell.SavedWindow() is var (bounds, maximized))
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Position = new PixelPoint((int)bounds.X, (int)bounds.Y);
+                Width = bounds.Width;
+                Height = bounds.Height;
+                if (maximized) WindowState = WindowState.Maximized;
+            }
         };
+        Closing += (_, _) => Shell?.RememberWindow(new Rect(Position.X, Position.Y, Width, Height), WindowState == WindowState.Maximized);
     }
 
     private ShellViewModel? Shell => DataContext as ShellViewModel;
@@ -45,6 +55,8 @@ public sealed partial class MainWindow : Window
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (Shell is not { } shell || e.Source is TextBox) return;
+        // In the filmstrip the arrows move between files, as in any list.
+        if (e.Key is Key.Left or Key.Right && e.Source is Visual source && (ReferenceEquals(source, Filmstrip) || Filmstrip.IsVisualAncestorOf(source))) return;
         var handled = true;
         switch (e.Key)
         {

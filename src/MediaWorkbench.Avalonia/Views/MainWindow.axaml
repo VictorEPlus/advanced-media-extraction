@@ -32,7 +32,7 @@
                         </Button>
                     </Grid>
 
-                    <Button Grid.Row="2" Margin="10,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Command="{Binding ShowAllCommand}" IsVisible="{Binding HasFolders}">
+                    <Button Grid.Row="2" Classes="nav" Classes.active="{Binding IsAllMedia}" Margin="10,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Command="{Binding ShowAllCommand}" IsVisible="{Binding HasFolders}">
                         <Grid ColumnDefinitions="Auto,*">
                             <Path Classes="line" Data="{StaticResource IconFit}" Margin="0,0,10,0" />
                             <TextBlock Grid.Column="1" Text="All media" VerticalAlignment="Center" />

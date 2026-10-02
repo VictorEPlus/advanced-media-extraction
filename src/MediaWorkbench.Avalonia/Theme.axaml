@@ -141,6 +141,15 @@
         <Setter Property="Foreground" Value="{StaticResource AccentInkBrush}" />
     </Style>
 
+    <!-- A sidebar entry that is the current view gets the same soft amber pill as a chosen folder. -->
+    <Style Selector="Button.nav.active">
+        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    </Style>
+    <Style Selector="Button.nav.active Path.line">
+        <Setter Property="Stroke" Value="{StaticResource AccentBrush}" />
+    </Style>
+
     <!-- Folder tree: rounded selection pill with an amber edge, no boxy highlight. -->
     <Style Selector="TreeViewItem">
         <Setter Property="MinHeight" Value="30" />

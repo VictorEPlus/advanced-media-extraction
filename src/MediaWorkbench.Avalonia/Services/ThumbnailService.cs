@@ -34,8 +34,8 @@ public sealed class ThumbnailService(MediaEngine engine)
                 {
                     try
                     {
-                        await using var stream = File.OpenRead(asset.FullPath);
-                        return Bitmap.DecodeToWidth(stream, DecodeWidth, BitmapInterpolationMode.MediumQuality);
+                        if (PhotoDecoder.Decode(asset.FullPath, DecodeWidth) is { } photo)
+                            return photo.Bitmap;
                     }
                     // Formats Avalonia cannot decode itself (HEIC, AVIF, some TIFFs) go through FFmpeg like video.
                     catch (Exception exception) when (exception is not OperationCanceledException) { }

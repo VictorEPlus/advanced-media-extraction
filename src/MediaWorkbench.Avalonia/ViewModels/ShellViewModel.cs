@@ -68,6 +68,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public bool HasFolders => roots.Count > 0;
     public bool IsEmpty => roots.Count == 0;
     public string LocationTitle => SelectedFolder is null ? "All media" : SelectedFolder.Name;
+    public bool IsAllMedia => SelectedFolder is null;
     public string LocationCount => $"{Items.Count:N0} {(Items.Count == 1 ? "file" : "files")}";
     public double SidebarWidth => IsSidebarOpen ? 264 : 0;
 
@@ -83,6 +84,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void ShowAll() => SelectedFolder = null;
 
     /// <summary>Starts the app: the folders of last time (or, the first time, those of the WPF app), each from its saved index.</summary>
+    /// <summary>On a first start, open the folders the WPF app had open. Off in tests, so they never touch real folders.</summary>
+    public bool ImportClassicWorkspace { get; init; } = true;
+
     /// <summary>For checking by hand: start playing the file given with --open as soon as it is ready.</summary>
     public bool PlayWhenReady { get; set; }
 
@@ -100,9 +104,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception) { Status = "Video playback is unavailable: " + exception.Message; }
 
-        var saved = settings.WorkspaceRoots.Length > 0 ? settings.WorkspaceRoots : ImportFromClassicApp();
+        var saved = settings.WorkspaceRoots.Length > 0 ? settings.WorkspaceRoots : ImportClassicWorkspace ? ImportFromClassicApp() : [];
         foreach (var root in saved.Where(Directory.Exists))
             await AddFolderAsync(root, select: false);
+        if (settings.WorkspaceTabs is [var folderKey, ..] && FindFolder(folderKey) is { } lastFolder)
+            SelectedFolder = lastFolder;
         if (openPath is not null && FindItem(Path.GetFullPath(openPath)) is { } requested)
             SelectedItem = requested;
         else if (settings.SelectedFile.Length > 0 && FindItem(settings.SelectedFile) is { } last)
@@ -269,6 +275,26 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             source = source.Where(item => item.Asset.RelativePath.Contains(query, StringComparison.OrdinalIgnoreCase));
         Items = source.OrderBy(item => item.Asset.RelativePath, Comparer<string>.Create(NaturalOrder.Compare)).ToList();
         OnPropertyChanged(nameof(LocationTitle));
+        OnPropertyChanged(nameof(IsAllMedia));
+    }
+
+    /// <summary>Finds a folder in the tree by its key, opening the folders on the way so it can be shown selected.</summary>
+    private FolderNodeViewModel? FindFolder(string key)
+    {
+        foreach (var top in Folders)
+        {
+            if (top.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) return top;
+            if (!FolderTree.Contains(top.Key, key)) continue;
+            var node = top;
+            while (!node.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
+            {
+                node.IsExpanded = true;
+                if (node.Children.FirstOrDefault(child => FolderTree.Contains(child.Key, key)) is not { } next) return null;
+                node = next;
+            }
+            return node;
+        }
+        return null;
     }
 
     private MediaItemViewModel? FindItem(string path) =>
@@ -362,11 +388,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 if (photo is null)
                 {
                     var bytes = await engine.GetFrameAsync(asset, 0, cancellation.Token);
-                    photo = await Task.Run(() => Decode(bytes), cancellation.Token);
+                    var decoded = await Task.Run(() => Decode(bytes), cancellation.Token);
+                    photo = new PhotoDecoder.Photo(decoded, decoded.PixelSize.Width, decoded.PixelSize.Height);
                 }
                 cancellation.Token.ThrowIfCancellationRequested();
-                Picture = photo;
-                Facts = Join($"{photo.PixelSize.Width} × {photo.PixelSize.Height}", Size(asset.Length));
+                Picture = photo.Bitmap;
+                Facts = Join($"{photo.Width} × {photo.Height}", Size(asset.Length));
                 return;
             }
             var probe = await engine.ProbeAsync(asset.FullPath, cancellation.Token);
@@ -573,19 +600,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
     }
 
-    /// <summary>Photos are decoded at up to 4K wide; Avalonia cannot read every format, so null hands it to FFmpeg.</summary>
-    private static Bitmap? DecodePhoto(MediaAsset asset)
+    /// <summary>Photos are decoded upright and at up to 4K wide; null hands a format Skia cannot read to FFmpeg.</summary>
+    private static PhotoDecoder.Photo? DecodePhoto(MediaAsset asset)
     {
-        try
-        {
-            using var stream = File.OpenRead(asset.FullPath);
-            var full = new Bitmap(stream);
-            if (full.PixelSize.Width <= 3840) return full;
-            // Only very large pictures are decoded again at a size the screen can use; smaller ones are never scaled up.
-            full.Dispose();
-            stream.Position = 0;
-            return Bitmap.DecodeToWidth(stream, 3840, BitmapInterpolationMode.HighQuality);
-        }
+        try { return PhotoDecoder.Decode(asset.FullPath, 3840); }
         catch (Exception) { return null; }
     }
 
@@ -600,6 +618,17 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- Settings
 
+    /// <summary>The window's place and size are kept only while they are reasonable and on a screen; see the window.</summary>
+    public void RememberWindow(global::Avalonia.Rect bounds, bool maximized)
+    {
+        if (bounds.Width >= 600 && bounds.Height >= 400)
+            settings = settings with { WindowBounds = [bounds.X, bounds.Y, bounds.Width, bounds.Height], WindowMaximized = maximized };
+    }
+
+    public (global::Avalonia.Rect Bounds, bool Maximized)? SavedWindow() =>
+        settings.WindowBounds is [var x, var y, var width, var height] && width >= 600 && height >= 400
+            ? (new global::Avalonia.Rect(x, y, width, height), settings.WindowMaximized) : null;
+
     private void SaveSettings()
     {
         if (disposed) return;
@@ -607,7 +636,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             WorkspaceRoots = roots.Select(root => root.Path).ToArray(),
             ShowSources = IsSidebarOpen,
-            SelectedFile = SelectedItem?.Asset.FullPath ?? ""
+            SelectedFile = SelectedItem?.Asset.FullPath ?? "",
+            // The folder chosen in the library, by its tree key, as a one-item tab list.
+            WorkspaceTabs = SelectedFolder is { } folder ? [folder.Key] : []
         };
         try { settingsStore.Save(settings); }
         catch (Exception) { }

@@ -45,6 +45,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Build failed. See compiler output above.' }
     & dotnet test tests/MediaWorkbench.Tests/MediaWorkbench.Tests.csproj --no-build --no-restore --configuration $Configuration --logger 'trx;LogFileName=tests.trx' --results-directory artifacts/test-results
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed. See artifacts/test-results/tests.trx.' }
+    & dotnet test tests/MediaWorkbench.Avalonia.Tests/MediaWorkbench.Avalonia.Tests.csproj --no-build --no-restore --configuration $Configuration
+    if ($LASTEXITCODE -ne 0) { throw 'Avalonia app tests failed. See the output above.' }
     $executable = Join-Path $root "src\MediaWorkbench.App\bin\$Configuration\net10.0-windows\MediaWorkbench.exe"
     $smokeDirectory = Join-Path $root ('artifacts\smoke-' + [Guid]::NewGuid().ToString('N'))
     $process = Start-Process -FilePath $executable -ArgumentList @('--smoke-test', '--data-dir', ('"' + $smokeDirectory + '"')) -WindowStyle Hidden -PassThru
