@@ -1,0 +1,171 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MediaWorkbench.Avalonia.ViewModels"
+        xmlns:c="using:MediaWorkbench.Avalonia.Controls"
+        x:Class="MediaWorkbench.Avalonia.Views.MainWindow"
+        x:DataType="vm:ShellViewModel"
+        Title="Media Workbench"
+        Icon="avares://MediaWorkbench.Avalonia/Assets/MediaWorkbench.ico"
+        Width="1440" Height="900" MinWidth="980" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="Transparent"
+        TransparencyLevelHint="Mica, AcrylicBlur, None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="48">
+
+    <!-- The Windows backdrop shows faintly through a dark tint; panels sit on it as soft cards. -->
+    <Panel Background="{StaticResource WindowTint}">
+        <Grid ColumnDefinitions="Auto,*">
+
+            <!-- Sidebar: the library. Slides closed with Ctrl+B or the button in the top bar. -->
+            <Border Classes="sidebar" Width="{Binding SidebarWidth}" Background="{StaticResource SidebarTint}" ClipToBounds="True">
+                <Grid RowDefinitions="48,Auto,Auto,*" Width="264">
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="18,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <Ellipse Width="9" Height="9" Fill="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="Media Workbench" Classes="title" FontSize="14" VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="18,14,10,6">
+                        <TextBlock Text="LIBRARY" Classes="eyebrow" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="icon" Name="AddFolderButton" ToolTip.Tip="Add a folder to the workspace" Click="AddFolderClicked">
+                            <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
+                        </Button>
+                    </Grid>
+
+                    <Button Grid.Row="2" Margin="10,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Command="{Binding ShowAllCommand}" IsVisible="{Binding HasFolders}">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Path Classes="line" Data="{StaticResource IconFit}" Margin="0,0,10,0" />
+                            <TextBlock Grid.Column="1" Text="All media" VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+
+                    <Panel Grid.Row="3">
+                        <TreeView ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}" Margin="8,6,8,12" Background="Transparent">
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate DataType="vm:FolderNodeViewModel" ItemsSource="{Binding Children}">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" Height="30" Background="Transparent">
+                                        <Grid.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Show in Explorer" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).RevealFolderCommand}" CommandParameter="{Binding}" />
+                                                <MenuItem Header="Remove from workspace" IsVisible="{Binding IsRoot}" Command="{Binding $parent[Window].((vm:ShellViewModel)DataContext).RemoveFolderCommand}" CommandParameter="{Binding}" />
+                                            </ContextMenu>
+                                        </Grid.ContextMenu>
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontWeight="{Binding IsRoot, Converter={x:Static vm:Converters.BoolToSemiBold}}" />
+                                        <Ellipse Grid.Column="1" Width="6" Height="6" Fill="{StaticResource AccentBrush}" Margin="6,0" IsVisible="{Binding IsBusy}" ToolTip.Tip="Reading this folder" />
+                                        <TextBlock Grid.Column="2" Text="{Binding CountText}" Classes="mono" FontSize="11.5" Foreground="{StaticResource FaintBrush}" VerticalAlignment="Center" Margin="8,0,8,0" />
+                                    </Grid>
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+                        <StackPanel IsVisible="{Binding IsEmpty}" Margin="18,8" Spacing="10">
+                            <TextBlock Text="No folders yet." Classes="caption" />
+                            <Button Classes="primary" Content="Add a folder" Click="AddFolderClicked" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </Panel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1" RowDefinitions="48,*,Auto,Auto">
+                <!-- Top bar: also the window's title bar; the Windows caption buttons sit in its right end. -->
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="8,0,200,0">
+                    <Button Classes="icon" Command="{Binding ToggleSidebarCommand}" ToolTip.Tip="Show or hide the library (Ctrl+B)" VerticalAlignment="Center">
+                        <Path Classes="line" Data="{StaticResource IconSidebar}" />
+                    </Button>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock Text="{Binding LocationTitle}" Classes="title" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding LocationCount}" Classes="mono" FontSize="12" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBox Grid.Column="3" Classes="search" Width="260" VerticalAlignment="Center" PlaceholderText="Search names" Text="{Binding SearchText}">
+                        <TextBox.InnerLeftContent>
+                            <Path Classes="line" Data="{StaticResource IconSearch}" Margin="10,0,2,0" Stroke="{StaticResource FaintBrush}" />
+                        </TextBox.InnerLeftContent>
+                    </TextBox>
+                </Grid>
+
+                <!-- The viewer: the picture on a near-black stage, with the file's name and facts floating over its top edge. -->
+                <Border Grid.Row="1" Margin="8,0,16,0" CornerRadius="14" Background="{StaticResource StageBrush}" ClipToBounds="True">
+                    <Panel>
+                        <c:MediaSurface Name="Surface" Source="{Binding Picture}" Revision="{Binding PictureRevision}" ViewKey="{Binding SelectedItem}" />
+                        <Border VerticalAlignment="Top" Padding="20,16,20,28" IsVisible="{Binding HasSelection}" IsHitTestVisible="False">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                    <GradientStop Offset="0" Color="#CC08090B" />
+                                    <GradientStop Offset="1" Color="#0008090B" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Title}" Classes="title" FontSize="16" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Facts}" Classes="mono" FontSize="12" />
+                            </StackPanel>
+                        </Border>
+                        <Button Classes="icon" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12" IsVisible="{Binding HasSelection}" Command="{Binding RevealSelectedCommand}" ToolTip.Tip="Open in Explorer (Ctrl+Shift+E)">
+                            <Path Classes="line" Data="{StaticResource IconOpenOut}" />
+                        </Button>
+                        <ProgressBar VerticalAlignment="Top" Height="2" MinHeight="2" IsIndeterminate="True" IsVisible="{Binding IsLoading}" Foreground="{StaticResource AccentBrush}" Background="Transparent" />
+
+                        <!-- Empty states. -->
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" IsVisible="{Binding IsEmpty}" MaxWidth="420">
+                            <TextBlock Text="Bring in a folder" Classes="title" FontSize="24" HorizontalAlignment="Center" />
+                            <TextBlock Text="Photos, videos and sound from any folder on your PC. Nothing is moved or changed." Classes="caption" FontSize="13.5" TextWrapping="Wrap" TextAlignment="Center" />
+                            <Button Classes="primary" Content="Add a folder" Click="AddFolderClicked" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                        </StackPanel>
+                        <TextBlock Text="Pick something from the filmstrip" Classes="caption" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding !HasSelection}" Opacity="{Binding HasFolders, Converter={x:Static vm:Converters.BoolToOpacity}}" />
+                    </Panel>
+                </Border>
+
+                <!-- Transport: only for video and sound. Steps are exact decoded frames; play starts on the frame on screen. -->
+                <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="16,12,24,4" IsVisible="{Binding CanPlay}">
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="icon" Command="{Binding RestartCommand}" ToolTip.Tip="From the start (Home)"><PathIcon Data="{StaticResource IconRestart}" Width="13" Height="13" /></Button>
+                        <Button Classes="icon" Command="{Binding StepBackCommand}" IsEnabled="{Binding CanStep}" ToolTip.Tip="Previous frame (Left)"><PathIcon Data="{StaticResource IconStepBack}" Width="13" Height="13" /></Button>
+                        <Button Classes="play" Command="{Binding PlayPauseCommand}" ToolTip.Tip="Play or pause (Space)" Margin="4,0">
+                            <Panel>
+                                <PathIcon Data="{StaticResource IconPlay}" Width="15" Height="15" IsVisible="{Binding !IsPlaying}" Margin="2,0,0,0" />
+                                <PathIcon Data="{StaticResource IconPause}" Width="15" Height="15" IsVisible="{Binding IsPlaying}" />
+                            </Panel>
+                        </Button>
+                        <Button Classes="icon" Command="{Binding StepForwardCommand}" IsEnabled="{Binding CanStep}" ToolTip.Tip="Next frame (Right)"><PathIcon Data="{StaticResource IconStepForward}" Width="13" Height="13" /></Button>
+                    </StackPanel>
+                    <Slider Grid.Column="1" Classes="scrubber" Margin="18,0" VerticalAlignment="Center" Minimum="0" Maximum="{Binding ScrubberMaximum}" Value="{Binding CurrentFrame}" IsEnabled="{Binding CanStep}" IsSnapToTickEnabled="True" TickFrequency="1" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <TextBlock Classes="mono" VerticalAlignment="Center"><Run Text="{Binding TimeText}" Foreground="{StaticResource InkBrush}" /><Run Text="  /  " /><Run Text="{Binding DurationText}" /></TextBlock>
+                        <Border Classes="chip"><TextBlock Text="{Binding FrameText}" Classes="mono" FontSize="11.5" /></Border>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Filmstrip: one card per file, the thumbnail fading in when ready; the wheel scrolls it sideways, eased. -->
+                <ListBox Grid.Row="3" Name="Filmstrip" Classes="filmstrip" Height="168" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate><VirtualizingStackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:MediaItemViewModel">
+                            <StackPanel Width="176" Spacing="7" ToolTip.Tip="{Binding Asset.RelativePath}">
+                                <Border Classes="card" Height="110" CornerRadius="{StaticResource CardRadius}" BorderThickness="2" Background="{StaticResource SurfaceBrush}" ClipToBounds="True">
+                                    <Panel>
+                                        <Image Classes="thumb" Classes.ready="{Binding HasThumbnail}" Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                        <Border Classes="chip" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6" Padding="6,1" Background="#B008090B" IsVisible="{Binding HasKindLabel}">
+                                            <TextBlock Text="{Binding KindLabel}" FontSize="9.5" FontWeight="SemiBold" LetterSpacing="1" Foreground="{StaticResource InkBrush}" />
+                                        </Border>
+                                    </Panel>
+                                </Border>
+                                <TextBlock Text="{Binding Name}" FontSize="12" Foreground="{StaticResource SecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="4,0" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Grid>
+
+        <!-- A quiet message in the corner that fades away on its own. -->
+        <Border Name="Toast" Classes="toast" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,190" MaxWidth="460" Opacity="0" IsHitTestVisible="False">
+            <Border.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+                </Transitions>
+            </Border.Transitions>
+            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontSize="12.5" Foreground="{StaticResource InkBrush}" />
+        </Border>
+    </Panel>
+</Window>

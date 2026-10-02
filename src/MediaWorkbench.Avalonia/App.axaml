@@ -1,0 +1,20 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MediaWorkbench.Avalonia.App"
+             RequestedThemeVariant="Dark">
+    <!-- "Darkroom": graphite surfaces under the Windows backdrop, one warm amber accent like a darkroom safelight, Inter for the
+         interface and Cascadia Mono for numbers. Colours, fonts, icons and control styles are all in Theme.axaml. -->
+    <Application.Styles>
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Dark" Accent="#F2A541" AltHigh="#0E0F12" AltLow="#0E0F12" AltMedium="#0E0F12" AltMediumHigh="#0E0F12" AltMediumLow="#0E0F12"
+                                       BaseHigh="#ECEDEF" BaseLow="#2A2E36" BaseMedium="#9AA0AA" BaseMediumHigh="#C4C8CE" BaseMediumLow="#5F6570"
+                                       ChromeAltLow="#C4C8CE" ChromeBlackHigh="#000000" ChromeBlackLow="#C4C8CE" ChromeBlackMedium="#000000" ChromeBlackMediumLow="#000000"
+                                       ChromeDisabledHigh="#2A2E36" ChromeDisabledLow="#5F6570" ChromeGray="#7A808A" ChromeHigh="#7A808A" ChromeLow="#16181D"
+                                       ChromeMedium="#1D2027" ChromeMediumLow="#22262E" ChromeWhite="#FFFFFF" ListLow="#1D2027" ListMedium="#2A2E36"
+                                       RegionColor="#0E0F12" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
+        <StyleInclude Source="avares://MediaWorkbench.Avalonia/Theme.axaml" />
+    </Application.Styles>
+</Application>
