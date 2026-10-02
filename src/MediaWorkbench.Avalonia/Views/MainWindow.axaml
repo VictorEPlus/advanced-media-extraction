@@ -41,6 +41,12 @@
 
                     <Panel Grid.Row="3">
                         <TreeView ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}" Margin="8,6,8,12" Background="Transparent">
+                            <!-- Opening a row tells its folder, which then builds its subfolders. -->
+                            <TreeView.Styles>
+                                <Style Selector="TreeViewItem" x:DataType="vm:FolderNodeViewModel">
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                </Style>
+                            </TreeView.Styles>
                             <TreeView.ItemTemplate>
                                 <TreeDataTemplate DataType="vm:FolderNodeViewModel" ItemsSource="{Binding Children}">
                                     <Grid ColumnDefinitions="*,Auto,Auto" Height="30" Background="Transparent">
