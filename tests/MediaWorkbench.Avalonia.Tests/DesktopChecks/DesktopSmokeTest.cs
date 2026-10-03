@@ -64,14 +64,14 @@ internal static partial class DesktopSmokeTest
         viewModel.InspectorTab = 0;
         viewModel.ExportFrameCommand.Execute(null);
         Require(viewModel.Jobs.Count == 1, "Frame export was not queued.");
-        Require(viewModel.InspectorTab == 0 && viewModel.ExportBadge == "EXPORT (1)", "Queueing an export must badge the Export tab instead of switching to it.");
+        Require(viewModel.InspectorTab == 0 && viewModel.ExportBadge == "Export (1)", "Queueing an export must badge the Export tab instead of switching to it.");
         viewModel.SelectedAsset = photoItem;
         await WaitUntilAsync(() => !viewModel.IsPreviewBusy && viewModel.Jobs.All(job => job.IsFinished), timeout.Token);
         Require(viewModel.Jobs[0].OutputPath is { } path && Path.GetFileName(path).Contains("frame_000003", StringComparison.Ordinal), "Export did not retain the selected video frame when browsing away.");
         Require(viewModel.Notifications.Any(notification => notification.Kind == NotificationKind.Success && notification.HasAction), "A finished export should raise a success notification with an Open output action.");
         Require(viewModel.JobHistory.Count == 1 && viewModel.JobHistory[0].Succeeded && File.Exists(Path.Combine(dataDirectory, "export-history.json")), "Finished exports must be recorded in persistent history.");
         Require(viewModel.RecentLibraries.Any(entry => entry.Path == mediaDirectory), "The opened folder should appear in recent libraries.");
-        Require(viewModel.ExportBadge == "EXPORT", "The Export badge should clear when no jobs are active.");
+        Require(viewModel.ExportBadge == "Export", "The Export badge should clear when no jobs are active.");
         Require(viewModel.CanExportFrame, "Photo preview failed: " + viewModel.Status);
         viewModel.ToggleFavoriteCommand.Execute(null);
         var stored = new CatalogStore(Path.Combine(dataDirectory, "catalog.db")).GetFavorites(mediaDirectory);
@@ -137,7 +137,7 @@ internal static partial class DesktopSmokeTest
         Require(view.Count == 30 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A\day 2" && model.ChartSelectedPath is null, "Clicking a graph bar should go into that folder.");
         // Closing folders: a workspace folder closes even after going into its subfolders, and closing the folder around the
         // open one leaves the filmstrip where it is.
-        Require(model.FolderRows[0].Glyph.Length == 0, "All folders is always open and should have no arrow.");
+        Require(!model.FolderRows[0].HasToggle, "All folders is always open and should have no arrow.");
         model.ToggleFolderRowCommand.Execute(model.FolderRows.Single(row => row.Node.Path == "Shoots"));
         Require(model.FolderRows.Count == 2 && view.Count == 30 && model.SelectedFolderRow is null,
             $"Clicking an open workspace folder should close it, keeping the filmstrip ({model.FolderRows.Count} rows, {view.Count} files).");
@@ -163,7 +163,7 @@ internal static partial class DesktopSmokeTest
         model.InspectorTab = 0;
 
         // The overview has a card for each folder inside the one shown, to click through, and Up to come back out.
-        Require(model.OverviewFolders.Select(card => card.Name).SequenceEqual(["day 1", "day 2"]) && model.CanGoUp && model.OverviewTitle == @"SHOOTS\SHOOT A",
+        Require(model.OverviewFolders.Select(card => card.Name).SequenceEqual(["day 1", "day 2"]) && model.CanGoUp && model.OverviewTitle == @"Shoots\shoot A",
             $"The overview should show the folders inside shoot A: {string.Join(", ", model.OverviewFolders.Select(card => card.Name))} ({model.OverviewTitle}).");
         model.OpenOverviewFolderCommand.Execute(model.OverviewFolders.Single(card => card.Name == "day 2"));
         Require(view.Count == 30 && model.OverviewFolders.Count == 0 && model.SelectedFolderRow?.Node.Path == @"Shoots\shoot A\day 2", "Clicking a folder card should go into that folder.");
@@ -300,7 +300,14 @@ internal static partial class DesktopSmokeTest
 
     private static void CheckDarkTheme(Window window)
     {
-        Require(window.FindControl<Panel>("WindowRoot")?.Background is ISolidColorBrush { Color: var tint } && tint.R < 40 && tint.G < 40 && tint.B < 40, "The main window lost its dark background.");
+        // Dark navy: every colour of the window's gradient is dark, and blue is the strongest part of it.
+        var tints = window.FindControl<Panel>("WindowRoot")?.Background switch
+        {
+            ISolidColorBrush solid => [solid.Color],
+            IGradientBrush gradient => gradient.GradientStops.Select(stop => stop.Color).ToArray(),
+            _ => Array.Empty<Color>()
+        };
+        Require(tints.Length > 0 && tints.All(tint => tint.R < 40 && tint.G < 50 && tint.B < 80 && tint.B > tint.R), "The main window lost its dark navy background.");
         // The numbers font is the Cascadia Mono built into the app, not a fallback, even on a PC that does not have it installed.
         Require(Application.Current!.TryFindResource("MonoFont", out var font) && font is FontFamily family
             && FontManager.Current.TryGetGlyphTypeface(new Typeface(family), out var glyphs) && glyphs.FamilyName.Contains("Cascadia", StringComparison.OrdinalIgnoreCase),
@@ -319,8 +326,14 @@ internal static partial class DesktopSmokeTest
                 Panel panel => panel.Background,
                 _ => null
             };
-            if (background is ISolidColorBrush solid && solid.Color.A > 225 && child.IsVisible)
-                Require(solid.Color.R < 225 || solid.Color.G < 225 || solid.Color.B < 225, $"Unexpected white background {solid.Color} on {child.GetType().Name} ({(child as Control)?.Name}).");
+            var colors = background switch
+            {
+                ISolidColorBrush solid => [solid.Color],
+                IGradientBrush gradient => gradient.GradientStops.Select(stop => stop.Color).ToArray(),
+                _ => Array.Empty<Color>()
+            };
+            foreach (var color in colors.Where(color => color.A > 225 && child.IsVisible))
+                Require(color.R < 225 || color.G < 225 || color.B < 225, $"Unexpected white background {color} on {child.GetType().Name} ({(child as Control)?.Name}).");
             if (child is TextBlock { Text: { } text })
                 foreach (var marker in new[] { "\u00C2\u00B7", "\u00E2\u20AC", "\u00E2\u02DC", "\uFFFD" })
                     Require(!text.Contains(marker, StringComparison.Ordinal), "A rendered label contains corrupted Unicode.");

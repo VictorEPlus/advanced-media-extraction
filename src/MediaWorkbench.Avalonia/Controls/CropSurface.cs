@@ -66,12 +66,12 @@ public sealed class CropSurface : Control
     private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
     private static readonly Cursor WestEastCursor = new(StandardCursorType.SizeWestEast);
     private static readonly Cursor NorthSouthCursor = new(StandardCursorType.SizeNorthSouth);
-    private readonly IBrush accentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xF2, 0xA5, 0x41));
-    private readonly IBrush inkBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xEC, 0xED, 0xEF));
-    private readonly IBrush stageBrush = Tokens.Brush("StageBrush", Color.FromRgb(8, 9, 11));
-    private static readonly IBrush ShadeBrush = new SolidColorBrush(Color.FromArgb(145, 0, 0, 0));
+    private readonly IBrush accentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x5C, 0xAB, 0xFF));
+    private readonly IBrush inkBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF1, 0xF5, 0xFC));
+    private readonly IBrush stageBrush = Tokens.Brush("StageBrush", Color.FromRgb(0x05, 0x0A, 0x16));
+    private static readonly IBrush ShadeBrush = new SolidColorBrush(Color.FromArgb(150, 3, 8, 20));
     private static readonly IBrush GrabberOutline = new SolidColorBrush(Color.FromArgb(200, 5, 4, 10));
-    private static readonly IBrush ChipBackground = new SolidColorBrush(Color.FromArgb(225, 29, 32, 39));
+    private static readonly IBrush ChipBackground = new SolidColorBrush(Color.FromArgb(230, 21, 36, 67));
     private Point? dragStart;
     private CropEdge dragEdge;
 

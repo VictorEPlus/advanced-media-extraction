@@ -33,11 +33,11 @@ public sealed partial class MainViewModel
     public bool HasFileCollections => FileCollections.Count > 0;
     public bool HasNoCollections => Collections.Count == 0;
     public bool IsInNoCollection => FileCollections.Count == 0 && SelectedAsset is not null;
-    public string StageVerb => IsInTargetCollection ? "OUT" : "ADD";
+    public string StageVerb => IsInTargetCollection ? "Take out" : "Add";
     public bool IsInTargetCollection => SelectedAsset is { } item && SelectedCollection is { } target
         && collectionMembers.TryGetValue(target.FilePath, out var members) && members.Contains(item.Asset.FullPath);
     /// <summary>The header button names the collection it adds to, and shows a tick when the file is already in it.</summary>
-    public string StageButtonLabel => SelectedCollection is not { } target ? "+ COLLECTION" : (IsInTargetCollection ? "\u2713 " : "+ ") + target.Name.ToUpperInvariant();
+    public string StageButtonLabel => SelectedCollection is not { } target ? "+ Collection" : (IsInTargetCollection ? "\u2713 " : "+ ") + target.Name;
     public string StageButtonToolTip => SelectedCollection is not { } target ? "Start a collection with this file: name it in the Tags tab (S)"
         : IsInTargetCollection ? $"In {target.Name}. Click to take it out (S). The Tags tab lists every collection it is in." : $"Add this file to {target.Name} (S). Pick another collection in the Tags tab.";
     public string[] SortOptions { get; } = ["Name (natural)", "Name (reverse)", "Newest modified", "Oldest modified", "Largest first", "Smallest first", "Media type", "Favorites first", "Full path"];
@@ -49,7 +49,7 @@ public sealed partial class MainViewModel
     public bool HasCrop => CropSelection is not null;
     public bool CanCopy => PreviewImage is Bitmap && !IsFrameLoading && !ShowPlayback;
     public string CopyLabel => (HasCrop ? "Copy crop" : IsVideo ? "Copy frame" : "Copy image") + " (Ctrl+C): saved as a PNG in the output folder and put on the clipboard as a picture and as a file";
-    public string ExportLabel => IsPhoto ? "EXPORT PNG" : "EXPORT FRAME";
+    public string ExportLabel => IsPhoto ? "Export PNG" : "Export frame";
     public string CropLabel => CropSelection is { } crop ? $"{crop.Width} x {crop.Height} px / {MediaDimensions.DescribeAspect(crop.Width, crop.Height)}" : "Drag over the preview to select pixels. Clipboard only; originals stay unchanged.";
     public string SelectedKindLabel => SelectedAsset?.Asset.Kind.ToString().ToUpperInvariant() ?? "NO SELECTION";
     public string SourceSummary => CurrentFolder is { IsVirtual: false } folder ? folder.Path : SourceName;

@@ -9,7 +9,7 @@ Status as of 2 October 2026, branch `avalonia-shell` (**not pushed**). Read this
 - The owner's instruction (latest): **the Avalonia app must behave exactly like master (the WPF app)**. Styling and colours are
   to be refined **last**.
 - Approach taken: the WPF app's logic was **ported almost verbatim** (not rewritten), so behaviour matches; only WPF-specific
-  types were swapped. The window was rebuilt with the same parts, names, menus, shortcuts and tour, in the new "Darkroom" look.
+  types were swapped. The window was rebuilt with the same parts, names, menus, shortcuts and tour, in a new look (now "Night glass", see below).
 
 ## Run it
 
@@ -25,8 +25,8 @@ Status as of 2 October 2026, branch `avalonia-shell` (**not pushed**). Read this
 ## Layout of the Avalonia project
 
 ```
-App.axaml(.cs)        Fluent dark palette (accent #F2A541) + Theme.axaml; args, first-start import, creates MainViewModel + MainWindow
-Theme.axaml           All tokens (brushes, fonts, icons as StreamGeometry), style classes, NotificationTemplate
+App.axaml(.cs)        Fluent dark palette (navy, accent #3D86FA) + Theme.axaml; args, first-start import, creates MainViewModel + MainWindow
+Theme.axaml           All tokens (brushes, fonts, icons as StreamGeometry), Fluent resource overrides, style classes, NotificationTemplate
 MainWindow.axaml(.cs) The WPF window's layout and code-behind; right-click menus built in code (ShowMenu/Item)
 MainWindow.Filmstrip.cs  Gliding wheel scroll, follow-scroll marker, focus view (from WPF)
 MainWindow.Tour.cs    The same tour steps as WPF
@@ -69,11 +69,16 @@ like WPF); `Pixels.ToSkia` assumed BGRA, so RGBA pictures came out with red and 
 
 ## Known differences / to check
 
-- Next: the styling and colour pass (owner's order: last). Seen in the check pictures: the tree's open/close arrows are tiny;
-  Expander headers (COLLECTIONS, TAGS, BREAKDOWN) and some labels are in capitals.
-- Text casing: the ported view model still produces WPF's capitals (`EXPORT FRAME`, `+ TRAINING-CLAUDE`, overview titles). Change
-  in the styling pass (Avalonia `Logic/` is a copy, independent of WPF tests).
-- Expander, ComboBox, TabControl still mostly Fluent defaults; the styling pass is last (owner's order).
+- Styling pass done (owner asked: no orange, blues and dark navy, better contrast, soft round glass). "Night glass":
+  navy window gradient with a faint top-left glow; panels are translucent navy with a light top edge (`GlassEdgeBrush`) and a
+  soft shadow; one azure accent (`AccentBrush` #5CABFF for lines/text, `AccentFillBrush` gradient with white text for the main
+  buttons and play); text Ink #F1F5FC / Secondary #B6C4DD / Faint #8293B4. Fluent's TextBox, ComboBox, menus, tooltips,
+  Expander, TabItem, Slider and CheckBox take the same colours through resource-key overrides in Theme.axaml.
+  Brushes read from C# through `Tokens.Brush` must stay `SolidColorBrush` (only `WindowTint`, `PanelBrush` and the
+  `Accent*Fill*`/`GlassEdge`/`WindowGlow` brushes are gradients).
+- Labels are sentence case (`Export frame`, `+ Review staging`, overview folder names in their own case); the small
+  letter-spaced section labels (`THIS FILE`, `QUEUE`) stay capitals on purpose.
+- `MonitorBrush` is WPF's #04060E: it is the stitch backdrop written into exported files, so it must not follow the theme.
 - Pause refinement (frame matching of the live picture) is ported but only lightly exercised.
 - `scripts/Publish.ps1` still publishes only the WPF app.
 

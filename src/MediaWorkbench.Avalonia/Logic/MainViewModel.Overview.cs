@@ -22,7 +22,7 @@ public sealed partial class MainViewModel
     public bool HasOverviewFolders => OverviewFolders.Count > 0;
     public bool HasNoOverviewTags => OverviewTags.Count == 0;
     public bool CanGoUp => folderFilter.Length > 0;
-    public string OverviewTitle => folderFilter.Length == 0 ? "ALL FOLDERS" : DisplayKey(folderFilter).ToUpperInvariant();
+    public string OverviewTitle => folderFilter.Length == 0 ? "All folders" : DisplayKey(folderFilter);
     public string OverviewFoldersTitle { get; private set; } = "";
     public string OverviewMoreText { get; private set; } = "";
     /// <summary>Set when the tag filter came from a tag chip, so it matches that tag exactly rather than every tag containing the text.</summary>

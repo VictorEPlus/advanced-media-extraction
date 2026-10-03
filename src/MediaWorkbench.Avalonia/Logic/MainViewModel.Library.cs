@@ -17,8 +17,8 @@ public sealed partial class FolderRowViewModel(FolderNode node, int depth, bool 
     public bool IsExpanded { get; } = isExpanded;
     public bool HasChildren => Node.Children.Count > 0;
     public Thickness Indent => new(Depth * 18, 0, 0, 0);
-    /// <summary>All folders is always open, so it has no arrow to click.</summary>
-    public string Glyph => !HasChildren || Depth == 0 ? "" : IsExpanded ? "▾" : "▸";
+    /// <summary>Whether the row has an open/close arrow (drawn as a chevron). All folders is always open, so it has none.</summary>
+    public bool HasToggle => HasChildren && Depth > 0;
     /// <summary>A workspace folder shows the name it was given, if any; everything else shows the folder's own name.</summary>
     public string Name => IsWorkspaceFolder && Folder is { } folder && Node.Name == folder.Label ? folder.DisplayName : Node.Name;
     [ObservableProperty] private bool isRenaming;

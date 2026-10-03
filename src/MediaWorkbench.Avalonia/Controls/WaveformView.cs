@@ -58,17 +58,17 @@ public sealed class WaveformView : Control
     private static readonly double[] TickSteps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
     private static readonly Cursor ResizeCursor = new(StandardCursorType.SizeWestEast);
     private static readonly Cursor TextCursor = new(StandardCursorType.Ibeam);
-    private readonly SolidColorBrush accentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xF2, 0xA5, 0x41));
-    private readonly IBrush waveBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x5F, 0xD3, 0xA6));
-    private readonly SolidColorBrush stageBrush = Tokens.Brush("StageBrush", Color.FromRgb(0x08, 0x09, 0x0B));
-    private readonly SolidColorBrush mutedBrush = Tokens.Brush("SecondaryBrush", Color.FromRgb(0x9A, 0xA0, 0xAA));
-    private readonly IBrush hairlineBrush = Tokens.Brush("HairlineBrush", Color.FromRgb(0x26, 0x2A, 0x32));
-    private readonly IBrush playheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xEC, 0xED, 0xEF));
-    private readonly IBrush liveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x5F, 0xD3, 0xA6));
+    private readonly SolidColorBrush accentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x5C, 0xAB, 0xFF));
+    private readonly IBrush waveBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x4F, 0xE0, 0xA0));
+    private readonly SolidColorBrush stageBrush = Tokens.Brush("StageBrush", Color.FromRgb(0x05, 0x0A, 0x16));
+    private readonly SolidColorBrush mutedBrush = Tokens.Brush("SecondaryBrush", Color.FromRgb(0xB6, 0xC4, 0xDD));
+    private readonly IBrush hairlineBrush = Tokens.Brush("HairlineBrush", Color.FromRgb(0x27, 0x3A, 0x5E));
+    private readonly IBrush playheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF1, 0xF5, 0xFC));
+    private readonly IBrush liveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x4F, 0xE0, 0xA0));
     private readonly IBrush selectionBrush;
     private readonly IBrush outsideBrush;
     private readonly IBrush tickBrush;
-    private readonly IBrush labelBackground = Tokens.WithAlpha(Tokens.Brush("RaisedBrush", Color.FromRgb(0x1D, 0x20, 0x27)), 0xEB);
+    private readonly IBrush labelBackground = Tokens.WithAlpha(Tokens.Brush("RaisedBrush", Color.FromRgb(0x1B, 0x2B, 0x4B)), 0xEB);
 
     private enum DragTarget { None, New, Start, End }
     private DragTarget drag;

@@ -38,14 +38,14 @@ public sealed class FrameTimeline : Control
     private const double RulerTop = TrackTop + TrackHeight + 4;
     private static readonly int[] TickSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
     // Colours come from the Theme.axaml tokens so the timeline follows the palette.
-    private readonly SolidColorBrush accentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xF2, 0xA5, 0x41));
-    private readonly IBrush trackBrush = Tokens.Brush("HairlineBrush", Color.FromRgb(0x2A, 0x2E, 0x36));
+    private readonly SolidColorBrush accentBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x5C, 0xAB, 0xFF));
+    private readonly IBrush trackBrush = Tokens.Brush("HairlineBrush", Color.FromRgb(0x27, 0x3A, 0x5E));
     private readonly IBrush selectionBrush;
-    private readonly IBrush playheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xEC, 0xED, 0xEF));
-    private readonly SolidColorBrush mutedBrush = Tokens.Brush("SecondaryBrush", Color.FromRgb(0x9A, 0xA0, 0xAA));
+    private readonly IBrush playheadBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF1, 0xF5, 0xFC));
+    private readonly SolidColorBrush mutedBrush = Tokens.Brush("SecondaryBrush", Color.FromRgb(0xB6, 0xC4, 0xDD));
     private readonly IBrush tickBrush;
-    private readonly IBrush liveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x5F, 0xD3, 0xA6));
-    private readonly IBrush labelBackground = Tokens.WithAlpha(Tokens.Brush("RaisedBrush", Color.FromRgb(0x1D, 0x20, 0x27)), 0xEB);
+    private readonly IBrush liveBrush = Tokens.Brush("SuccessBrush", Color.FromRgb(0x4F, 0xE0, 0xA0));
+    private readonly IBrush labelBackground = Tokens.WithAlpha(Tokens.Brush("RaisedBrush", Color.FromRgb(0x1B, 0x2B, 0x4B)), 0xEB);
     private static readonly Typeface LabelTypeface = Tokens.Display;
 
     private enum DragTarget { None, Playhead, In, Out }
@@ -114,16 +114,21 @@ public sealed class FrameTimeline : Control
         var major = minor * 5;
         var labelEvery = major;
         while (labelEvery * pixelsPerFrame < 48) labelEvery *= 2;
+        // The last frame is always numbered at the right end; a ruler number that would run into it is left out.
+        var end = Text(Maximum.ToString("N0", CultureInfo.CurrentCulture), 10, mutedBrush);
+        var endLeft = XOf(Maximum) - end.Width;
         for (var frame = 0; frame <= Maximum; frame += minor)
         {
             var isMajor = frame % major == 0;
             var x = Math.Round(XOf(frame)) + 0.5;
             context.FillRectangle(isMajor ? mutedBrush : tickBrush, new Rect(x - 0.5, RulerTop, 1, isMajor ? 7 : 4));
-            if (isMajor && frame % labelEvery == 0 && frame != Maximum)
-                context.DrawText(Text(frame.ToString("N0", CultureInfo.CurrentCulture), 10, mutedBrush), new Point(x + 3, RulerTop + 7));
+            if (!isMajor || frame % labelEvery != 0 || frame == Maximum)
+                continue;
+            var label = Text(frame.ToString("N0", CultureInfo.CurrentCulture), 10, mutedBrush);
+            if (x + 3 + label.Width < endLeft - 6)
+                context.DrawText(label, new Point(x + 3, RulerTop + 7));
         }
-        var end = Text(Maximum.ToString("N0", CultureInfo.CurrentCulture), 10, mutedBrush);
-        context.DrawText(end, new Point(XOf(Maximum) - end.Width, RulerTop + 7));
+        context.DrawText(end, new Point(endLeft, RulerTop + 7));
     }
 
     private static FormattedText Text(string text, double size, IBrush brush) =>

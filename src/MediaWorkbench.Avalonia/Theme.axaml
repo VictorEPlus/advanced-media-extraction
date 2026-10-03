@@ -2,37 +2,163 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:MediaWorkbench.Avalonia">
     <Styles.Resources>
-        <!-- Surfaces, from the window up. Translucent so the Windows backdrop shows through faintly. -->
-        <SolidColorBrush x:Key="WindowTint" Color="#E60E0F12" />
-        <SolidColorBrush x:Key="SurfaceBrush" Color="#16181D" />
-        <SolidColorBrush x:Key="PanelBrush" Color="#CC14161B" />
-        <SolidColorBrush x:Key="RaisedBrush" Color="#1D2027" />
-        <SolidColorBrush x:Key="HoverBrush" Color="#242832" />
-        <SolidColorBrush x:Key="PressedBrush" Color="#2B303B" />
-        <SolidColorBrush x:Key="HairlineBrush" Color="#262A32" />
-        <SolidColorBrush x:Key="StageBrush" Color="#08090B" />
-        <!-- Text. -->
-        <SolidColorBrush x:Key="InkBrush" Color="#ECEDEF" />
-        <SolidColorBrush x:Key="SecondaryBrush" Color="#9AA0AA" />
-        <SolidColorBrush x:Key="FaintBrush" Color="#5F6570" />
-        <!-- The one accent, and its quiet versions for selection backgrounds. -->
-        <SolidColorBrush x:Key="AccentBrush" Color="#F2A541" />
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#FFBE6B" />
-        <SolidColorBrush x:Key="AccentInkBrush" Color="#1A1206" />
-        <SolidColorBrush x:Key="AccentSoftBrush" Color="#2EF2A541" />
-        <SolidColorBrush x:Key="AccentFaintBrush" Color="#14F2A541" />
+        <!-- "Night glass": deep navy under the Windows backdrop, panels of frosted glass with a light top edge, one clear blue
+             accent. Brushes read by the drawn controls (through Tokens.Brush) must stay plain colours; only the window and panel
+             fills are gradients. -->
+
+        <!-- Surfaces, from the window up. -->
+        <LinearGradientBrush x:Key="WindowTint" StartPoint="0%,0%" EndPoint="100%,100%">
+            <GradientStop Offset="0" Color="#F2101D38" />
+            <GradientStop Offset="0.55" Color="#F50B1529" />
+            <GradientStop Offset="1" Color="#F8070E1D" />
+        </LinearGradientBrush>
+        <!-- A faint blue light from the top left, so the glass has something to catch. -->
+        <RadialGradientBrush x:Key="WindowGlow" Center="12%,0%" GradientOrigin="12%,0%" RadiusX="70%" RadiusY="90%">
+            <GradientStop Offset="0" Color="#2E3F8CFF" />
+            <GradientStop Offset="1" Color="#003F8CFF" />
+        </RadialGradientBrush>
+        <LinearGradientBrush x:Key="PanelBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#C41A2A4C" />
+            <GradientStop Offset="1" Color="#B8111D38" />
+        </LinearGradientBrush>
+        <!-- The glass edge: bright where light would hit the top, fading down the sides. -->
+        <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#40B9D4FF" />
+            <GradientStop Offset="0.35" Color="#1AB9D4FF" />
+            <GradientStop Offset="1" Color="#0DB9D4FF" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="GlassFillBrush" Color="#E6152443" />
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#0F1A31" />
+        <SolidColorBrush x:Key="RaisedBrush" Color="#1B2B4B" />
+        <SolidColorBrush x:Key="HoverBrush" Color="#25385E" />
+        <SolidColorBrush x:Key="PressedBrush" Color="#2D446F" />
+        <SolidColorBrush x:Key="SelectedBrush" Color="#2B4677" />
+        <SolidColorBrush x:Key="HairlineBrush" Color="#273A5E" />
+        <SolidColorBrush x:Key="ControlEdgeBrush" Color="#22B9D4FF" />
+        <SolidColorBrush x:Key="StageBrush" Color="#050A16" />
+        <!-- The WPF app's backdrop for a "transparent" stitch saved as JPEG: exported files keep it, whatever the theme. -->
+        <SolidColorBrush x:Key="MonitorBrush" Color="#04060E" />
+        <!-- Text: three steps, each at least 4.5:1 on the panels and on a hovered row (Faint gives way to Secondary on a
+             selected row, where the fill is brighter). -->
+        <SolidColorBrush x:Key="InkBrush" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="SecondaryBrush" Color="#B6C4DD" />
+        <SolidColorBrush x:Key="FaintBrush" Color="#94A5C4" />
+        <!-- The accent: a clear azure for lines and text on the dark, a deeper blue fill with white text for buttons. -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#5CABFF" />
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#8CC5FF" />
+        <SolidColorBrush x:Key="AccentInkBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="#385CABFF" />
+        <SolidColorBrush x:Key="AccentFaintBrush" Color="#1C5CABFF" />
+        <LinearGradientBrush x:Key="AccentFillBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#2F6DE8" />
+            <GradientStop Offset="1" Color="#1D4FC4" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AccentFillHoverBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#3474EC" />
+            <GradientStop Offset="1" Color="#2257D0" />
+        </LinearGradientBrush>
         <!-- Meanings. -->
         <SolidColorBrush x:Key="FavoriteBrush" Color="#FFD166" />
-        <SolidColorBrush x:Key="TagBrush" Color="#C9B6FF" />
-        <SolidColorBrush x:Key="SuccessBrush" Color="#5FD3A6" />
-        <SolidColorBrush x:Key="ErrorBrush" Color="#FF6B6B" />
-        <SolidColorBrush x:Key="PhotoBrush" Color="#9B8CFF" />
-        <SolidColorBrush x:Key="VideoBrush" Color="#7AA7FF" />
-        <SolidColorBrush x:Key="AudioBrush" Color="#5FD3A6" />
+        <SolidColorBrush x:Key="TagBrush" Color="#C7B8FF" />
+        <SolidColorBrush x:Key="SuccessBrush" Color="#4FE0A0" />
+        <SolidColorBrush x:Key="ErrorBrush" Color="#FF7D8C" />
+        <SolidColorBrush x:Key="PhotoBrush" Color="#A993FF" />
+        <SolidColorBrush x:Key="VideoBrush" Color="#5FD0FF" />
+        <SolidColorBrush x:Key="AudioBrush" Color="#4FE0A0" />
 
         <FontFamily x:Key="MonoFont">avares://MediaWorkbench.Avalonia/Assets/Fonts#Cascadia Mono</FontFamily>
-        <CornerRadius x:Key="CardRadius">10</CornerRadius>
-        <CornerRadius x:Key="ControlRadius">8</CornerRadius>
+        <CornerRadius x:Key="CardRadius">14</CornerRadius>
+        <CornerRadius x:Key="ControlRadius">10</CornerRadius>
+        <CornerRadius x:Key="PanelRadius">18</CornerRadius>
+        <BoxShadows x:Key="PanelShadow">0 14 36 0 #59020612</BoxShadows>
+        <BoxShadows x:Key="FloatShadow">0 10 28 0 #73020612</BoxShadows>
+
+        <!-- Fluent's own controls, in the same glass: text boxes, drop-downs, menus, tooltips, sections, tabs, sliders. -->
+        <SolidColorBrush x:Key="TextControlBackground" Color="#B30C1730" />
+        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#CC13213F" />
+        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#E60A142B" />
+        <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#660C1730" />
+        <SolidColorBrush x:Key="TextControlBorderBrush" Color="#2E4370" />
+        <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#3F5A8E" />
+        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#5CABFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#1E2D4D" />
+        <SolidColorBrush x:Key="TextControlForeground" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#94A5C4" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#94A5C4" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#94A5C4" />
+        <SolidColorBrush x:Key="ComboBoxBackground" Color="#B30C1730" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#CC13213F" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#E6182A4E" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused" Color="#B30C1730" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="#660C1730" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#2E4370" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#3F5A8E" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="#5CABFF" />
+        <SolidColorBrush x:Key="ComboBoxForeground" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ComboBoxPlaceHolderForeground" Color="#94A5C4" />
+        <SolidColorBrush x:Key="ComboBoxDropDownGlyphForeground" Color="#B6C4DD" />
+        <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#F5122142" />
+        <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#33B9D4FF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="#25385E" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed" Color="#2D446F" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#385CABFF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#4A5CABFF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="#5A5CABFF" />
+        <SolidColorBrush x:Key="ComboBoxItemForeground" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#F5122142" />
+        <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#33B9D4FF" />
+        <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="#25385E" />
+        <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="#2D446F" />
+        <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="FlyoutPresenterBackground" Color="#F5122142" />
+        <SolidColorBrush x:Key="FlyoutPresenterBorderBrush" Color="#33B9D4FF" />
+        <SolidColorBrush x:Key="ToolTipBackground" Color="#F7152648" />
+        <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#33B9D4FF" />
+        <SolidColorBrush x:Key="ToolTipForeground" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#14B9D4FF" />
+        <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#1FB9D4FF" />
+        <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderHeaderForeground" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ExpanderHeaderForegroundPointerOver" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="ExpanderHeaderForegroundPressed" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="ExpanderChevronBackground" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderChevronBackgroundPointerOver" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderChevronBackgroundPressed" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderChevronBorderBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderChevronBorderBrushPointerOver" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderChevronBorderBrushPressed" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderChevronForeground" Color="#B6C4DD" />
+        <SolidColorBrush x:Key="ExpanderChevronForegroundPointerOver" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ExpanderChevronForegroundPressed" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="ExpanderContentBackground" Color="Transparent" />
+        <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="TabItemHeaderForegroundUnselected" Color="#B6C4DD" />
+        <SolidColorBrush x:Key="TabItemHeaderForegroundUnselectedPointerOver" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="TabItemHeaderForegroundSelected" Color="#F1F5FC" />
+        <SolidColorBrush x:Key="TabItemHeaderForegroundSelectedPointerOver" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="#5CABFF" />
+        <SolidColorBrush x:Key="SliderTrackFill" Color="#2E4370" />
+        <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#3F5A8E" />
+        <SolidColorBrush x:Key="SliderTrackValueFill" Color="#5CABFF" />
+        <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#8CC5FF" />
+        <SolidColorBrush x:Key="SliderThumbBackground" Color="#5CABFF" />
+        <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#8CC5FF" />
+        <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#3D7CF2" />
+        <SolidColorBrush x:Key="CheckBoxBorderBrushUnchecked" Color="#5A6E96" />
+        <SolidColorBrush x:Key="CheckBoxBorderBrushUncheckedPointerOver" Color="#94A5C4" />
+        <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="#3D86FA" />
+        <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#5CABFF" />
+        <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="#FFFFFF" />
 
         <!-- Icons: line shapes (Path.line) and filled shapes (PathIcon) on a 16-unit grid, drawn with the text colour. -->
         <StreamGeometry x:Key="IconPlay">M5,3 L13,8 L5,13 Z</StreamGeometry>
@@ -52,6 +178,11 @@
         <StreamGeometry x:Key="IconFit">M2.5,6 V2.5 H6 M10,2.5 H13.5 V6 M13.5,10 V13.5 H10 M6,13.5 H2.5 V10</StreamGeometry>
         <StreamGeometry x:Key="IconRefresh">M13,8 A5,5 0 1 1 11.5,4.5 M11.5,1.5 V4.5 H8.5</StreamGeometry>
         <StreamGeometry x:Key="IconSettings">M8,5.5 A2.5,2.5 0 1 1 7.99,5.5 Z M8,1.5 V3.5 M8,12.5 V14.5 M1.5,8 H3.5 M12.5,8 H14.5 M3.4,3.4 L4.8,4.8 M11.2,11.2 L12.6,12.6 M3.4,12.6 L4.8,11.2 M11.2,4.8 L12.6,3.4</StreamGeometry>
+        <!-- Chevrons for the folder tree and its open-all / close-all buttons (10-unit grid). -->
+        <StreamGeometry x:Key="IconChevronRight">M3.5,1.5 L7,5 L3.5,8.5</StreamGeometry>
+        <StreamGeometry x:Key="IconChevronDown">M1.5,3.5 L5,7 L8.5,3.5</StreamGeometry>
+        <StreamGeometry x:Key="IconExpandAll">M1.5,1.5 L5,5 L8.5,1.5 M1.5,5 L5,8.5 L8.5,5</StreamGeometry>
+        <StreamGeometry x:Key="IconCollapseAll">M1.5,1.5 L5,5 L1.5,8.5 M5,1.5 L8.5,5 L5,8.5</StreamGeometry>
 
         <!-- Messages at the bottom right of the centre view. -->
         <DataTemplate x:Key="NotificationTemplate" x:DataType="local:Notification">
@@ -97,8 +228,14 @@
     <Style Selector="TextBlock.eyebrow">
         <Setter Property="FontSize" Value="10.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="LetterSpacing" Value="1.3" />
+        <Setter Property="LetterSpacing" Value="1.2" />
         <Setter Property="Foreground" Value="{StaticResource FaintBrush}" />
+    </Style>
+    <!-- A place name above a heading (the overview's folder): the accent colour, kept in the folder's own case. -->
+    <Style Selector="TextBlock.crumb">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
     </Style>
     <Style Selector="TextBlock.mono">
         <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
@@ -106,55 +243,72 @@
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
     </Style>
 
-    <!-- Panels: soft cards on the backdrop. -->
+    <!-- Panels: frosted glass on the navy, with a light top edge and a soft shadow underneath. -->
     <Style Selector="Border.panel">
         <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
+        <Setter Property="BoxShadow" Value="{StaticResource PanelShadow}" />
         <Setter Property="Padding" Value="14" />
+    </Style>
+    <!-- Where the picture sits: near black, rounded, with the same faint edge so it reads as set into the glass. -->
+    <Style Selector="Border.stage">
+        <Setter Property="Background" Value="{StaticResource StageBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="16" />
     </Style>
     <Style Selector="Border.card">
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
     </Style>
     <Style Selector="Border.chip">
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
-        <Setter Property="CornerRadius" Value="6" />
-        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="9,3" />
     </Style>
     <Style Selector="Border.chip.accent">
         <Setter Property="Background" Value="{StaticResource AccentFaintBrush}" />
     </Style>
     <Style Selector="Border.chip.tag">
-        <Setter Property="Background" Value="#22C9B6FF" />
+        <Setter Property="Background" Value="#26C7B8FF" />
     </Style>
     <Style Selector="Border.tagChip">
-        <Setter Property="Background" Value="#1CC9B6FF" />
-        <Setter Property="CornerRadius" Value="7" />
-        <Setter Property="Padding" Value="8,2,2,2" />
+        <Setter Property="Background" Value="#1FC7B8FF" />
+        <Setter Property="CornerRadius" Value="13" />
+        <Setter Property="Padding" Value="10,2,2,2" />
         <Setter Property="MinHeight" Value="26" />
     </Style>
     <Style Selector="Border.tagChip.accent">
         <Setter Property="Background" Value="{StaticResource AccentFaintBrush}" />
     </Style>
     <Style Selector="Border.floating">
-        <Setter Property="Background" Value="#F0181B21" />
-        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Background" Value="{StaticResource GlassFillBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
         <Setter Property="Padding" Value="12,6" />
-        <Setter Property="BoxShadow" Value="0 6 18 0 #55000000" />
+        <Setter Property="BoxShadow" Value="{StaticResource FloatShadow}" />
     </Style>
     <Style Selector="Border.floating.accent">
         <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
     </Style>
     <Style Selector="Border.floatingBar">
-        <Setter Property="Background" Value="#F0181B21" />
-        <Setter Property="BoxShadow" Value="0 6 18 0 #55000000" />
+        <Setter Property="Background" Value="{StaticResource GlassFillBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="BoxShadow" Value="{StaticResource FloatShadow}" />
     </Style>
     <Style Selector="Border.toast">
-        <Setter Property="Background" Value="#F51D2027" />
+        <Setter Property="Background" Value="{StaticResource GlassFillBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
         <Setter Property="Padding" Value="12,10" />
-        <Setter Property="BoxShadow" Value="0 8 24 0 #66000000" />
+        <Setter Property="BoxShadow" Value="{StaticResource FloatShadow}" />
     </Style>
     <Style Selector="Border.notificationMark">
         <Setter Property="Background" Value="{StaticResource AccentBrush}" />
@@ -166,10 +320,20 @@
         <Setter Property="Background" Value="{StaticResource SuccessBrush}" />
     </Style>
     <Style Selector="Border.callout">
-        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
-        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Background" Value="{StaticResource GlassFillBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="16" />
         <Setter Property="Padding" Value="18,16" />
-        <Setter Property="BoxShadow" Value="0 12 32 0 #88000000" />
+        <Setter Property="BoxShadow" Value="0 16 40 0 #8C020612" />
+    </Style>
+    <!-- A row of view switches sitting in a shallow rounded track. -->
+    <Style Selector="Border.segmented">
+        <Setter Property="Background" Value="#14B9D4FF" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="3" />
     </Style>
 
     <!-- Icons inside buttons take the button's text colour. -->
@@ -189,12 +353,37 @@
     <Style Selector="Button:pointerover Path.line">
         <Setter Property="Stroke" Value="{StaticResource InkBrush}" />
     </Style>
+    <!-- Small chevrons: the folder tree's open/close arrow turns a quarter when the folder opens. -->
+    <Style Selector="Path.chevron">
+        <Setter Property="Stroke" Value="{StaticResource SecondaryBrush}" />
+        <Setter Property="StrokeThickness" Value="1.6" />
+        <Setter Property="StrokeLineCap" Value="Round" />
+        <Setter Property="StrokeJoin" Value="Round" />
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="Stretch" Value="None" />
+        <Setter Property="RenderTransform" Value="rotate(0deg)" />
+    </Style>
+    <Style Selector="Path.chevron.open">
+        <Setter Property="RenderTransform" Value="rotate(90deg)" />
+    </Style>
+    <Style Selector="Border.treeToggle:pointerover Path.chevron, Button:pointerover Path.chevron">
+        <Setter Property="Stroke" Value="{StaticResource InkBrush}" />
+    </Style>
+    <Style Selector="Border.treeToggle">
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.treeToggle:pointerover">
+        <Setter Property="Background" Value="#1FB9D4FF" />
+    </Style>
 
-    <!-- Buttons: a calm raised fill, a brighter one on hover, everything eased. -->
+    <!-- Buttons: soft glass fills with a faint edge, a brighter one on hover, everything eased. -->
     <Style Selector="Button">
         <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
-        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Padding" Value="12,6" />
@@ -212,33 +401,48 @@
     </Style>
     <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+        <Setter Property="BorderBrush" Value="#33B9D4FF" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+        <Setter Property="BorderBrush" Value="#33B9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
     </Style>
     <Style Selector="Button:pressed">
         <Setter Property="RenderTransform" Value="scale(0.96)" />
     </Style>
     <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+        <Setter Property="Background" Value="#990F1A31" />
+        <Setter Property="BorderBrush" Value="#12B9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource FaintBrush}" />
     </Style>
     <Style Selector="Button.active">
         <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
         <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
     </Style>
+    <!-- Buttons that are only an icon or a word on the glass: no fill or edge until hovered. -->
+    <Style Selector="Button.icon, Button.quiet, Button.ghost, Button.row, Button.link">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.icon:disabled /template/ ContentPresenter#PART_ContentPresenter, Button.quiet:disabled /template/ ContentPresenter#PART_ContentPresenter, Button.ghost:disabled /template/ ContentPresenter#PART_ContentPresenter, Button.row:disabled /template/ ContentPresenter#PART_ContentPresenter, Button.link:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
     <Style Selector="Button.icon">
         <Setter Property="Width" Value="34" />
         <Setter Property="Height" Value="34" />
         <Setter Property="Padding" Value="0" />
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="17" />
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
     </Style>
     <Style Selector="Button.quiet">
-        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
         <Setter Property="Padding" Value="6,0" />
         <Setter Property="MinHeight" Value="22" />
         <Setter Property="MinWidth" Value="22" />
-        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="CornerRadius" Value="8" />
     </Style>
     <Style Selector="Button.quiet.small">
         <Setter Property="MinHeight" Value="18" />
@@ -246,39 +450,55 @@
         <Setter Property="Padding" Value="4,0" />
     </Style>
     <Style Selector="Button.ghost">
-        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
     </Style>
     <Style Selector="Button.row">
-        <Setter Property="Background" Value="Transparent" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Padding" Value="8,0" />
         <Setter Property="MinHeight" Value="30" />
     </Style>
     <Style Selector="Button.link">
-        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
         <Setter Property="Padding" Value="2,0" />
         <Setter Property="MinHeight" Value="22" />
     </Style>
+    <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource AccentHoverBrush}" />
+    </Style>
+    <!-- The one main action in a place (export): a deeper blue with white text and a soft blue glow. -->
     <Style Selector="Button.primary">
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Background" Value="{StaticResource AccentFillBrush}" />
+        <Setter Property="BorderBrush" Value="#4DB9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource AccentInkBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Effect">
+            <DropShadowEffect OffsetX="0" OffsetY="3" BlurRadius="14" Color="#3D86FA" Opacity="0.45" />
+        </Setter>
     </Style>
-    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource AccentHoverBrush}" />
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentFillHoverBrush}" />
+        <Setter Property="BorderBrush" Value="#66B9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource AccentInkBrush}" />
     </Style>
+    <Style Selector="Button.primary:disabled">
+        <Setter Property="Effect" Value="{x:Null}" />
+    </Style>
     <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+        <Setter Property="Background" Value="{StaticResource AccentFaintBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource AccentFaintBrush}" />
         <Setter Property="Foreground" Value="{StaticResource FaintBrush}" />
     </Style>
     <Style Selector="Button.floatingButton">
-        <Setter Property="Background" Value="#F0181B21" />
+        <Setter Property="Background" Value="{StaticResource GlassFillBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
     </Style>
     <Style Selector="Button.star.on">
+        <Setter Property="Foreground" Value="{StaticResource FavoriteBrush}" />
+    </Style>
+    <Style Selector="Button.star.on:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Foreground" Value="{StaticResource FavoriteBrush}" />
     </Style>
     <!-- The big round play button. -->
@@ -288,11 +508,16 @@
         <Setter Property="CornerRadius" Value="22" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Margin" Value="4,0" />
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Background" Value="{StaticResource AccentFillBrush}" />
+        <Setter Property="BorderBrush" Value="#4DB9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource AccentInkBrush}" />
+        <Setter Property="Effect">
+            <DropShadowEffect OffsetX="0" OffsetY="4" BlurRadius="18" Color="#3D86FA" Opacity="0.55" />
+        </Setter>
     </Style>
-    <Style Selector="Button.play:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource AccentHoverBrush}" />
+    <Style Selector="Button.play:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.play:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentFillHoverBrush}" />
+        <Setter Property="BorderBrush" Value="#66B9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource AccentInkBrush}" />
     </Style>
     <!-- A folder in the overview: covers on top, name and count underneath; lifts a little on hover. -->
@@ -300,7 +525,7 @@
         <Setter Property="Width" Value="184" />
         <Setter Property="Margin" Value="0,0,12,12" />
         <Setter Property="Padding" Value="0" />
-        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
         <Setter Property="ClipToBounds" Value="True" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -310,18 +535,22 @@
     <Style Selector="Button.folderCard:pointerover">
         <Setter Property="RenderTransform" Value="translateY(-3px)" />
     </Style>
+    <Style Selector="Button.folderCard:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="BorderBrush" Value="{StaticResource AccentSoftBrush}" />
+    </Style>
     <Style Selector="Button.folderCard:pressed">
         <Setter Property="RenderTransform" Value="scale(0.98)" />
     </Style>
 
-    <!-- Chips that turn on and off: tag filters and favorites only. -->
+    <!-- Chips that turn on and off: tag filters and favorites only. Fully round. -->
     <Style Selector="ToggleButton.chip">
         <Setter Property="CornerRadius" Value="16" />
         <Setter Property="Padding" Value="12,4" />
         <Setter Property="MinHeight" Value="30" />
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Transitions">
             <Transitions>
@@ -329,25 +558,34 @@
             </Transitions>
         </Setter>
     </Style>
+    <Style Selector="ToggleButton.chip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+        <Setter Property="BorderBrush" Value="#33B9D4FF" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    </Style>
     <Style Selector="ToggleButton.chip:checked /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="BorderBrush" Value="#665CABFF" />
+        <Setter Property="Foreground" Value="#DCEBFF" />
     </Style>
     <Style Selector="ToggleButton.chip.star">
         <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="34" />
+        <Setter Property="CornerRadius" Value="17" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
     </Style>
     <Style Selector="ToggleButton.chip.star:checked /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Foreground" Value="{StaticResource FavoriteBrush}" />
         <Setter Property="Background" Value="#26FFD166" />
+        <Setter Property="BorderBrush" Value="#4DFFD166" />
     </Style>
 
-    <!-- The centre views: soft pills, the open one filled. -->
+    <!-- The centre views: pills in a shallow track, the open one lit. -->
     <Style Selector="RadioButton.viewTab">
         <Setter Property="Template">
             <ControlTemplate>
-                <Border Name="Pill" Background="{TemplateBinding Background}" CornerRadius="9" Padding="14,6">
+                <Border Name="Pill" Background="{TemplateBinding Background}" CornerRadius="9" Padding="14,5">
                     <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontWeight="SemiBold" FontSize="13" />
                 </Border>
             </ControlTemplate>
@@ -363,37 +601,33 @@
         </Setter>
     </Style>
     <Style Selector="RadioButton.viewTab:pointerover">
-        <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+        <Setter Property="Background" Value="#1FB9D4FF" />
         <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
     </Style>
     <Style Selector="RadioButton.viewTab:checked">
-        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
-        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Background" Value="{StaticResource SelectedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
     </Style>
 
-    <!-- Inspector tabs: text tabs with a short amber line under the open one. -->
+    <!-- Inspector tabs: text tabs with a short blue line under the open one. -->
     <Style Selector="TabControl.inspector TabItem">
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="MinHeight" Value="38" />
         <Setter Property="Padding" Value="10,0" />
-        <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
     </Style>
-    <Style Selector="TabControl.inspector TabItem:selected">
-        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-    </Style>
-    <Style Selector="TabControl.inspector TabItem:selected /template/ Border#PART_SelectedPipe">
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+    <Style Selector="TabControl.inspector TabItem /template/ Border#PART_SelectedPipe">
+        <Setter Property="CornerRadius" Value="2" />
     </Style>
 
-    <!-- Lists: rounded rows, a soft fill on hover, a soft amber pill when chosen. -->
+    <!-- Lists: rounded rows, a soft fill on hover, a blue pill when chosen. -->
     <Style Selector="ListBox">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
     </Style>
     <Style Selector="ListBox.tree ListBoxItem, ListBox.plain ListBoxItem">
         <Setter Property="Padding" Value="4,0" />
-        <Setter Property="Margin" Value="0,0,6,1" />
+        <Setter Property="Margin" Value="0,0,6,2" />
         <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
         <Setter Property="MinHeight" Value="28" />
     </Style>
@@ -409,7 +643,7 @@
         </Setter>
     </Style>
     <Style Selector="ListBox.tree ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter, ListBox.plain ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+        <Setter Property="Background" Value="#17B9D4FF" />
     </Style>
     <Style Selector="ListBox.tree ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter, ListBox.plain ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
@@ -423,28 +657,37 @@
     <Style Selector="TextBlock.folderName.all">
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
     </Style>
+    <Style Selector="TextBlock.count">
+        <Setter Property="Foreground" Value="{StaticResource FaintBrush}" />
+    </Style>
+    <Style Selector="ListBox.tree ListBoxItem:pointerover TextBlock.count, ListBox.tree ListBoxItem:selected TextBlock.count">
+        <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
+    </Style>
+    <Style Selector="ListBox.tree ListBoxItem:selected TextBlock.folderName">
+        <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
 
-    <!-- Folder tabs over the filmstrip: small pills. -->
+    <!-- Folder tabs over the filmstrip: small round pills. -->
     <Style Selector="ListBox.folderTabs ListBoxItem">
         <Setter Property="Padding" Value="12,0,4,0" />
         <Setter Property="MinHeight" Value="28" />
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="14" />
     </Style>
     <Style Selector="ListBox.folderTabs ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="14" />
         <Setter Property="Background" Value="Transparent" />
     </Style>
     <Style Selector="ListBox.folderTabs ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+        <Setter Property="Background" Value="#17B9D4FF" />
     </Style>
     <Style Selector="ListBox.folderTabs ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+        <Setter Property="Background" Value="{StaticResource SelectedBrush}" />
     </Style>
     <Style Selector="ListBox.folderTabs ListBoxItem:selected TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
     </Style>
 
-    <!-- Filmstrip cards: a soft lift on hover, an amber ring when chosen. -->
+    <!-- Filmstrip cards: a soft lift on hover, a blue ring and glow when chosen. -->
     <Style Selector="ListBox.filmstrip">
         <Setter Property="Padding" Value="0,4,0,0" />
     </Style>
@@ -471,15 +714,22 @@
         <Setter Property="Background" Value="Transparent" />
     </Style>
     <Style Selector="ListBox.filmstrip ListBoxItem Border.thumbCard">
-        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
         <Setter Property="Transitions">
             <Transitions>
                 <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
             </Transitions>
         </Setter>
     </Style>
+    <Style Selector="ListBox.filmstrip ListBoxItem:pointerover Border.thumbCard">
+        <Setter Property="BorderBrush" Value="#40B9D4FF" />
+    </Style>
     <Style Selector="ListBox.filmstrip ListBoxItem:selected Border.thumbCard">
         <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+    </Style>
+    <!-- The glow is on the frame around the card: the card itself clips to its round corners, which would cut a shadow off. -->
+    <Style Selector="ListBox.filmstrip ListBoxItem:selected Border.thumbGlow">
+        <Setter Property="BoxShadow" Value="0 0 16 0 #665CABFF" />
     </Style>
     <!-- Thumbnails fade in once they arrive instead of popping. -->
     <Style Selector="Image.thumb">
@@ -494,33 +744,62 @@
         <Setter Property="Opacity" Value="1" />
     </Style>
 
-    <!-- Inputs. -->
+    <!-- Inputs: rounder than Fluent's, colours from the resources above. -->
     <Style Selector="TextBox">
         <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="SelectionBrush" Value="#665CABFF" />
+        <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
     </Style>
     <Style Selector="TextBox.search">
         <Setter Property="MinHeight" Value="34" />
+        <Setter Property="CornerRadius" Value="17" />
     </Style>
     <Style Selector="ComboBox">
         <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="FontSize" Value="12.5" />
     </Style>
+    <Style Selector="ComboBoxItem">
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Margin" Value="4,1" />
+    </Style>
+    <Style Selector="ComboBox /template/ Border#PopupBorder">
+        <Setter Property="CornerRadius" Value="12" />
+    </Style>
+    <Style Selector="MenuFlyoutPresenter">
+        <Setter Property="CornerRadius" Value="12" />
+    </Style>
+    <Style Selector="ContextMenu">
+        <Setter Property="CornerRadius" Value="12" />
+    </Style>
+    <Style Selector="MenuItem">
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="ToolTip">
+        <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <!-- Sections that fold: a calm header in sentence case, no box around them. -->
     <Style Selector="Expander">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontSize" Value="12.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader">
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
     </Style>
     <Style Selector="Slider">
         <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
     </Style>
     <Style Selector="ProgressBar">
         <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="#1FB9D4FF" />
+        <Setter Property="CornerRadius" Value="2" />
     </Style>
 </Styles>

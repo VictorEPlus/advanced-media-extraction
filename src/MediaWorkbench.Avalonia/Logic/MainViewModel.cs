@@ -106,7 +106,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string SelectedFramesLabel => !HasFrames ? "Export selected frames" : ExportLabelFor(Math.Max(0, OutFrame - InFrame + 1), "");
     public string AllFramesLabel => !HasFrames ? "Export all frames" : ExportLabelFor(frames.Count, "all ");
     public int ActiveJobCount => Jobs.Count(job => !job.IsFinished);
-    public string ExportBadge => ActiveJobCount > 0 ? $"EXPORT ({ActiveJobCount})" : "EXPORT";
+    public string ExportBadge => ActiveJobCount > 0 ? $"Export ({ActiveJobCount})" : "Export";
     public string JobHistoryLabel => $"Previous exports ({JobHistory.Count})";
     public bool ShowQueueHint => Jobs.Count == 0;
     public bool ShowEmptyState => PreviewImage is null && !ShowPlayback && !IsAudio && !ShowInstantLayer;

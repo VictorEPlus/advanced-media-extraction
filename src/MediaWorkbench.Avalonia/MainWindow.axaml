@@ -14,9 +14,10 @@
         ExtendClientAreaTitleBarHeightHint="52"
         DragDrop.AllowDrop="True">
 
-    <!-- The same parts, names and behaviour as the WPF window (the tour and the checks use the names), drawn in the Darkroom
+    <!-- The same parts, names and behaviour as the WPF window (the tour and the checks use the names), drawn in the Night glass
          style from Theme.axaml. "Hidden" parts keep their space (class "hidden"), so nothing moves when they come and go. -->
     <Panel Name="WindowRoot" Background="{StaticResource WindowTint}">
+        <Border Background="{StaticResource WindowGlow}" IsHitTestVisible="False" />
         <Grid Name="RootGrid" RowDefinitions="52,*,Auto,26">
 
             <!-- Top bar: also the window's title bar; the Windows caption buttons sit at its right end. -->
@@ -86,8 +87,8 @@
                     <DockPanel>
                         <DockPanel DockPanel.Dock="Top" Margin="2,0,6,8">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                                <Button Name="ExpandFoldersButton" Classes="quiet" Command="{Binding ExpandAllFoldersCommand}" ToolTip.Tip="Open every folder in the tree"><TextBlock Text="▾" /></Button>
-                                <Button Name="CollapseFoldersButton" Classes="quiet" Command="{Binding CollapseAllFoldersCommand}" ToolTip.Tip="Close every folder in the tree"><TextBlock Text="▸" /></Button>
+                                <Button Name="ExpandFoldersButton" Classes="quiet" Command="{Binding ExpandAllFoldersCommand}" ToolTip.Tip="Open every folder in the tree"><Path Classes="chevron" Data="{StaticResource IconExpandAll}" /></Button>
+                                <Button Name="CollapseFoldersButton" Classes="quiet" Command="{Binding CollapseAllFoldersCommand}" ToolTip.Tip="Close every folder in the tree"><Path Classes="chevron" Data="{StaticResource IconCollapseAll}" /></Button>
                                 <Button Name="OpenFolderButton" Classes="ghost" Command="{Binding OpenFolderCommand}" Margin="6,0,0,0" ToolTip.Tip="Add a folder to the workspace. The folders already open stay open. You can also drop a folder onto the window.">
                                     <StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Data="{StaticResource IconPlus}" Width="10" Height="10" /><TextBlock Text="Add" /></StackPanel>
                                 </Button>
@@ -100,7 +101,7 @@
                         </DockPanel>
                         <StackPanel DockPanel.Dock="Bottom" Margin="0,8,6,0" Spacing="2">
                             <Border Height="1" Background="{StaticResource HairlineBrush}" Margin="0,0,0,4" />
-                            <Expander Name="CollectionsSection" Header="COLLECTIONS">
+                            <Expander Name="CollectionsSection" Header="Collections">
                                 <StackPanel Spacing="4" Margin="0,4,0,8">
                                     <ItemsControl ItemsSource="{Binding Collections}">
                                         <ItemsControl.ItemTemplate>
@@ -114,7 +115,7 @@
                                     <TextBlock Text="None yet. Open a file, press S, and name one in the Tags tab." Classes="hint" IsVisible="{Binding HasNoCollections}" />
                                 </StackPanel>
                             </Expander>
-                            <Expander Name="TaggedFilesSection" Header="TAGS">
+                            <Expander Name="TaggedFilesSection" Header="Tags">
                                 <StackPanel Spacing="6" Margin="0,4,0,4">
                                     <TextBox Text="{Binding TagFilter}" PlaceholderText="Filter by tag" ToolTip.Tip="Type a tag to narrow the filmstrip to files carrying it" />
                                     <ComboBox ItemsSource="{Binding KnownTags}" SelectedItem="{Binding SelectedKnownTag}" HorizontalAlignment="Stretch" PlaceholderText="Tags you have used" ToolTip.Tip="Tags you have used" />
@@ -127,15 +128,15 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="local:FolderRowViewModel">
                                         <DockPanel Height="28" Margin="{Binding Indent}" ToolTip.Tip="{Binding ToolTipText}" Background="Transparent">
-                                            <Border Name="FolderToggle" DockPanel.Dock="Left" Width="18" Background="Transparent" Cursor="Hand" Tag="toggle">
-                                                <TextBlock Text="{Binding Glyph}" Foreground="{StaticResource FaintBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                            <Border Name="FolderToggle" DockPanel.Dock="Left" Width="20" Margin="0,2,2,2" Classes="treeToggle" Cursor="Hand" Tag="toggle">
+                                                <Path Classes="chevron" Classes.open="{Binding IsExpanded}" Data="{StaticResource IconChevronRight}" IsVisible="{Binding HasToggle}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
                                             </Border>
                                             <!-- Album cover: the first and last picture in the folder, fetched once the row is on screen. -->
                                             <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="2" Margin="0,0,8,0" VerticalAlignment="Center">
                                                 <Border Width="20" Height="20" CornerRadius="4" Background="{StaticResource StageBrush}" ClipToBounds="True" Classes.hidden="{Binding !HasCover}"><Image Source="{Binding CoverFirst}" Stretch="UniformToFill" /></Border>
                                                 <Border Width="20" Height="20" CornerRadius="4" Background="{StaticResource StageBrush}" ClipToBounds="True" Classes.hidden="{Binding !HasSecondCover}"><Image Source="{Binding CoverLast}" Stretch="UniformToFill" /></Border>
                                             </StackPanel>
-                                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Classes="mono" FontSize="11.5" Foreground="{StaticResource FaintBrush}" VerticalAlignment="Center" Margin="6,0,6,0" />
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Classes="mono count" FontSize="11.5" VerticalAlignment="Center" Margin="6,0,6,0" />
                                             <TextBlock DockPanel.Dock="Right" Text="#" Classes="mono" Foreground="{StaticResource TagBrush}" VerticalAlignment="Center" Margin="4,0,0,0" IsVisible="{Binding HasFolderTags}" ToolTip.Tip="This folder has tags; every file under it carries them" />
                                             <Ellipse DockPanel.Dock="Right" Width="6" Height="6" Fill="{StaticResource AccentBrush}" Margin="6,0,0,0" IsVisible="{Binding Folder.IsScanning, FallbackValue=False}" ToolTip.Tip="{Binding Folder.State}" />
                                             <Grid>
@@ -155,11 +156,13 @@
                 <Grid Name="CenterPanel" Grid.Column="2" RowDefinitions="40,*">
                     <!-- One row: the views on the left, the selected file with its quick actions on the right. Fixed height. -->
                     <Grid Name="CenterHeader" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                        <StackPanel Name="MainTabs" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                            <RadioButton Name="LibraryTabButton" Classes="viewTab" Content="Overview" GroupName="MainTabs" IsChecked="{Binding IsLibraryTab}" ToolTip.Tip="Totals, tags and the folders inside the folder open in the filmstrip" />
-                            <RadioButton Name="PreviewTabButton" Classes="viewTab" Content="Preview" GroupName="MainTabs" IsChecked="{Binding IsPreviewTab}" ToolTip.Tip="The selected photo, video or audio file with its tools" />
-                            <RadioButton Name="StitchTabButton" Classes="viewTab" Content="Stitch" GroupName="MainTabs" IsChecked="{Binding IsStitchTab}" ToolTip.Tip="Combine a few pictures into one: side by side, stacked or in a grid" />
-                        </StackPanel>
+                        <Border Classes="segmented" VerticalAlignment="Center">
+                            <StackPanel Name="MainTabs" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                <RadioButton Name="LibraryTabButton" Classes="viewTab" Content="Overview" GroupName="MainTabs" IsChecked="{Binding IsLibraryTab}" ToolTip.Tip="Totals, tags and the folders inside the folder open in the filmstrip" />
+                                <RadioButton Name="PreviewTabButton" Classes="viewTab" Content="Preview" GroupName="MainTabs" IsChecked="{Binding IsPreviewTab}" ToolTip.Tip="The selected photo, video or audio file with its tools" />
+                                <RadioButton Name="StitchTabButton" Classes="viewTab" Content="Stitch" GroupName="MainTabs" IsChecked="{Binding IsStitchTab}" ToolTip.Tip="Combine a few pictures into one: side by side, stacked or in a grid" />
+                            </StackPanel>
+                        </Border>
                         <DockPanel Name="SelectionHeader" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding IsPreviewTab}">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="10,0,0,0" Classes.hidden="{Binding !HasSelection}">
                                 <Button Name="FavoriteButton" Classes="icon star" Classes.on="{Binding SelectedAsset.IsFavorite, FallbackValue=False}" Command="{Binding ToggleFavoriteCommand}" ToolTip.Tip="Favorite on or off (F)">
@@ -203,10 +206,10 @@
                                 <StackPanel Margin="0,0,12,0">
                                     <DockPanel Name="LibrarySummaryBlock" Margin="0,0,0,18">
                                         <Button Name="OverviewUpButton" DockPanel.Dock="Left" Classes="ghost" Width="72" Command="{Binding OverviewUpCommand}" Classes.hidden="{Binding !CanGoUp}" VerticalAlignment="Top" Margin="0,0,16,0" ToolTip.Tip="Go to the folder around this one">
-                                            <TextBlock Text="◂  Up" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6"><Path Classes="chevron" Data="{StaticResource IconChevronRight}" RenderTransform="rotate(180deg)" VerticalAlignment="Center" /><TextBlock Text="Up" /></StackPanel>
                                         </Button>
                                         <StackPanel Spacing="4">
-                                            <TextBlock Text="{Binding OverviewTitle}" Classes="eyebrow" Foreground="{StaticResource AccentBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OverviewTitle}" Classes="crumb" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding LibrarySummary}" Classes="title" FontSize="20" />
                                             <TextBlock Text="{Binding LibraryKindSummary}" Classes="caption" />
                                         </StackPanel>
@@ -252,7 +255,7 @@
                                     </ItemsControl>
                                     <TextBlock Text="{Binding OverviewMoreText}" Classes="hint" Margin="0,4,0,0" />
 
-                                    <Expander Name="OverviewBreakdown" Header="BREAKDOWN" Margin="0,16,0,0" ToolTip.Tip="A bar for each folder inside this one; length is the number of files, subfolders included. Click a bar to open the folder.">
+                                    <Expander Name="OverviewBreakdown" Header="Breakdown" Margin="0,16,0,0" ToolTip.Tip="A bar for each folder inside this one; length is the number of files, subfolders included. Click a bar to open the folder.">
                                         <StackPanel Margin="0,8,0,0" Spacing="6">
                                             <TextBlock Text="{Binding ChartTitle}" Classes="eyebrow" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ChartSubtitle}" />
                                             <local:FolderChart Name="FolderChartView" Nodes="{Binding ChartNodes}" SelectedPath="{Binding ChartSelectedPath, Mode=TwoWay}" CurrentPath="{Binding SelectedFolderRow.Node.Path, FallbackValue=''}" />
@@ -267,10 +270,10 @@
                     <!-- Preview: the selected file and its tools. The dock under the picture has the same height for a photo, a video and a
                          sound file, and nothing in it is added or removed when the file changes, so the picture never changes size. -->
                     <Grid Name="PreviewTab" Grid.Row="1" RowDefinitions="*,Auto" IsVisible="{Binding IsPreviewTab}">
-                        <Border Name="PreviewMonitor" Background="{StaticResource StageBrush}" CornerRadius="14" ClipToBounds="True">
+                        <Border Name="PreviewMonitor" Classes="stage" ClipToBounds="True">
                             <Panel>
                                 <local:CropSurface Name="PreviewSurface" Source="{Binding PreviewImage}" LiveSource="{Binding LiveImage}" LiveRevision="{Binding LiveRevision}" TopInset="{Binding FramingInset}" ViewKey="{Binding SelectedAsset}" Selection="{Binding CropSelection}" IsCropping="{Binding IsCropping}" EdgeSelection="{Binding VideoCrop}" IsEdgeEditing="{Binding ShowFramingTools}" Rotation="{Binding VideoRotation}" SelectedEdge="{Binding SelectedCropEdge}" />
-                                <Border Background="#6608090B" IsHitTestVisible="False" IsVisible="{Binding IsPreviewStale}" />
+                                <Border Background="#66050A16" IsHitTestVisible="False" IsVisible="{Binding IsPreviewStale}" />
                                 <Border Classes="floating" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="14" IsHitTestVisible="False" IsVisible="{Binding ShowPendingOverlay}">
                                     <StackPanel Spacing="6"><TextBlock Text="{Binding PendingLabel}" Classes="mono" Foreground="{StaticResource InkBrush}" /><ProgressBar Height="2" MinHeight="2" IsIndeterminate="True" IsVisible="{Binding IsPreviewBusy}" /></StackPanel>
                                 </Border>
@@ -446,7 +449,7 @@
                                     <Run Text="COMBINED SIZE" /><Run Text="  " /><Run Text="{Binding StitchSizeLabel, Mode=OneWay}" Foreground="{StaticResource InkBrush}" />
                                 </TextBlock>
                             </DockPanel>
-                            <Border Background="{StaticResource StageBrush}" CornerRadius="14" ClipToBounds="True">
+                            <Border Classes="stage" ClipToBounds="True">
                                 <Panel>
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" IsVisible="{Binding ShowStitchEmpty}">
                                         <TextBlock Text="Nothing to combine yet" Classes="title" FontSize="16" HorizontalAlignment="Center" />
@@ -530,7 +533,7 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                         <DockPanel Name="StageToRow" IsVisible="{Binding HasCollections}">
-                                            <Button DockPanel.Dock="Right" Width="76" Content="{Binding StageVerb}" Command="{Binding StageSelectedCommand}" IsEnabled="{Binding HasSelection}" Margin="6,0,0,0" ToolTip.Tip="{Binding StageButtonToolTip}" />
+                                            <Button DockPanel.Dock="Right" Width="86" Content="{Binding StageVerb}" Command="{Binding StageSelectedCommand}" IsEnabled="{Binding HasSelection}" Margin="6,0,0,0" ToolTip.Tip="{Binding StageButtonToolTip}" />
                                             <ComboBox Name="StageToBox" HorizontalAlignment="Stretch" ItemsSource="{Binding Collections}" SelectedItem="{Binding SelectedCollection}" DisplayMemberBinding="{Binding Name, x:DataType=local:CollectionItem}" ToolTip.Tip="The collection that S and the button above the preview add to" />
                                         </DockPanel>
                                         <DockPanel Name="ManageCollectionsExpander">
@@ -752,16 +755,18 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="local:AssetViewModel">
                                     <StackPanel Width="{Binding $parent[Window].((local:MainViewModel)DataContext).ThumbnailWidth}" Spacing="6" ToolTip.Tip="{Binding Details}">
-                                        <Border Classes="card thumbCard" Height="{Binding $parent[Window].((local:MainViewModel)DataContext).ThumbnailHeight}" CornerRadius="9" BorderThickness="2" Background="{StaticResource SurfaceBrush}" ClipToBounds="True">
+                                        <Border Classes="thumbGlow" CornerRadius="12">
+                                        <Border Classes="card thumbCard" Height="{Binding $parent[Window].((local:MainViewModel)DataContext).ThumbnailHeight}" CornerRadius="12" BorderThickness="2" Background="{StaticResource SurfaceBrush}" ClipToBounds="True">
                                             <Panel>
                                                 <TextBlock Text="{Binding Placeholder}" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource HairlineBrush}" />
                                                 <Image Classes="thumb" Classes.ready="{Binding HasThumbnail}" Source="{Binding Thumbnail}" Stretch="UniformToFill" />
                                                 <PathIcon Data="{StaticResource IconStar}" Width="12" Height="12" Foreground="{StaticResource FavoriteBrush}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" IsVisible="{Binding IsFavorite}" />
                                                 <!-- Photo, video or sound, without having to read the file name. -->
-                                                <Border Classes="chip" Background="#B008090B" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6" Padding="6,1" IsVisible="{Binding HasKindBadge}" ToolTip.Tip="{Binding KindLabel}">
+                                                <Border Classes="chip" Background="#C7071021" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6" Padding="6,1" IsVisible="{Binding HasKindBadge}" ToolTip.Tip="{Binding KindLabel}">
                                                     <TextBlock Text="{Binding KindBadge}" FontSize="9.5" FontWeight="SemiBold" LetterSpacing="1" Foreground="{Binding KindBrush}" />
                                                 </Border>
                                             </Panel>
+                                        </Border>
                                         </Border>
                                         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" Foreground="{StaticResource SecondaryBrush}" Margin="3,0" />
                                     </StackPanel>
@@ -784,8 +789,8 @@
 
         <!-- Tour the UI: dims the window, outlines one control at a time and explains it. -->
         <Canvas Name="TourLayer" IsVisible="False" Background="Transparent" ClipToBounds="True">
-            <Path Name="TourDim" Fill="#B3000000" />
-            <Border Name="TourHighlight" BorderBrush="{StaticResource AccentBrush}" BorderThickness="2" CornerRadius="8" IsHitTestVisible="False" />
+            <Path Name="TourDim" Fill="#BF030814" />
+            <Border Name="TourHighlight" BorderBrush="{StaticResource AccentBrush}" BorderThickness="2" CornerRadius="12" IsHitTestVisible="False" />
             <Border Name="TourCallout" Width="380" Classes="callout">
                 <StackPanel Spacing="6">
                     <TextBlock Name="TourStepCount" Classes="mono" FontSize="11" />

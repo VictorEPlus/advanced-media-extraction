@@ -19,9 +19,9 @@ public sealed partial class AssetViewModel(MediaAsset asset, bool favorite) : Ob
     /// <summary>The small word on a thumbnail for files that are not photos.</summary>
     public string KindBadge => Asset.Kind switch { MediaKind.Video => "VIDEO", MediaKind.Audio => "AUDIO", _ => "" };
     public bool HasKindBadge => Asset.Kind != MediaKind.Photo;
-    private static readonly SolidColorBrush PhotoBrush = Tokens.Brush("PhotoBrush", Color.FromRgb(0x9B, 0x8C, 0xFF));
-    private static readonly SolidColorBrush VideoBrush = Tokens.Brush("VideoBrush", Color.FromRgb(0x7A, 0xA7, 0xFF));
-    private static readonly SolidColorBrush AudioBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x5F, 0xD3, 0xA6));
+    private static readonly SolidColorBrush PhotoBrush = Tokens.Brush("PhotoBrush", Color.FromRgb(0xA9, 0x93, 0xFF));
+    private static readonly SolidColorBrush VideoBrush = Tokens.Brush("VideoBrush", Color.FromRgb(0x5F, 0xD0, 0xFF));
+    private static readonly SolidColorBrush AudioBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x4F, 0xE0, 0xA0));
     public bool ThumbnailRequested { get; set; }
     /// <summary>Normalized folder this file lives in, relative to the library root (or the full folder for collections and tag searches).</summary>
     public string FolderKey { get; init; } = "";

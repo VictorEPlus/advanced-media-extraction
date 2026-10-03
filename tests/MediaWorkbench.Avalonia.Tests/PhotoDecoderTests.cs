@@ -66,7 +66,7 @@ public sealed class PhotoDecoderTests : IDisposable
     [AvaloniaFact]
     public void PicturesKeptInRgbaOrderComeOutWithTheirOwnColours()
     {
-        // A rendered window is RGBA; reading it as BGRA swaps red and blue, so amber exports as sky blue.
+        // A rendered window is RGBA; reading it as BGRA swaps red and blue (amber came out sky blue).
         var bitmap = new global::Avalonia.Media.Imaging.WriteableBitmap(new PixelSize(1, 1), new Vector(96, 96),
             global::Avalonia.Platform.PixelFormat.Rgba8888, global::Avalonia.Platform.AlphaFormat.Premul);
         using (var buffer = bitmap.Lock())

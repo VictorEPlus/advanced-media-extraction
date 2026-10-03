@@ -19,7 +19,7 @@ internal static partial class DesktopSmokeTest
     private static async Task CheckWorkspaceAsync(MainViewModel model, MainWindow window, string dataDirectory, string mediaDirectory, AssetViewModel photo, AssetViewModel video, CancellationToken token)
     {
         model.InspectorTab = 0;
-        Require(model.IsPhoto && !model.IsVideo && model.CanCopy && model.ExportLabel == "EXPORT PNG", "Photos must expose image actions, not video controls.");
+        Require(model.IsPhoto && !model.IsVideo && model.CanCopy && model.ExportLabel == "Export PNG", "Photos must expose image actions, not video controls.");
         // Hidden, not collapsed: their space is kept so the picture is the same size for a photo as for a video.
         Require(window.VideoTimeline.IsVisible == false && IsHidden(window.TransportControls), "Video controls should be hidden for a photo, keeping their space.");
         Require(model.Metadata.Any(row => row.Name == "Aspect ratio" && row.Value == "16:9"), "Photo metadata should include the reduced aspect ratio.");
@@ -62,7 +62,7 @@ internal static partial class DesktopSmokeTest
         model.CreateCollectionCommand.Execute(null);
         var collectionPath = model.SelectedCollection!.FilePath;
         var store = new CollectionStore();
-        Require(store.Load(collectionPath).Paths.Length == 1 && model.FileCollections.Count == 1 && model.IsInTargetCollection && model.StageButtonLabel.Contains("REVIEW STAGING"),
+        Require(store.Load(collectionPath).Paths.Length == 1 && model.FileCollections.Count == 1 && model.IsInTargetCollection && model.StageButtonLabel.Contains("Review staging"),
             "A collection made from the Tags tab should start with the open file, list it under In collections and tick the header button: " + model.StageButtonLabel);
         model.StageSelectedCommand.Execute(null);
         await WaitUntilAsync(() => model.FileCollections.Count == 0, token);

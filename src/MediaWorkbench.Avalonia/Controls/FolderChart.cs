@@ -29,14 +29,14 @@ public sealed class FolderChart : Control
     private const double BarHeight = 14;
     private const double SegmentGap = 2;
     private static readonly Cursor HandCursor = new(StandardCursorType.Hand);
-    private readonly IBrush photoBrush = Tokens.Brush("PhotoBrush", Color.FromRgb(0x9B, 0x8C, 0xFF));
-    private readonly IBrush videoBrush = Tokens.Brush("VideoBrush", Color.FromRgb(0x7A, 0xA7, 0xFF));
-    private readonly IBrush audioBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x5F, 0xD3, 0xA6));
-    private readonly IBrush inkBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xEC, 0xED, 0xEF));
-    private readonly IBrush mutedBrush = Tokens.Brush("SecondaryBrush", Color.FromRgb(0x9A, 0xA0, 0xAA));
-    private readonly IBrush hoverBrush = Tokens.Brush("HoverBrush", Color.FromRgb(0x24, 0x28, 0x32));
-    private readonly IBrush trackBrush = Tokens.Brush("SurfaceBrush", Color.FromRgb(0x16, 0x18, 0x1D));
-    private readonly IBrush focusBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0xF2, 0xA5, 0x41));
+    private readonly IBrush photoBrush = Tokens.Brush("PhotoBrush", Color.FromRgb(0xA9, 0x93, 0xFF));
+    private readonly IBrush videoBrush = Tokens.Brush("VideoBrush", Color.FromRgb(0x5F, 0xD0, 0xFF));
+    private readonly IBrush audioBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x4F, 0xE0, 0xA0));
+    private readonly IBrush inkBrush = Tokens.Brush("InkBrush", Color.FromRgb(0xF1, 0xF5, 0xFC));
+    private readonly IBrush mutedBrush = Tokens.Brush("SecondaryBrush", Color.FromRgb(0xB6, 0xC4, 0xDD));
+    private readonly IBrush hoverBrush = Tokens.Brush("HoverBrush", Color.FromRgb(0x25, 0x38, 0x5E));
+    private readonly IBrush trackBrush = Tokens.Brush("SurfaceBrush", Color.FromRgb(0x0F, 0x1A, 0x31));
+    private readonly IBrush focusBrush = Tokens.Brush("AccentBrush", Color.FromRgb(0x5C, 0xAB, 0xFF));
     private int hoverRow = -1;
 
     static FolderChart()
