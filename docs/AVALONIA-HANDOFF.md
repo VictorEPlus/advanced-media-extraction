@@ -82,9 +82,9 @@ like WPF); `Pixels.ToSkia` assumed BGRA, so RGBA pictures came out with red and 
 - Pause refinement (frame matching of the live picture) is ported but only lightly exercised.
 - `scripts/Publish.ps1` still publishes only the WPF app.
 
-## Review findings (open), 2 October 2026
+## Review findings, 2 October 2026 (all fixed)
 
-Found in a review of `avalonia-shell` at `fe36688`. Item 1 is fixed in this PR; the rest are open, most serious first.
+Found in a review of `avalonia-shell` at `fe36688` (PR #2, merged). Item 1 was fixed in that PR, items 2 to 6 right after it.
 
 1. **Fixed: `ShellTests` wrote into the owner's real Pictures folder.** `Open()` built a `MainViewModel` on a fresh data
    folder, so settings fell back to `AppSettings.ExportDirectory`'s default (`MyPictures\MediaWorkbench Exports`), and the
@@ -92,24 +92,37 @@ Found in a review of `avalonia-shell` at `fe36688`. Item 1 is fixed in this PR; 
    Copy read the saved `settings`, which change only on Save settings or the folder picker. The test now saves its own
    `settings.json` (export folder inside its temp workspace) before the view model starts. The two `DesktopChecks` were
    already safe because they call `SaveSettingsCommand`. **Rule for new tests: pre-seed settings; never rely on the property.**
-2. **First-start import can half-succeed and never retry** (`App.ImportClassicData`). The marker, whose text says
+2. **Fixed: first-start import could half-succeed and never retry** (`App.ImportClassicData`). The marker, whose text says
    "Copied from ...", is written *before* the copy, and `IOException`/`UnauthorizedAccessException` are swallowed. A copy
    that fails partway leaves a marker claiming success, so the import is never attempted again. Write the marker last,
    and only after every file copied.
-3. **The import can take an inconsistent catalog.** `CatalogStore` uses `PRAGMA journal_mode=WAL`. Copying `catalog.db`,
+3. **Fixed: the import could take an inconsistent catalog.** `CatalogStore` uses `PRAGMA journal_mode=WAL`. Copying `catalog.db`,
    `-wal` and `-shm` one by one while the WPF app is open can pair a database with a WAL from a different moment, losing
    recent favorites/tags or corrupting the copy. Use SQLite's online backup (`SqliteConnection.BackupDatabase`), which
    gives a consistent snapshot even while the WPF app is writing.
-4. **`Launch-Avalonia.cmd` fails when the WPF app is open, and vice versa.** `scripts/Launch.bat` builds the whole solution.
+4. **Fixed: `Launch-Avalonia.cmd` failed when the WPF app was open, and vice versa.** `scripts/Launch.bat` builds the whole solution.
    If either app is running and its code changed (any pull), MSBuild retries copying the locked exe 10 times (~10 s of
    `MSB3026`), fails with `MSB3027`, and the launcher says "Build failed. Run scripts\Verify.ps1", which is the wrong
    cause. Reproduced for the WPF app in an isolated worktree. Suggested fix: build only the project being launched, and
    before building, detect a running copy of that exe and ask the owner to close it, without closing it automatically.
-5. **`README.md` line 51 describes the old launcher**: it names `Media Workbench.lnk` (no longer in the repo; use
+5. **Fixed: `README.md` described the old launcher**: it names `Media Workbench.lnk` (no longer in the repo; use
    `Launch.cmd`) and says the launcher "builds ... if none exists" (it now always builds and prints `Built:`/`Commit:`).
-6. Minor: `scripts/Verify.ps1` runs the Avalonia tests without the `trx` logger, so CI uploads no Avalonia results.
+6. Fixed (minor): `scripts/Verify.ps1` ran the Avalonia tests without the `trx` logger, so CI uploads no Avalonia results.
    The view-model logic is a second copy (~5,000 lines); every `master` fix must be ported until the WPF app is retired
    (the recent folder-tree fixes are ported correctly).
+
+How they were fixed:
+- Import (2, 3): `App.ImportClassicData(dataDirectory, classic)` writes the marker last; any failure is logged to app.log
+  and the whole copy runs again next start. The catalog is copied with SQLite's online backup through a **read-only**
+  connection (consistent while the WPF app writes; never checkpoints or changes the WPF files), then `PRAGMA quick_check`.
+  `ImportTests` cover: WPF app holding the catalog open with rows only in the WAL (copy complete, WPF data files byte for
+  byte unchanged; `-shm` is SQLite's shared lock table and is excluded), a crash-left WAL, a failure then retry, no WPF data.
+  On a PC where the first start may have gone wrong, deleting `%LOCALAPPDATA%\MediaWorkbench.Avalonia\imported-from-wpf-app.txt`
+  makes it copy again (replacing what the Avalonia app changed since).
+- Launcher (4): builds only the project it starts; if that exe is running (tasklist in CSV form: the table form cuts names to
+  25 characters) it says so and waits, never closing it. Batch wrappers must have CRLF line endings: an LF-only `.cmd` made
+  `goto` misbehave in testing.
+- README (5) and Verify (6): updated; Avalonia results go to `artifacts/test-results/avalonia-tests.trx`.
 
 ## Working agreements (also in Claude's memory)
 

@@ -51,7 +51,7 @@ If FFmpeg is not on PATH:
 
 You may also place both tools under `tools\ffmpeg\bin` in the repository; the verification script detects that directory. It is intentionally Git-ignored. Alternatively, set `$env:AME_FFMPEG_DIR` for your PowerShell session. When launching the executable directly, use Settings to save the tool folder, or put `tools\ffmpeg\bin` beside the executable.
 
-For everyday starts, double-click **Media Workbench.lnk** in the repository root (or run `scripts\Launch.bat`). It finds the newest `MediaWorkbench.exe` under the repository, builds the Release configuration first if none exists, and launches it. Both the shortcut and the script use only relative paths, so they work wherever the repository is cloned.
+For everyday starts, double-click **Launch.cmd** in the repository root (or `Launch-Avalonia.cmd` for the new Avalonia version). It always builds the Release configuration of that app first, so a freshly pulled tree is what runs, prints the build time and commit, and launches it. If that app is already open, it says so and waits for you to close it (it never closes it for you). Both use only relative paths, so they work wherever the repository is cloned.
 
 Normal application launches perform lightweight tool checks, **not the entire test suite**. Use `Verify.ps1` after cloning, updating, or changing dependencies. GitHub Actions performs the same full verification on Windows for pushes and pull requests.
 

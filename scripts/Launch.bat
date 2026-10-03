@@ -6,9 +6,17 @@ rem left over from an earlier commit must never be launched silently.
 rem No absolute paths: everything is resolved relative to this script's folder, so the repo can live anywhere.
 set "AME_ROOT=%~dp0.."
 for %%I in ("%AME_ROOT%") do set "AME_ROOT=%%~fI"
+rem Only the app being started is built: building the whole solution would also rebuild the other app, and fail if
+rem that one is open (its exe is locked).
+set "AME_PROJECT=%AME_ROOT%\src\MediaWorkbench.App\MediaWorkbench.App.csproj"
 set "AME_EXE=%AME_ROOT%\src\MediaWorkbench.App\bin\Release\net10.0-windows\MediaWorkbench.exe"
+set "AME_IMAGE=MediaWorkbench.exe"
 rem "Launch.bat avalonia" (or Launch-Avalonia.cmd) starts the new Avalonia app instead of the WPF one.
-if /i "%~1"=="avalonia" set "AME_EXE=%AME_ROOT%\src\MediaWorkbench.Avalonia\bin\Release\net10.0\MediaWorkbench.Avalonia.exe"
+if /i "%~1"=="avalonia" (
+    set "AME_PROJECT=%AME_ROOT%\src\MediaWorkbench.Avalonia\MediaWorkbench.Avalonia.csproj"
+    set "AME_EXE=%AME_ROOT%\src\MediaWorkbench.Avalonia\bin\Release\net10.0\MediaWorkbench.Avalonia.exe"
+    set "AME_IMAGE=MediaWorkbench.Avalonia.exe"
+)
 
 where dotnet >nul 2>nul
 if errorlevel 1 goto :no_sdk
@@ -18,8 +26,22 @@ rem installed major versions are checked explicitly rather than trusting the bui
 call :require_sdk 10
 if errorlevel 1 goto :no_sdk
 
-echo Building the Release configuration...
-dotnet build "%AME_ROOT%\AdvancedMediaExtraction.slnx" --configuration Release --nologo
+rem A running copy locks its exe, so the build could not replace it. Say so, and wait: closing it is the owner's call
+rem (it may have unsaved work open), so this script never closes it.
+:check_running
+rem CSV, because the table format cuts names to 25 characters ("MediaWorkbench.Avalonia.e") and would never match.
+tasklist /FI "IMAGENAME eq %AME_IMAGE%" /FO CSV /NH 2>nul | find /I "%AME_IMAGE%" >nul
+if errorlevel 1 goto :build
+echo.
+echo %AME_IMAGE% is already running. Close it first, so the latest version can be built and started.
+echo This launcher will not close it for you.
+echo.
+pause
+goto :check_running
+
+:build
+echo Building the Release configuration of %AME_IMAGE%...
+dotnet build "%AME_PROJECT%" --configuration Release --nologo
 if errorlevel 1 goto :build_failed
 
 if not exist "%AME_EXE%" goto :build_failed
@@ -53,8 +75,8 @@ goto :launch
 
 :build_failed
 echo.
-echo Build failed. Run scripts\Verify.ps1 for full diagnostics.
-echo Not launching, because any existing MediaWorkbench.exe would be from an earlier build.
+echo Build failed: the errors are listed above. scripts\Verify.ps1 runs the full checks.
+echo Not launching, because any existing %AME_IMAGE% would be from an earlier build.
 pause
 exit /b 1
 
