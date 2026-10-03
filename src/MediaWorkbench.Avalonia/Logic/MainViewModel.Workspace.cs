@@ -582,7 +582,7 @@ public sealed partial class MainViewModel
             SelectedAsset = reopened;
         else if (file.Length > 0)
             restoreSelection = (file, mainTab);
-        if (mainTab is >= 0 and <= 2 && (mainTab != 1 || SelectedAsset is not null))
+        if (mainTab is >= 0 and <= 3 && (mainTab != 1 || SelectedAsset is not null))
             MainTab = mainTab;
         if (inspectorTab is >= 0 and <= 3)
             InspectorTab = inspectorTab;
@@ -615,7 +615,7 @@ public sealed partial class MainViewModel
             return;
         restoreSelection = null;
         SelectedAsset = match;
-        if (mainTab is >= 0 and <= 2) MainTab = mainTab;
+        if (mainTab is >= 0 and <= 3) MainTab = mainTab;
     }
 
     /// <summary>The folders open in the tree, for next time.</summary>

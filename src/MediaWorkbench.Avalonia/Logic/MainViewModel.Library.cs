@@ -181,6 +181,8 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(IsLibraryTab));
         OnPropertyChanged(nameof(IsPreviewTab));
         OnPropertyChanged(nameof(IsStitchTab));
+        OnPropertyChanged(nameof(IsGraphTab));
+        if (value == 3) BuildTagGraph();
     }
 
     /// <summary>

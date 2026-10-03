@@ -69,6 +69,21 @@ public partial class MainWindow : Window
         SetUpTagCompletion(FolderTagBox, viewModel.AddFolderTagsCommand);
         SetUpTagCompletion(QuickTagBox, viewModel.AddQuickTagsCommand, backToFilmstrip: true);
         SetUpHoverPreview();
+        // Graph: double-click a tag for its files; the find box puts a tag in focus from Enter or from its list.
+        TagGraphView.TagActivated += (_, tag) => viewModel.ShowGraphFilesCommand.Execute(tag);
+        GraphSearchBox.AddHandler(KeyDownEvent, (_, args) =>
+        {
+            if (args.Key != Key.Enter) return;
+            GraphSearchBox.IsDropDownOpen = false;
+            viewModel.FindGraphTagCommand.Execute(null);
+            args.Handled = true;
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+        GraphSearchBox.SelectionChanged += (_, _) =>
+        {
+            if (GraphSearchBox.SelectedItem is not string tag) return;
+            viewModel.FocusGraphTagCommand.Execute(tag);
+            Dispatcher.UIThread.Post(() => viewModel.GraphSearch = "", DispatcherPriority.Background);
+        };
         // The tag filter's list is counted afresh each time it opens (files may have been added since), with an empty find box.
         ((Flyout)TagFilterButton.Flyout!).Opening += (_, _) =>
         {

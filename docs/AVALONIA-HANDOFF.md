@@ -86,6 +86,15 @@ Asked for by the owner on 3 October 2026; the WPF app does not have them.
   every tag in use (count, colour dot, find box) with tick boxes; ticked tags show as bubbles with ×; Clear unticks all; with two or
   more, "Files with any / all of them". Exact tag matches. The Overview's tag bubbles tick and untick the same filter.
   Show every tagged file uses the ticked tags (any/all), or every tag when none is ticked.
+- **Graph tab** (4th centre view; `Controls/TagGraphView.cs`, `Logic/MainViewModel.Graph.cs`, `Core/TagGraph.cs`): every tag as a
+  glowing node (size = files, vivid colour of its hue), links between tags used on the same files (thickness = Jaccard strength).
+  Click focuses a tag (neighbours on a ring, closer = stronger, the rest fade), related tags in the side card travel on, Back walks
+  the trail, double-click / Show its files narrows the filmstrip, Add to filter ticks it. Drag pans, wheel zooms; the map lays out
+  left of the card (`RightInset`). Overview shows the 150 most used tags; the layout is a seeded force layout, the same each time.
+- **Suggestions reworked** (`Core/TagSuggestions.cs`; shared, so the WPF app gets it too): a tag is suggested when at least 35% of
+  the resembling files' evidence carries it and it is 1.5x more common among them than among the other tagged files; same
+  resolution/codec and same camera on another day no longer count; a few (<= 3) tagged near copies pass their tags on directly,
+  many look-alikes (one app on screen) only count as ordinary evidence. The Tags tab says "3 of 4 similar files, same day".
 - **Thumbnail badge** is the file extension (MP4, JPG, WAV), in the kind's colour.
 - **Hover preview** (`MainWindow.Hover.cs`, `MainViewModel.Hover.cs`, `MediaEngine.PreviewTimes/GetPreviewFrameAsync`): resting
   250 ms on a video plays five pictures, first to just before the last at even steps, 550 ms each; fast seeks, cached, own

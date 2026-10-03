@@ -216,6 +216,7 @@
                                 <RadioButton Name="LibraryTabButton" Classes="viewTab" Content="Overview" GroupName="MainTabs" IsChecked="{Binding IsLibraryTab}" ToolTip.Tip="Totals, tags and the folders inside the folder open in the filmstrip" />
                                 <RadioButton Name="PreviewTabButton" Classes="viewTab" Content="Preview" GroupName="MainTabs" IsChecked="{Binding IsPreviewTab}" ToolTip.Tip="The selected photo, video or audio file with its tools" />
                                 <RadioButton Name="StitchTabButton" Classes="viewTab" Content="Stitch" GroupName="MainTabs" IsChecked="{Binding IsStitchTab}" ToolTip.Tip="Combine a few pictures into one: side by side, stacked or in a grid" />
+                                <RadioButton Name="GraphTabButton" Classes="viewTab" Content="Graph" GroupName="MainTabs" IsChecked="{Binding IsGraphTab}" ToolTip.Tip="Your tags as a map: tags used together are linked. Click a tag to explore what goes with it." />
                             </StackPanel>
                         </Border>
                         <DockPanel Name="SelectionHeader" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" IsVisible="{Binding IsPreviewTab}">
@@ -517,6 +518,92 @@
                             </Border>
                         </DockPanel>
                     </Grid>
+
+                    <!-- Graph: every tag as a glowing node, linked to the tags used on the same files. Click to explore, double-click for files. -->
+                    <Border Name="GraphTab" Grid.Row="1" IsVisible="{Binding IsGraphTab}" CornerRadius="16" ClipToBounds="True" BorderBrush="{StaticResource ControlEdgeBrush}" BorderThickness="1">
+                        <Panel>
+                            <local:TagGraphView Name="TagGraphView" Graph="{Binding TagGraph}" FocusTag="{Binding GraphFocus, Mode=TwoWay}" RightInset="318" />
+                            <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16" Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <AutoCompleteBox Name="GraphSearchBox" Width="220" Classes="compact graphGlass" Text="{Binding GraphSearch, Mode=TwoWay}" ItemsSource="{Binding KnownTags}" FilterMode="Contains" MinimumPrefixLength="1" MaxDropDownHeight="260" PlaceholderText="Find a tag…" ToolTip.Tip="Type part of a tag and press Enter, or pick it from the list, to put it in focus" />
+                                    <Button Name="GraphOverviewButton" Classes="graphGlass" Content="Whole map" Command="{Binding GraphOverviewCommand}" IsVisible="{Binding HasGraphFocus}" ToolTip.Tip="Back to every tag" />
+                                    <Button Name="GraphBackButton" Classes="graphGlass" Command="{Binding GraphBackCommand}" IsVisible="{Binding HasGraphTrail}" ToolTip.Tip="Back to the tag you came from">
+                                        <StackPanel Orientation="Horizontal" Spacing="6"><Path Classes="chevron" Data="{StaticResource IconChevronRight}" RenderTransform="rotate(180deg)" VerticalAlignment="Center" /><TextBlock Text="Back" /></StackPanel>
+                                    </Button>
+                                </StackPanel>
+                                <ItemsControl Name="GraphTrailList" ItemsSource="{Binding GraphTrail}" IsVisible="{Binding HasGraphTrail}">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel MaxWidth="520" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="x:String">
+                                            <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,4,0">
+                                                <Button Classes="link" Content="{Binding}" Foreground="{Binding Converter={x:Static local:TagColors.Vivid}}" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).FocusGraphTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Go back to this tag" />
+                                                <TextBlock Text="›" Foreground="{StaticResource FaintBrush}" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
+                            <!-- The card beside the map: what the map is, or the tag in focus and the tags it goes with. -->
+                            <Border Name="GraphCard" Classes="graphCard" HorizontalAlignment="Right" VerticalAlignment="Stretch" Width="290" Margin="14">
+                                <Panel>
+                                    <StackPanel Spacing="10" IsVisible="{Binding !HasGraphFocus}">
+                                        <TextBlock Text="TAG MAP" Classes="eyebrow" />
+                                        <TextBlock Text="{Binding GraphSummary}" Classes="title" TextWrapping="Wrap" />
+                                        <TextBlock Classes="hint" Text="Bigger tags are on more files. A line joins tags used on the same files, thicker the more often. Click a tag to explore it; double-click to show its files. Drag to move, wheel to zoom." />
+                                        <TextBlock Text="MOST USED" Classes="eyebrow" Margin="0,6,0,0" />
+                                        <ItemsControl ItemsSource="{Binding GraphTopTags}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="core:TagNode">
+                                                    <Button Classes="row graphRow" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).FocusGraphTagCommand}" CommandParameter="{Binding Tag}" ToolTip.Tip="Explore this tag">
+                                                        <DockPanel>
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Files, StringFormat=N0}" Classes="mono" FontSize="11" VerticalAlignment="Center" />
+                                                            <Ellipse DockPanel.Dock="Left" Width="10" Height="10" Fill="{Binding Tag, Converter={x:Static local:TagColors.Vivid}}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Tag}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                        </DockPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                    <DockPanel IsVisible="{Binding HasGraphFocus}">
+                                        <StackPanel DockPanel.Dock="Top" Spacing="8">
+                                            <TextBlock Text="IN FOCUS" Classes="eyebrow" />
+                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                                <Ellipse Width="14" Height="14" Fill="{Binding GraphFocus, Converter={x:Static local:TagColors.Vivid}}" VerticalAlignment="Center" />
+                                                <TextBlock Name="GraphFocusTitle" Text="{Binding GraphFocus}" FontSize="20" FontWeight="Bold" Foreground="{Binding GraphFocus, Converter={x:Static local:TagColors.Vivid}}" TextTrimming="CharacterEllipsis" MaxWidth="230" />
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding GraphFocusSummary}" Classes="caption" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                                                <Button Name="GraphShowFilesButton" Classes="primary" Content="Show its files" Command="{Binding ShowGraphFilesCommand}" ToolTip.Tip="Narrow the filmstrip to the files with this tag (double-click on the map does the same)" />
+                                                <Button Name="GraphAddFilterButton" Content="Add to filter" Command="{Binding AddGraphTagToFilterCommand}" ToolTip.Tip="Tick this tag in the tag filter as well as the ones already ticked" />
+                                            </StackPanel>
+                                            <TextBlock Text="GOES WITH" Classes="eyebrow" Margin="0,10,0,0" />
+                                            <TextBlock Text="Not used together with any other tag yet." Classes="hint" IsVisible="{Binding HasNoGraphNeighbours}" />
+                                        </StackPanel>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,4,-8,0">
+                                            <ItemsControl Name="GraphNeighbourList" ItemsSource="{Binding GraphNeighbours}" Margin="0,0,8,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="local:GraphNeighbour">
+                                                        <Button Classes="row graphRow" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).FocusGraphTagCommand}" CommandParameter="{Binding Tag}" ToolTip.Tip="Go on to this tag">
+                                                            <StackPanel Spacing="5" Margin="0,4">
+                                                                <DockPanel>
+                                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding SharedText}" Classes="mono" FontSize="11" VerticalAlignment="Center" />
+                                                                    <Ellipse DockPanel.Dock="Left" Width="10" Height="10" Fill="{Binding Tag, Converter={x:Static local:TagColors.Vivid}}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                                                    <TextBlock Text="{Binding Tag}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                                </DockPanel>
+                                                                <Border Height="3" CornerRadius="2" HorizontalAlignment="Left" Width="{Binding StrengthWidth}" Background="{Binding Tag, Converter={x:Static local:TagColors.Vivid}}" Margin="20,0,0,0" Opacity="0.85" />
+                                                            </StackPanel>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </DockPanel>
+                                </Panel>
+                            </Border>
+                        </Panel>
+                    </Border>
                 </Grid>
                 <GridSplitter Name="InspectorSplitter" Grid.Column="3" Width="8" Background="Transparent" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ToolTip.Tip="Drag to resize the inspector" />
 
@@ -679,7 +766,7 @@
                                                         <Button DockPanel.Dock="Left" Classes="ghost" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).ApplySuggestionCommand}" CommandParameter="{Binding}" Margin="0,0,8,0" ToolTip.Tip="Add this tag to the file">
                                                             <TextBlock><Run Text="+ " /><Run Text="{Binding Tag, Mode=OneWay}" /></TextBlock>
                                                         </Button>
-                                                        <TextBlock VerticalAlignment="Center" Classes="hint" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"><Run Text="{Binding Files, Mode=OneWay}" /><Run Text=" tagged, " /><Run Text="{Binding Reason, Mode=OneWay}" /></TextBlock>
+                                                        <TextBlock VerticalAlignment="Center" Classes="hint" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Text="{Binding Why}" ToolTip.Tip="{Binding Why}" />
                                                     </DockPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>

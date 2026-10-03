@@ -951,4 +951,37 @@
         <Setter Property="FontSize" Value="12" />
         <Setter Property="CornerRadius" Value="12" />
     </Style>
+
+    <!-- The Graph tab: a glass card beside the map and glass buttons over it, a touch deeper and more violet than the panels. -->
+    <Style Selector="Border.graphCard">
+        <Setter Property="Background">
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Offset="0" Color="#C2231B55" />
+                <GradientStop Offset="1" Color="#B80D1636" />
+            </LinearGradientBrush>
+        </Setter>
+        <Setter Property="BorderBrush" Value="{StaticResource GlassEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="Padding" Value="18,16" />
+        <Setter Property="BoxShadow" Value="0 18 44 0 #8C02040F" />
+    </Style>
+    <Style Selector="Button.graphGlass">
+        <Setter Property="Background" Value="#B3181E48" />
+        <Setter Property="BorderBrush" Value="#40B9D4FF" />
+        <Setter Property="CornerRadius" Value="16" />
+    </Style>
+    <Style Selector="AutoCompleteBox.graphGlass TextBox">
+        <Setter Property="Background" Value="#B3181E48" />
+        <Setter Property="BorderBrush" Value="#40B9D4FF" />
+    </Style>
+    <Style Selector="Button.graphRow">
+        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Margin" Value="-8,0,0,2" />
+    </Style>
+    <Style Selector="Button.graphRow:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#1FB9D4FF" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
 </Styles>

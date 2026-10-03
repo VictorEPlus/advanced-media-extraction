@@ -22,10 +22,7 @@ public static class TagColors
         lock (Cache)
         {
             if (Cache.TryGetValue(tag, out var known)) return known;
-            // FNV-1a over the lower-case name: stable across runs and machines, unlike string.GetHashCode.
-            var hash = 2166136261u;
-            foreach (var character in tag.ToLowerInvariant())
-                hash = (hash ^ character) * 16777619u;
+            var hash = Hash(tag);
             var hue = hash % 360;
             var saturation = 0.42 + (hash / 360 % 3) * 0.06;
             var lightness = 0.78 + (hash / 1080 % 3) * 0.03;
@@ -35,8 +32,22 @@ public static class TagColors
         }
     }
 
+    /// <summary>FNV-1a over the lower-case name: stable across runs and machines, unlike string.GetHashCode.</summary>
+    private static uint Hash(string tag)
+    {
+        var hash = 2166136261u;
+        foreach (var character in tag.ToLowerInvariant())
+            hash = (hash ^ character) * 16777619u;
+        return hash;
+    }
+
+    /// <summary>The same hue, vivid: for the tag graph, where tags glow on a dark field.</summary>
+    public static Color Vibrant(string? tag, double lightness = 0.62) => new HslColor(1, Hash(tag ?? "") % 360, 0.88, lightness).ToRgb();
+
     private static SolidColorBrush WithAlpha(string? tag, byte alpha) => new(Color.FromArgb(alpha, Of(tag).R, Of(tag).G, Of(tag).B));
 
+    /// <summary>The tag's vivid colour, for the graph and its side card.</summary>
+    public static readonly IValueConverter Vivid = new FuncValueConverter<string?, IBrush>(tag => new SolidColorBrush(Vibrant(tag)));
     /// <summary>Filled bubble: the tag is on it.</summary>
     public static readonly IValueConverter Fill = new FuncValueConverter<string?, IBrush>(tag => new SolidColorBrush(Of(tag)));
     /// <summary>A faint wash of the colour: the tag exists but is not on it.</summary>

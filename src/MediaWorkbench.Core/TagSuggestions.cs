@@ -81,73 +81,101 @@ public sealed record FileTraits
     }
 }
 
-public sealed record TagSuggestion(string Tag, double Score, string Reason, int Files);
+/// <summary>A tag worth adding, the strongest reason, how many resembling files carry it and how many resembling files there were.</summary>
+public sealed record TagSuggestion(string Tag, double Score, string Reason, int Files, int Similar = 0)
+{
+    /// <summary>The reason in words, with the counts behind it: "3 of 4 similar files, same day".</summary>
+    public string Why => Similar > 0 ? $"{Files} of {Similar} similar files, {Reason}" : $"{Files} tagged, {Reason}";
+}
 
 /// <summary>
-/// Suggests tags for a file from files that are already tagged and resemble it. Each kind of resemblance has a weight; a tag's score
-/// is the sum over the tagged files that carry it of their strongest resemblance, so one weak coincidence never suggests anything,
-/// while a dozen files from the same camera on the same day do. The reason given is the strongest resemblance, in words.
+/// Suggests tags for a file from tagged files that resemble it. Every tagged file that resembles it adds evidence, weighted by how
+/// strong the resemblance is (only its strongest reason counts). A tag is suggested when a real share of that evidence carries it
+/// and it is clearly more common among the resembling files than among the rest, so a tag that is simply used a lot is not
+/// pushed onto everything, and weak coincidences (same resolution, same camera on another day) never suggest anything alone.
 /// </summary>
 public static class TagSuggester
 {
-    public const double Threshold = 3;
+    /// <summary>The least evidence for a tag: two files on the same day, say, or three in the same folder.</summary>
+    public const double Threshold = 2.5;
+    /// <summary>The least share of the resembling files' evidence that must carry the tag.</summary>
+    public const double MinimumShare = 0.35;
+    /// <summary>How much more common the tag must be among the resembling files than among the other tagged files.</summary>
+    public const double MinimumLift = 1.5;
     public const int MaximumSuggestions = 6;
-    /// <summary>Look-alike fingerprints this close are treated as versions of the same picture.</summary>
+    /// <summary>Look-alike fingerprints this close are treated as versions of the same picture: one such file is enough.</summary>
     public const int SameLookDistance = 6;
-    public const int SimilarLookDistance = 12;
+    public const int SimilarLookDistance = 10;
+    public const double SameLookWeight = 4;
+    /// <summary>
+    /// Up to this many tagged near copies, each one's tags are suggested on their own strength. More files than this looking the same
+    /// means the look is a common one (the same app on screen, a plain sky), so it only counts as ordinary evidence.
+    /// </summary>
+    public const int FewNearCopies = 3;
+    private const string SameLookReason = "looks the same";
     /// <summary>Numbered names this close are treated as one sequence, for example one burst or one card.</summary>
     public const int SequenceReach = 60;
 
     public static IReadOnlyList<TagSuggestion> Suggest(FileTraits file, IEnumerable<(FileTraits Traits, IReadOnlyCollection<string> Tags)> tagged, IEnumerable<string> alreadyOn)
     {
         var skip = new HashSet<string>(alreadyOn, StringComparer.OrdinalIgnoreCase);
-        var scores = new Dictionary<string, (double Score, double Best, string Reason, int Files)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (other, tags) in tagged)
-        {
-            var (weight, reason) = Resemblance(file, other);
-            if (weight <= 0) continue;
+        var all = tagged.Select(entry => (entry.Traits, Tags: entry.Tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), Match: Resemblance(file, entry.Traits))).ToList();
+        var resembling = all.Where(entry => entry.Match.Weight > 0).ToList();
+        var evidence = resembling.Sum(entry => entry.Match.Weight);
+        if (evidence <= 0) return [];
+        var everywhere = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tag in all.SelectMany(entry => entry.Tags)) everywhere[tag] = everywhere.GetValueOrDefault(tag) + 1;
+        var scores = new Dictionary<string, (double Support, double Best, string Reason, int Files)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, tags, (weight, reason)) in resembling)
             foreach (var tag in tags)
             {
                 if (skip.Contains(tag)) continue;
                 var entry = scores.GetValueOrDefault(tag);
-                scores[tag] = (entry.Score + weight, Math.Max(entry.Best, weight), weight > entry.Best ? reason : entry.Reason, entry.Files + 1);
+                scores[tag] = (entry.Support + weight, Math.Max(entry.Best, weight), weight > entry.Best ? reason : entry.Reason, entry.Files + 1);
             }
+        var others = all.Count - resembling.Count;
+        var nearCopies = resembling.Where(entry => entry.Match.Reason == SameLookReason).ToList();
+        var fromNearCopy = nearCopies.Count is > 0 and <= FewNearCopies
+            ? nearCopies.SelectMany(entry => entry.Tags).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : [];
+        var suggestions = new List<TagSuggestion>();
+        foreach (var (tag, (support, best, reason, files)) in scores)
+        {
+            var share = support / evidence;
+            // Among the tagged files that do not resemble this one, how often the tag turns up; with none to compare, it passes.
+            var elsewhere = others == 0 ? 0 : (everywhere[tag] - files) / (double)others;
+            var enoughFiles = files >= 2 || best >= SameLookWeight;
+            if (fromNearCopy.Contains(tag)
+                || enoughFiles && support >= Threshold && share >= MinimumShare && (others == 0 || share >= elsewhere * MinimumLift))
+                suggestions.Add(new TagSuggestion(tag, support * share, reason, files, resembling.Count));
         }
-        return scores
-            .Where(pair => pair.Value.Score >= Threshold)
-            .OrderByDescending(pair => pair.Value.Score).ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-            .Take(MaximumSuggestions)
-            .Select(pair => new TagSuggestion(pair.Key, pair.Value.Score, pair.Value.Reason, pair.Value.Files))
-            .ToList();
+        return suggestions.OrderByDescending(suggestion => suggestion.Score).ThenBy(suggestion => suggestion.Tag, StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumSuggestions).ToList();
     }
 
-    /// <summary>How strongly two files resemble each other, and why. Only the strongest reason counts, so one pair is never counted twice.</summary>
+    /// <summary>
+    /// How strongly two files resemble each other, and why. Only the strongest reason counts, so one pair is never counted twice.
+    /// Things many unrelated files share (a resolution, a codec, a camera on another day) are not reasons on their own.
+    /// </summary>
     public static (double Weight, string Reason) Resemblance(FileTraits file, FileTraits other)
     {
         var candidates = new List<(double, string)>();
         if (file.Visual is { } look && other.Visual is { } otherLook)
         {
             var distance = VisualHash.Distance(look, otherLook);
-            if (distance <= SameLookDistance) candidates.Add((4, "looks the same"));
-            else if (distance <= SimilarLookDistance) candidates.Add((2, "looks similar"));
+            if (distance <= SameLookDistance) candidates.Add((SameLookWeight, SameLookReason));
+            else if (distance <= SimilarLookDistance) candidates.Add((1.5, "looks similar"));
         }
         var sameCamera = file.Camera is not null && string.Equals(file.Camera, other.Camera, StringComparison.OrdinalIgnoreCase);
         var sameDay = file.Day is not null && file.Day == other.Day;
         if (sameCamera && sameDay) candidates.Add((3, "same camera, same day"));
         else if (sameDay) candidates.Add((1.5, "same day"));
-        else if (sameCamera) candidates.Add((0.75, "same camera"));
         if (file.NameStem is not null && string.Equals(file.NameStem, other.NameStem, StringComparison.OrdinalIgnoreCase)
             && file.NameNumber is { } number && other.NameNumber is { } otherNumber && Math.Abs(number - otherNumber) <= SequenceReach
             && string.Equals(file.Folder, other.Folder, StringComparison.OrdinalIgnoreCase))
             candidates.Add((2.5, "same numbered sequence"));
         else if (file.Folder.Length > 0 && string.Equals(file.Folder, other.Folder, StringComparison.OrdinalIgnoreCase))
-            candidates.Add((1.5, "same folder"));
-        if (file.Kind == other.Kind && file.Width > 0 && file.Width == other.Width && file.Height == other.Height)
-        {
-            var sameMotion = file.Kind != MediaKind.Video || file.FrameRate == other.FrameRate && file.Codec == other.Codec;
-            var similarLength = file.Kind == MediaKind.Photo || other.Duration > 0 && Math.Abs(file.Duration - other.Duration) <= Math.Max(2, other.Duration * 0.25);
-            if (sameMotion && similarLength) candidates.Add((1, file.Kind == MediaKind.Video ? "same resolution, frame rate and codec" : "same size"));
-        }
+            candidates.Add((1, "same folder"));
         return candidates.Count == 0 ? (0, "") : candidates.MaxBy(candidate => candidate.Item1);
     }
 }

@@ -373,4 +373,84 @@ public sealed class TaggingTests : IDisposable
         Assert.All(list.GetVisualDescendants().OfType<CheckBox>(), box => Assert.False(box.IsChecked));
         window.Close();
     }
+
+    [AvaloniaFact]
+    public async Task TheGraphMapsTagsAndTravelsFromTagToTag()
+    {
+        var (model, window, files) = await OpenAsync();
+        foreach (var (item, tags) in new[] { (files[0], "client A, job 7"), (files[1], "client A, job 7, sunset"), (files[2], "sunset, beach"), (files[3], "solo") })
+        {
+            model.SelectedAsset = item;
+            await Until(window, () => !model.IsPreviewBusy, "The file should open.");
+            model.TagText = tags;
+            model.AddTagsCommand.Execute(null);
+        }
+        Click(window, window.GraphTabButton);
+        Assert.True(model.IsGraphTab && window.GraphTab.IsVisible);
+        Assert.Equal(5, model.TagGraph.Nodes.Count);
+        Assert.Equal("5 tags, 4 links between them.", model.GraphSummary);
+        var map = window.TagGraphView;
+        Settle(window);
+        map.Settle();
+        Assert.Equal(5, map.ShownTags.Count);
+        Picture(window, "graph-overview");
+
+        void ClickTag(string tag)
+        {
+            map.Settle();
+            Settle(window);
+            var point = map.TranslatePoint(map.ScreenOf(tag)!.Value, window)!.Value;
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            Settle(window);
+        }
+
+        // Click a tag: it is in focus, with the tags it goes with listed, most shared first.
+        ClickTag("client A");
+        Assert.Equal("client A", model.GraphFocus);
+        Assert.Equal(new[] { "job 7", "sunset" }, model.GraphNeighbours.Select(neighbour => neighbour.Tag));
+        Assert.Equal("2 files together", model.GraphNeighbours[0].SharedText);
+        Assert.Equal("2 files · 2 related tags", model.GraphFocusSummary);
+        map.Settle();
+        Picture(window, "graph-focus");
+
+        // Going on from the list leaves a trail; Back retraces it.
+        var row = window.GraphNeighbourList.GetVisualDescendants().OfType<Button>().Single(button => (string?)button.CommandParameter == "sunset");
+        Click(window, row);
+        Assert.Equal("sunset", model.GraphFocus);
+        Assert.Equal(new[] { "client A" }, model.GraphTrail);
+        Assert.Equal(new[] { "beach", "client A", "job 7" }, model.GraphNeighbours.Select(neighbour => neighbour.Tag).Order());
+        Click(window, window.GraphBackButton);
+        Assert.Equal("client A", model.GraphFocus);
+        Assert.Empty(model.GraphTrail);
+
+        // The find box puts a tag in focus; a click on the empty map goes back to the whole map.
+        model.GraphSearch = "bea";
+        model.FindGraphTagCommand.Execute(null);
+        Assert.Equal("beach", model.GraphFocus);
+        var empty = map.TranslatePoint(new Point(8, map.Bounds.Height - 8), window)!.Value;
+        window.MouseDown(empty, MouseButton.Left);
+        window.MouseUp(empty, MouseButton.Left);
+        Settle(window);
+        Assert.Null(model.GraphFocus);
+
+        // Double-click a tag, or Show its files: the filmstrip narrows to that tag alone. The second click lands where the tag was,
+        // though the first has started it gliding to the middle.
+        map.Settle();
+        Settle(window);
+        var sunset = map.TranslatePoint(map.ScreenOf("sunset")!.Value, window)!.Value;
+        window.MouseDown(sunset, MouseButton.Left);
+        window.MouseUp(sunset, MouseButton.Left);
+        window.MouseDown(sunset, MouseButton.Left);
+        window.MouseUp(sunset, MouseButton.Left);
+        Settle(window);
+        Assert.Equal(new[] { "sunset" }, model.FilterTags);
+        Assert.Equal(new[] { "a2.png", "a3.png" }, model.LibraryView.Select(item => item.Name));
+        ClickTag("job 7");
+        Click(window, window.GraphShowFilesButton);
+        Assert.Equal(new[] { "job 7" }, model.FilterTags);
+        Click(window, window.GraphAddFilterButton);
+        Assert.Equal(new[] { "job 7" }, model.FilterTags);
+        window.Close();
+    }
 }

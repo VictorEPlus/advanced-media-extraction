@@ -77,6 +77,7 @@ public sealed partial class MainViewModel
         UpdateOverviewTags();
         ShowFolderTags();
         UpdateSuggestions();
+        if (IsGraphTab) BuildTagGraph();
     }
 
     /// <summary>The Tags tab: the tags of what is being tagged (the picked files, or this file), and the ones the open file carries from its folders.</summary>

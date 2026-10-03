@@ -171,6 +171,47 @@ public sealed class TagTrackingTests
     }
 
     [Fact]
+    public void ATagUsedEverywhereOrSharedByCoincidenceIsNotSuggested()
+    {
+        // Screen recordings: same size, frame rate and codec, no camera or day; tagged by topic.
+        FileTraits Recording(string folder, ulong? look = null) => new()
+        {
+            Kind = MediaKind.Video, Folder = folder, Width = 2560, Height = 1440, FrameRate = "60/1", Codec = "h264", Duration = 30, Visual = look
+        };
+        var tagged = new List<(FileTraits, IReadOnlyCollection<string>)>();
+        for (var index = 0; index < 12; index++)
+            tagged.Add((Recording(@"D:\videos\" + (index % 2 == 0 ? "a" : "b")), index < 9 ? ["training", "claude"] : ["obs"]));
+
+        // Sharing a resolution and codec with every recording suggests nothing.
+        Assert.Empty(TagSuggester.Suggest(Recording(@"E:\elsewhere"), tagged, []));
+
+        // In folder a, "training" is on 5 of the 6 recordings, but nearly as often in folder b: it says nothing about this file.
+        Assert.Empty(TagSuggester.Suggest(Recording(@"D:\videos\a"), tagged, []));
+
+        // Two files in a folder are not enough on their own; three that share a tag the rest do not have, are.
+        var folders = new List<(FileTraits, IReadOnlyCollection<string>)>
+        {
+            (Recording(@"D:\x"), ["job 7"]), (Recording(@"D:\x"), ["job 7"]),
+            (Recording(@"D:\y"), ["other"]), (Recording(@"D:\z"), ["other"])
+        };
+        Assert.Empty(TagSuggester.Suggest(Recording(@"D:\x"), folders, []));
+        folders.Add((Recording(@"D:\x"), ["job 7"]));
+        var suggestion = Assert.Single(TagSuggester.Suggest(Recording(@"D:\x"), folders, []));
+        Assert.Equal(("job 7", 3, 3, "same folder"), (suggestion.Tag, suggestion.Files, suggestion.Similar, suggestion.Reason));
+
+        // A near copy is enough on its own, even of a file in another folder.
+        var copy = TagSuggester.Suggest(Recording(@"E:\edit", look: 0xAAAA_0000_FFFF_1234), [(Recording(@"D:\v", look: 0xAAAA_0000_FFFF_1235), ["hero shot"]), .. folders], []);
+        Assert.Equal("hero shot", copy[0].Tag);
+
+        // A few near copies with different tags: each one's tags are offered.
+        var few = Enumerable.Range(0, 3).Select(index => (Recording(@"D:\n" + index, look: 0xAAAA_0000_FFFF_1234UL ^ (1UL << index)), (IReadOnlyCollection<string>)[$"topic {index}"])).ToList();
+        Assert.Equal(["topic 0", "topic 1", "topic 2"], TagSuggester.Suggest(Recording(@"E:\new", look: 0xAAAA_0000_FFFF_1234), few, []).Select(each => each.Tag).Order());
+        // Many files that all look alike (the same app on screen) but are about different things: the look says nothing.
+        var many = Enumerable.Range(0, 8).Select(index => (Recording(@"D:\m" + index, look: 0xAAAA_0000_FFFF_1234UL ^ (1UL << index)), (IReadOnlyCollection<string>)[$"topic {index}"])).ToList();
+        Assert.Empty(TagSuggester.Suggest(Recording(@"E:\new", look: 0xAAAA_0000_FFFF_1234), many, []));
+    }
+
+    [Fact]
     public void TraitsAreReadFromPhotoAndPhoneVideoDetails()
     {
         var photo = FileTraits.From(new MediaAsset(@"D:\cards", "DSC_0412.jpg", MediaKind.Photo, 1, 1),
