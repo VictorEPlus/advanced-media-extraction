@@ -1,6 +1,6 @@
 # Avalonia rewrite: handoff
 
-Status as of 2 October 2026, branch `avalonia-shell` (**not pushed**). Read this first when picking the work up.
+Status as of 2 October 2026, branch `avalonia-shell` (pushed to origin). Read this first when picking the work up.
 
 ## Goal and decisions
 
@@ -82,7 +82,41 @@ like WPF); `Pixels.ToSkia` assumed BGRA, so RGBA pictures came out with red and 
 - Pause refinement (frame matching of the live picture) is ported but only lightly exercised.
 - `scripts/Publish.ps1` still publishes only the WPF app.
 
+## Review findings (open), 2 October 2026
+
+Found in a review of `avalonia-shell` at `fe36688`. Item 1 is fixed in this PR; the rest are open, most serious first.
+
+1. **Fixed: `ShellTests` wrote into the owner's real Pictures folder.** `Open()` built a `MainViewModel` on a fresh data
+   folder, so settings fell back to `AppSettings.ExportDirectory`'s default (`MyPictures\MediaWorkbench Exports`), and the
+   Copy test saved `still_copy_crop_80x60.png` there. Setting the `ExportDirectory` *property* does not help: exports and
+   Copy read the saved `settings`, which change only on Save settings or the folder picker. The test now saves its own
+   `settings.json` (export folder inside its temp workspace) before the view model starts. The two `DesktopChecks` were
+   already safe because they call `SaveSettingsCommand`. **Rule for new tests: pre-seed settings; never rely on the property.**
+2. **First-start import can half-succeed and never retry** (`App.ImportClassicData`). The marker, whose text says
+   "Copied from ...", is written *before* the copy, and `IOException`/`UnauthorizedAccessException` are swallowed. A copy
+   that fails partway leaves a marker claiming success, so the import is never attempted again. Write the marker last,
+   and only after every file copied.
+3. **The import can take an inconsistent catalog.** `CatalogStore` uses `PRAGMA journal_mode=WAL`. Copying `catalog.db`,
+   `-wal` and `-shm` one by one while the WPF app is open can pair a database with a WAL from a different moment, losing
+   recent favorites/tags or corrupting the copy. Use SQLite's online backup (`SqliteConnection.BackupDatabase`), which
+   gives a consistent snapshot even while the WPF app is writing.
+4. **`Launch-Avalonia.cmd` fails when the WPF app is open, and vice versa.** `scripts/Launch.bat` builds the whole solution.
+   If either app is running and its code changed (any pull), MSBuild retries copying the locked exe 10 times (~10 s of
+   `MSB3026`), fails with `MSB3027`, and the launcher says "Build failed. Run scripts\Verify.ps1", which is the wrong
+   cause. Reproduced for the WPF app in an isolated worktree. Suggested fix: build only the project being launched, and
+   before building, detect a running copy of that exe and ask the owner to close it, without closing it automatically.
+5. **`README.md` line 51 describes the old launcher**: it names `Media Workbench.lnk` (no longer in the repo; use
+   `Launch.cmd`) and says the launcher "builds ... if none exists" (it now always builds and prints `Built:`/`Commit:`).
+6. Minor: `scripts/Verify.ps1` runs the Avalonia tests without the `trx` logger, so CI uploads no Avalonia results.
+   The view-model logic is a second copy (~5,000 lines); every `master` fix must be ported until the WPF app is retired
+   (the recent folder-tree fixes are ported correctly).
+
 ## Working agreements (also in Claude's memory)
 
 Plain short explanations; commit/push only when asked; big work on a branch; project-local venvs for Python; Astra only when stuck;
 verify visually with the capture script.
+
+**Owner data is off limits for testing.** Never start either app without `--data-dir <temp folder>` (without it the
+Avalonia app copies the WPF data on first start). Tests and runs must keep data, temp files and exports inside their own
+folder; do not read or write `%LOCALAPPDATA%\MediaWorkbench`, `%LOCALAPPDATA%\MediaWorkbench.Avalonia` or
+`Pictures\MediaWorkbench Exports`. Check those locations are unchanged after a test run.

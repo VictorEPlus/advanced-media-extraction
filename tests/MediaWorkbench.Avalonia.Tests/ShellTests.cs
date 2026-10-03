@@ -27,7 +27,12 @@ public sealed class ShellTests : IDisposable
 
     private (MainViewModel Model, MainWindow Window) Open()
     {
-        var model = new MainViewModel(Path.Combine(workspace, "data"));
+        // Settings are written before the app starts, so exports (and Copy, which saves a PNG) go to the test's own folder.
+        // Without this a fresh data folder falls back to the default under the user's Pictures.
+        var data = Path.Combine(workspace, "data");
+        Directory.CreateDirectory(data);
+        new SettingsStore(Path.Combine(data, "settings.json")).Save(new AppSettings { ExportDirectory = Path.Combine(workspace, "exports") });
+        var model = new MainViewModel(data);
         var window = new MainWindow(model) { Width = 1500, Height = 940 };
         window.Show();
         return (model, window);
