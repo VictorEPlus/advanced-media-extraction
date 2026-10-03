@@ -24,6 +24,7 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
     // Frames and thumbnails queue separately so a folder full of video thumbnails can never hold up frame stepping.
     private readonly SemaphoreSlim cacheGate = new(2);
     private readonly SemaphoreSlim thumbnailGate = new(2);
+    private readonly SemaphoreSlim previewGate = new(2);
     private readonly SemaphoreSlim waveformGate = new(1);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> seekUnsafe = new();
     private readonly object trimLock = new();
@@ -147,6 +148,27 @@ public sealed class MediaEngine(ToolPaths tools, string cacheDirectory, int cach
         asset.Identity + "|thumbnail-v2", temporary => runner.RunAsync(tools.Ffmpeg,
             ["-v", "error", "-nostdin", "-y", "-i", asset.FullPath, "-map", "0:v:0", "-frames:v", "1", "-vf", "thumbnail=24,scale=224:224:force_original_aspect_ratio=decrease", "-f", "image2", temporary],
             cancellationToken: cancellationToken, background: true), cancellationToken, thumbnailGate);
+
+    /// <summary>
+    /// Moments for <paramref name="count"/> preview pictures spread evenly from the start to the end of a video, the first at 0 and
+    /// the last just before the end (the very end has no picture of its own).
+    /// </summary>
+    public static double[] PreviewTimes(double duration, int count)
+    {
+        if (count < 1 || !(duration >= 0)) return [];
+        var last = Math.Max(0, duration - Math.Min(0.25, duration * 0.05));
+        return count == 1 ? [0] : Enumerable.Range(0, count).Select(index => last * index / (count - 1)).ToArray();
+    }
+
+    /// <summary>
+    /// A small picture of the video at <paramref name="time"/> seconds, for the hover preview in the filmstrip: a quick seek rather
+    /// than an exact frame, cached per file. It has its own two-at-a-time gate, so it never waits behind a page of thumbnails.
+    /// </summary>
+    public Task<byte[]> GetPreviewFrameAsync(MediaAsset asset, double time, CancellationToken cancellationToken = default) => CachedAsync(
+        $"{asset.Identity}|preview-v1|{MediaNumber.Format(Math.Round(time, 3))}", temporary => runner.RunAsync(tools.Ffmpeg,
+            ["-v", "error", "-nostdin", "-y", "-ss", MediaNumber.Format(Math.Round(time, 3)), "-i", asset.FullPath, "-map", "0:v:0", "-frames:v", "1",
+             "-vf", "scale=320:320:force_original_aspect_ratio=decrease", "-f", "image2", temporary],
+            cancellationToken: cancellationToken, background: true), cancellationToken, previewGate);
 
     public Task<byte[]> GetFrameAsync(MediaAsset asset, int frameIndex, CancellationToken cancellationToken = default)
     {

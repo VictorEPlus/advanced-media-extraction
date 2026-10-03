@@ -67,6 +67,32 @@ card, row, link, star and small buttons are sized on purpose); `ShownText()` rea
 App bugs the checks found and that are fixed: thumbnails of very tall pictures were only limited in width (now fit 220 x 220,
 like WPF); `Pixels.ToSkia` assumed BGRA, so RGBA pictures came out with red and blue swapped.
 
+## Tagging features (Avalonia only, not in the WPF app)
+
+Asked for by the owner on 3 October 2026; the WPF app does not have them.
+- **Suggestions while typing** in every tag box (`AutoCompleteBox` + `Logic/TagCompletion.cs`): only the tag after the last
+  comma is matched; choosing one keeps the tags before it. Enter adds what is in the box.
+- **Choose from your tags** (Tags tab): every tag in use as a bubble; click to put it on, click a filled one to take it off.
+- **Picking files** (`Logic/MainViewModel.Picking.cs`): Ctrl+click, Shift+click (a run), the round mark on a thumbnail, Ctrl+A in
+  the filmstrip, Esc clears. While files are picked, the Tags tab works on all of them: tags on all, tags on some ("4 of 5", +
+  finishes it), and the one-file sections step aside. Picks hidden by a search or another folder are let go, so nothing unseen
+  is tagged. `TagStore.AddToFiles` / `RemoveFromFiles` do it in one transaction.
+- **Tag bar in the filmstrip header** (`FolderTagBar`): a box (T to focus; Enter tags and hands the keyboard back to the filmstrip,
+  so arrows move to the next file) and the tags the shown files carry, most used first, as bubbles. It is in the header row on
+  purpose: a row of its own cost the picture 23 px and broke the compact-layout check at 1080 x 700.
+- **Tag colours** (`Logic/TagColors.cs`): each tag has a matte pastel from an FNV-1a hash of its lower-case name (stable across
+  runs); filled with dark ink when on, a faint wash when not, an outline when on some.
+- **Tag filter** (bottom left, `Logic/MainViewModel.TagFilter.cs`): replaces the WPF text box + single-choice list. A drop-down of
+  every tag in use (count, colour dot, find box) with tick boxes; ticked tags show as bubbles with ×; Clear unticks all; with two or
+  more, "Files with any / all of them". Exact tag matches. The Overview's tag bubbles tick and untick the same filter.
+  Show every tagged file uses the ticked tags (any/all), or every tag when none is ticked.
+- **Thumbnail badge** is the file extension (MP4, JPG, WAV), in the kind's colour.
+- **Hover preview** (`MainWindow.Hover.cs`, `MainViewModel.Hover.cs`, `MediaEngine.PreviewTimes/GetPreviewFrameAsync`): resting
+  250 ms on a video plays five pictures, first to just before the last at even steps, 550 ms each; fast seeks, cached, own
+  two-at-a-time gate; the last 16 videos' pictures are kept decoded.
+- The thumbnail-size slider uses a compact Fluent size (`SliderHorizontalHeight` 24) so it fits the 30 px header row.
+- Tests: `TaggingTests` (typing, picking, bar, colours, slider, hover on a generated video); `TagTrackingTests` for the store.
+
 ## Known differences / to check
 
 - Styling pass done (owner asked: no orange, blues and dark navy, better contrast, soft round glass). "Night glass":

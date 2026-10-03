@@ -179,8 +179,8 @@ internal static partial class DesktopSmokeTest
         var content = (Visual)window.Content!;
         // The dock under the picture keeps one height for every kind of file, so at the smallest window a photo gets a little less height than it used to.
         Require(window.PreviewSurface.Bounds.Width > 600 && window.PreviewSurface.Bounds.Height > 185, $"Compact layout should reclaim space when Sources is collapsed (picture {window.PreviewSurface.Bounds.Width:0} x {window.PreviewSurface.Bounds.Height:0}, filmstrip {window.FilmstripPanel.Bounds.Height:0}, dock {window.PreviewDock.Bounds.Height:0}, header {window.CenterHeader.Bounds.Height:0}).");
-        // Text buttons share one height; icon buttons, the play button, folder cards and the small inline ones are sized on purpose.
-        string[] ownSize = ["icon", "quiet", "folderCard", "play", "row", "link", "star", "small"];
+        // Text buttons share one height; icon buttons, the play button, folder cards, tag bubbles, pick marks and the small inline ones are sized on purpose.
+        string[] ownSize = ["icon", "quiet", "folderCard", "play", "row", "link", "star", "small", "tagBubble", "pickMark"];
         var heights = VisualChildren(content).OfType<Button>()
             .Where(button => button.Bounds.Height > 0 && Shown(button) && button.Command is not null && !ownSize.Any(button.Classes.Contains))
             .Select(button => (button, button.Bounds.Height)).ToList();

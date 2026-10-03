@@ -26,8 +26,6 @@ public sealed partial class MainViewModel
     public string OverviewFoldersTitle { get; private set; } = "";
     public string OverviewMoreText { get; private set; } = "";
     /// <summary>Set when the tag filter came from a tag chip, so it matches that tag exactly rather than every tag containing the text.</summary>
-    private bool exactTagFilter;
-    private bool settingTagFilter;
 
     private void UpdateOverview()
     {
@@ -66,9 +64,8 @@ public sealed partial class MainViewModel
             foreach (var tag in item.Tags)
                 counts[tag] = counts.GetValueOrDefault(tag) + 1;
         }
-        var active = exactTagFilter ? TagFilter.Trim() : null;
         var tags = counts.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Take(OverviewTagLimit)
-            .Select(pair => new OverviewTag(pair.Key, pair.Value, string.Equals(pair.Key, active, StringComparison.OrdinalIgnoreCase))).ToList();
+            .Select(pair => new OverviewTag(pair.Key, pair.Value, FilterTags.Contains(pair.Key, StringComparer.OrdinalIgnoreCase))).ToList();
         if (!tags.SequenceEqual(OverviewTags))
         {
             OverviewTags.Clear();
@@ -100,28 +97,12 @@ public sealed partial class MainViewModel
         SelectFolder(Parent(folderRoot)?.Path ?? "");
     }
 
-    /// <summary>A tag chip: the filmstrip shows only files with exactly that tag; clicking it again shows everything again.</summary>
+    /// <summary>A tag bubble: ticks that tag in the tag filter (bottom left), or unticks it when it is already ticked.</summary>
     [RelayCommand]
     private void ToggleOverviewTag(OverviewTag? tag)
     {
         if (tag is null) return;
-        settingTagFilter = true;
-        try
-        {
-            exactTagFilter = !tag.IsActive;
-            TagFilter = tag.IsActive ? "" : tag.Tag;
-        }
-        finally { settingTagFilter = false; }
-        UpdateOverviewTags();
-        Status = tag.IsActive ? "Showing files with any tag again." : $"Showing the {visibleCount:N0} files tagged {tag.Tag}. Click the tag again to show everything.";
-    }
-
-    private bool MatchesTagFilter(AssetViewModel item)
-    {
-        var query = TagFilter.Trim();
-        if (query.Length == 0) return true;
-        return exactTagFilter
-            ? item.Tags.Any(tag => string.Equals(tag, query, StringComparison.OrdinalIgnoreCase))
-            : item.Tags.Any(tag => tag.Contains(query, StringComparison.OrdinalIgnoreCase));
+        SetFilterTag(tag.Tag, !tag.IsActive);
+        if (!HasFilterTags) Status = "Showing files with any tag again.";
     }
 }

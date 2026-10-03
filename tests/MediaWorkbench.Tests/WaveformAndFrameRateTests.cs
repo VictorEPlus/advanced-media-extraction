@@ -27,6 +27,17 @@ public sealed class WaveformAndFrameRateTests
     }
 
     [Fact]
+    public void HoverPreviewMomentsRunFromTheFirstToJustBeforeTheLastAtEvenSteps()
+    {
+        Assert.Equal([0, 2.4375, 4.875, 7.3125, 9.75], MediaEngine.PreviewTimes(10, 5));
+        // A short clip stops 5% before its end rather than a fixed quarter second.
+        Assert.Equal([0, 0.475, 0.95], MediaEngine.PreviewTimes(1, 3), (expected, actual) => Math.Abs(expected - actual) < 1e-9);
+        Assert.Equal([0.0], MediaEngine.PreviewTimes(10, 1));
+        Assert.Empty(MediaEngine.PreviewTimes(10, 0));
+        Assert.Empty(MediaEngine.PreviewTimes(double.NaN, 5));
+    }
+
+    [Fact]
     public async Task BucketsHoldTheLowestAndHighestSampleAndKeepTheRemainder()
     {
         var waveform = await Waveform.FromPcmAsync(Pcm(100, -200, 16384, -32768, 5, 7, 9), 3);

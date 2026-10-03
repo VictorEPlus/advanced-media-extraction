@@ -64,6 +64,17 @@ public partial class MainWindow : Window
         Filmstrip.AddHandler(PointerPressedEvent, (_, _) => StopGlide(), RoutingStrategies.Tunnel, handledEventsToo: true);
         Filmstrip.SizeChanged += (_, _) => UpdateFollowFocus(false);
         Filmstrip.ContextRequested += FilmstripContextRequested;
+        Filmstrip.AddHandler(PointerPressedEvent, FilmstripPickPointerPressed, RoutingStrategies.Tunnel);
+        SetUpTagCompletion(TagBox, viewModel.AddTagsCommand);
+        SetUpTagCompletion(FolderTagBox, viewModel.AddFolderTagsCommand);
+        SetUpTagCompletion(QuickTagBox, viewModel.AddQuickTagsCommand, backToFilmstrip: true);
+        SetUpHoverPreview();
+        // The tag filter's list is counted afresh each time it opens (files may have been added since), with an empty find box.
+        ((Flyout)TagFilterButton.Flyout!).Opening += (_, _) =>
+        {
+            viewModel.TagFilterSearch = "";
+            viewModel.RebuildTagFilterOptions();
+        };
 
         FolderTreeList.ContainerPrepared += (_, args) => { if (args.Container.DataContext is FolderRowViewModel row) _ = viewModel.LoadFolderCoversAsync(row); };
         FolderTreeList.AddHandler(PointerPressedEvent, FolderTreePointerPressed, RoutingStrategies.Tunnel);
@@ -204,11 +215,65 @@ public partial class MainWindow : Window
     {
         if ((args.Source as Control)?.DataContext is not AssetViewModel item || args.Source is not Control target) return;
         args.Handled = true;
-        ShowMenu(target,
-        [
+        var items = new List<object>
+        {
             Item("Open in Explorer", viewModel.RevealAssetCommand, item, "Opens the folder this file is in, with the file selected.", "Ctrl+Shift+E"),
-            Item("Add to stitch", viewModel.AddToStitchCommand, item, "Adds this file's picture to the Stitch view.")
-        ]);
+            Item("Add to stitch", viewModel.AddToStitchCommand, item, "Adds this file's picture to the Stitch view."),
+            new Separator(),
+            Item(item.IsPicked ? "Unpick" : "Pick", viewModel.TogglePickCommand, item, "Pick several files to tag them together in the Tags tab.", "Ctrl+Click")
+        };
+        if (viewModel.HasPicks)
+            items.Add(Item($"Tag the {viewModel.PickedCount:N0} picked…", viewModel.ShowTagsForPicksCommand, null, "Opens the Tags tab for the picked files."));
+        ShowMenu(target, items);
+    }
+
+    /// <summary>The keyboard on the open file's thumbnail (or the filmstrip), where the arrow keys change file.</summary>
+    private void FocusFilmstrip() => Dispatcher.UIThread.Post(() =>
+    {
+        if (Filmstrip.SelectedItem is { } selected && Filmstrip.ContainerFromItem(selected) is Control container)
+            container.Focus(NavigationMethod.Tab);
+        else
+            Filmstrip.Focus(NavigationMethod.Tab);
+    }, DispatcherPriority.Input);
+
+    /// <summary>
+    /// Ctrl+click picks or unpicks a thumbnail and Shift+click picks a run of them, as in Explorer, without changing the open file.
+    /// A plain click still opens the file.
+    /// </summary>
+    private void FilmstripPickPointerPressed(object? sender, PointerPressedEventArgs args)
+    {
+        var modifiers = args.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Shift);
+        if (modifiers == KeyModifiers.None || !args.GetCurrentPoint(Filmstrip).Properties.IsLeftButtonPressed
+            || (args.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true) is not { DataContext: AssetViewModel item } container)
+            return;
+        args.Handled = true;
+        // The click is taken here, so the list does not move the keyboard to the thumbnail itself: Esc and Ctrl+A then work on the picks.
+        container.Focus(NavigationMethod.Pointer);
+        if (modifiers == KeyModifiers.Shift)
+            viewModel.PickRange(item);
+        else
+            viewModel.TogglePick(item);
+    }
+
+    /// <summary>
+    /// Tag boxes suggest the tags already in use while typing: only the tag after the last comma is matched, and choosing one
+    /// keeps the tags before it. Enter adds the tags when no suggestion list is open.
+    /// </summary>
+    private void SetUpTagCompletion(AutoCompleteBox box, ICommand add, bool backToFilmstrip = false)
+    {
+        box.FilterMode = AutoCompleteFilterMode.Custom;
+        box.TextFilter = (text, tag) => TagCompletion.Matches(text, tag);
+        box.TextSelector = (text, tag) => TagCompletion.Complete(text, tag);
+        box.AddHandler(KeyDownEvent, (_, args) =>
+        {
+            // With a suggestion highlighted the box takes Enter itself and fills it in; otherwise Enter adds what was typed.
+            if (args.Key != Key.Enter) return;
+            box.IsDropDownOpen = false;
+            if (add.CanExecute(null)) add.Execute(null);
+            args.Handled = true;
+            // The bar's box: the keyboard goes back to the filmstrip, so the arrow keys move on to the next file to tag.
+            if (backToFilmstrip) FocusFilmstrip();
+        }, RoutingStrategies.Bubble);
     }
 
     /// <summary>A middle click on a folder tab closes it, as in a browser.</summary>
@@ -401,6 +466,19 @@ public partial class MainWindow : Window
             args.Handled = true;
             return;
         }
+        if (modifiers == KeyModifiers.None && args.Key == Key.T && viewModel.CanTagTargets && QuickTagBox.IsEffectivelyVisible)
+        {
+            QuickTagBox.Focus();
+            args.Handled = true;
+            return;
+        }
+        if (modifiers == KeyModifiers.Control && args.Key == Key.A && focused is Visual pickFocus
+            && (ReferenceEquals(pickFocus, Filmstrip) || Filmstrip.IsVisualAncestorOf(pickFocus)))
+        {
+            viewModel.PickAllShownCommand.Execute(null);
+            args.Handled = true;
+            return;
+        }
         if (modifiers == KeyModifiers.Control && args.Key == Key.C)
         {
             viewModel.CopyPreviewCommand.Execute(null);
@@ -435,6 +513,7 @@ public partial class MainWindow : Window
             Key.S => viewModel.StageSelectedCommand,
             Key.C => viewModel.ToggleCropCommand,
             Key.F11 => viewModel.ToggleFocusViewCommand,
+            Key.Escape when viewModel.HasPicks && !viewModel.HasCrop && !viewModel.IsCropping => viewModel.ClearPicksCommand,
             Key.Escape when viewModel.IsFocusView && !viewModel.HasCrop && !viewModel.IsCropping => viewModel.ToggleFocusViewCommand,
             Key.Escape => viewModel.ResetCropCommand,
             Key.I when viewModel.IsVideo || viewModel.IsAudio => viewModel.MarkInCommand,

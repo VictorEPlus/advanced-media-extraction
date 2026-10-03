@@ -129,6 +129,34 @@ public sealed class TagStore
         transaction.Commit();
     }
 
+    /// <summary>Adds the same tags to many files at once, in one transaction (tagging a set of picked files).</summary>
+    public void AddToFiles(IEnumerable<string> paths, IEnumerable<string> tags, string source = "manual")
+    {
+        var normalized = tags.Select(Normalize).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var id = EnsureFile(connection, transaction, path);
+            foreach (var tag in normalized)
+                Execute(connection, transaction, "INSERT INTO file_tags(file,tag,source) VALUES($file,$tag,$source) ON CONFLICT DO NOTHING;", ("$file", id), ("$tag", tag), ("$source", source));
+        }
+        transaction.Commit();
+    }
+
+    /// <summary>Takes a tag off many files at once, in one transaction. Files left with no tags are forgotten, as with <see cref="Remove"/>.</summary>
+    public void RemoveFromFiles(IEnumerable<string> paths, string tag)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            Execute(connection, transaction, "DELETE FROM file_tags WHERE tag=$tag AND file=(SELECT id FROM tagged_files WHERE path=$path);", ("$path", path), ("$tag", Normalize(tag)));
+            Execute(connection, transaction, "DELETE FROM tagged_files WHERE path=$path AND NOT EXISTS (SELECT 1 FROM file_tags WHERE file=tagged_files.id);", ("$path", path));
+        }
+        transaction.Commit();
+    }
+
     public void Remove(string path, string tag)
     {
         using var connection = Open();

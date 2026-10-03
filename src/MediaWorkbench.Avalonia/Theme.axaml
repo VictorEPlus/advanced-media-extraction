@@ -802,4 +802,153 @@
         <Setter Property="Background" Value="#1FB9D4FF" />
         <Setter Property="CornerRadius" Value="2" />
     </Style>
+
+    <!-- Picking and choosing tags (after the general button styles, so these win). -->
+    <!-- A tag only some of the picked files carry: an outline instead of a fill. -->
+    <Style Selector="Border.tagChip.partial">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="#59C7B8FF" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <!-- Picking files in the filmstrip: a round mark on each thumbnail (shown on hover, or on all of them once something is
+         picked), a blue wash on a picked card, and a bar over the filmstrip saying what is picked. -->
+    <Style Selector="Button.pickMark">
+        <Setter Property="Width" Value="22" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="11" />
+        <Setter Property="Background" Value="#99050A16" />
+        <Setter Property="BorderBrush" Value="#CCF1F5FC" />
+        <Setter Property="BorderThickness" Value="1.5" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.pickMark Path.tick">
+        <Setter Property="Stroke" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.filmstrip ListBoxItem:pointerover Button.pickMark, ListBox.filmstrip.picking Button.pickMark, Button.pickMark.picked">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.pickMark:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#CC1B2B4B" />
+        <Setter Property="BorderBrush" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.pickMark.picked">
+        <Setter Property="Background" Value="#3D86FA" />
+        <Setter Property="BorderBrush" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.pickMark.picked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#3D86FA" />
+        <Setter Property="BorderBrush" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.pickMark.picked Path.tick">
+        <Setter Property="Stroke" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Border.pickWash">
+        <Setter Property="Background" Value="#335CABFF" />
+    </Style>
+    <Style Selector="Border.pickBar">
+        <Setter Property="Background" Value="{StaticResource AccentFaintBrush}" />
+        <Setter Property="BorderBrush" Value="#4D5CABFF" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Padding" Value="3" />
+    </Style>
+    <Style Selector="Path.tick">
+        <Setter Property="Stroke" Value="{StaticResource InkBrush}" />
+        <Setter Property="StrokeThickness" Value="1.8" />
+        <Setter Property="StrokeLineCap" Value="Round" />
+        <Setter Property="StrokeJoin" Value="Round" />
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="Stretch" Value="None" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Tag bubbles: each tag in its own pastel (TagColors), filled when it is on what is being tagged, a faint wash of it when
+         not, an outline when only some of the picked files have it. Hover keeps the colour and lifts the bubble a little. -->
+    <Style Selector="Button.tagBubble">
+        <Setter Property="CornerRadius" Value="13" />
+        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="Padding" Value="10,2" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="RenderTransform" Value="scale(1)" />
+    </Style>
+    <Style Selector="Button.tagBubble.some">
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.tagBubble:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{Binding $parent[Button].Background}" />
+        <Setter Property="Foreground" Value="{Binding $parent[Button].Foreground}" />
+        <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
+    </Style>
+    <Style Selector="Button.tagBubble:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{Binding $parent[Button].Background}" />
+        <Setter Property="Foreground" Value="{Binding $parent[Button].Foreground}" />
+        <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
+    </Style>
+    <Style Selector="Button.tagBubble:pointerover">
+        <Setter Property="RenderTransform" Value="scale(1.05)" />
+    </Style>
+    <Style Selector="Button.tagBubble:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{Binding $parent[Button].Background}" />
+        <Setter Property="Foreground" Value="{Binding $parent[Button].Foreground}" />
+        <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
+    </Style>
+    <Style Selector="Button.tagBubble:disabled">
+        <Setter Property="Opacity" Value="0.6" />
+    </Style>
+    <Style Selector="Button.tagBubble Path.tick">
+        <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+    </Style>
+    <!-- On a filled pastel bubble, its × is dark like its text. -->
+    <Style Selector="Border.tagChip.pastel Button.quiet">
+        <Setter Property="Foreground" Value="#131B30" />
+    </Style>
+    <Style Selector="Border.tagChip.pastel Button.quiet:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#26000000" />
+        <Setter Property="Foreground" Value="#131B30" />
+    </Style>
+    <!-- A tag box that fits a 32-high row (the bar over the filmstrip). -->
+    <Style Selector="AutoCompleteBox.compact TextBox">
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="CornerRadius" Value="15" />
+    </Style>
+
+    <!-- A full-width switch that opens a section under it. -->
+    <Style Selector="ToggleButton.disclosure">
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="CornerRadius" Value="{StaticResource ControlRadius}" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlEdgeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="ToggleButton.disclosure:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+        <Setter Property="BorderBrush" Value="#33B9D4FF" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    </Style>
+    <Style Selector="ToggleButton.disclosure:checked /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource SelectedBrush}" />
+        <Setter Property="BorderBrush" Value="#665CABFF" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    </Style>
+    <Style Selector="Button.small">
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="Padding" Value="10,2" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="CornerRadius" Value="12" />
+    </Style>
 </Styles>

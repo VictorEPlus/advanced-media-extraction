@@ -14,6 +14,28 @@ public sealed class TagTrackingTests
     private static List<MediaAsset> ScanAll(string root) => new LibraryScanner().Scan(root).ToList();
 
     [Fact]
+    public void ManyFilesAreTaggedAndUntaggedTogetherAndUntaggedFilesAreForgotten()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new TagStore(Path.GetFullPath(temporary.FilePath("catalog.db")));
+        var files = Enumerable.Range(1, 3).Select(index => Path.GetFullPath(temporary.FilePath($"shot{index}.png"))).ToArray();
+        foreach (var file in files) File.WriteAllBytes(file, [1, 2, 3]);
+        store.Add(files[0], ["keep"]);
+
+        store.AddToFiles(files, ["client A", "Client A", "job 7"]);
+        var tags = store.ReadAll();
+        Assert.All(files, file => Assert.Equal(["client A", "job 7"], tags[file].Where(tag => tag != "keep").Order()));
+        Assert.Contains("keep", tags[files[0]]);
+
+        store.RemoveFromFiles(files, "CLIENT A");
+        store.RemoveFromFiles(files, "job 7");
+        tags = store.ReadAll();
+        Assert.Equal(["keep"], tags[files[0]]);
+        Assert.False(tags.ContainsKey(files[1]), "A file left with no tags should be forgotten.");
+        Assert.Single(store.ReadFiles());
+    }
+
+    [Fact]
     public void AFileKeepsItsIdAcrossARenameAndACopyGetsANewOne()
     {
         using var temporary = new TemporaryDirectory();

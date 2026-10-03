@@ -59,7 +59,7 @@ public sealed partial class MainViewModel
     public double FilmstripHeight => ThumbnailHeight + 48;
     /// <summary>The inspected file is still selected but no longer passes the filters. It is kept rather than torn down.</summary>
     public bool IsSelectionHidden => SelectedAsset is { } selected && !FilterAsset(selected);
-    public bool HasActiveFilters => !string.IsNullOrWhiteSpace(SearchText) || MediaFilter != "All media" || FavoritesOnly || !string.IsNullOrWhiteSpace(TagFilter) || HasFolderFilter;
+    public bool HasActiveFilters => !string.IsNullOrWhiteSpace(SearchText) || MediaFilter != "All media" || FavoritesOnly || FilterTags.Count > 0 || HasFolderFilter;
     public string StageFilteredLabel => $"Stage {visibleCount:N0} filtered";
     public bool HasSource => hasSource;
     public string EmptyTitle => !hasSource ? "Open a folder to begin"
@@ -84,8 +84,6 @@ public sealed partial class MainViewModel
     [ObservableProperty] private int inspectorTab;
     [ObservableProperty] private double thumbnailHeight = 84;
     [ObservableProperty] private string tagText = "";
-    [ObservableProperty] private string tagFilter = "";
-    [ObservableProperty] private string? selectedKnownTag;
     [ObservableProperty] private string collectionName = "New collection";
     [ObservableProperty] private CollectionItem? selectedCollection;
     [ObservableProperty] private PixelCrop? cropSelection;
@@ -124,23 +122,17 @@ public sealed partial class MainViewModel
     }
 
     partial void OnSortMethodChanged(string value) => ApplySort();
-    partial void OnTagFilterChanged(string value)
-    {
-        // Typing in the tag box matches any tag containing the text; only a tag chip asks for one exact tag.
-        if (!settingTagFilter) exactTagFilter = false;
-        RefreshView();
-        UpdateOverviewTags();
-    }
     partial void OnThumbnailHeightChanged(double value) { OnPropertyChanged(nameof(ThumbnailWidth)); OnPropertyChanged(nameof(FilmstripHeight)); }
     partial void OnSourceNameChanged(string value) => OnPropertyChanged(nameof(SourceSummary));
     partial void OnCropSelectionChanged(PixelCrop? value) { OnPropertyChanged(nameof(CopyLabel)); OnPropertyChanged(nameof(CropLabel)); OnPropertyChanged(nameof(HasCrop)); }
     partial void OnIsCroppingChanged(bool value) { if (value && ShowPlayback) { PauseAtPlaybackPosition(); _ = SeekFrameAsync(); } }
-    partial void OnSelectedKnownTagChanged(string? value) { if (value is not null) TagFilter = value; }
     partial void OnIsScanningChanged(bool value) => NotifyEmptyState();
 
     private void RefreshView()
     {
         LibraryView.Refresh();
+        PrunePicks();
+        UpdateFolderBarTags();
         UpdateVisibleCount();
         OnPropertyChanged(nameof(IsSelectionHidden));
         OnPropertyChanged(nameof(HasActiveFilters));
@@ -403,8 +395,7 @@ public sealed partial class MainViewModel
         SearchText = "";
         MediaFilter = "All media";
         FavoritesOnly = false;
-        TagFilter = "";
-        SelectedKnownTag = null;
+        if (HasFilterTags) ClearTagFilter();
         if (HasFolderFilter) SelectFolder("");
     }
 

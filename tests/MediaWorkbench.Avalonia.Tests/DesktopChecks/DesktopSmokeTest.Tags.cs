@@ -84,7 +84,7 @@ internal static partial class DesktopSmokeTest
         model.InspectorTab = 1;
         Render(window, Path.Combine(dataDirectory, "workspace-tags.png"));
 
-        // The overview lists the tags of the files in the folder shown; a click filters the filmstrip to exactly that tag.
+        // The overview lists the tags of the files in the folder shown; a click ticks that tag in the tag filter.
         model.SelectFolder("tagging");
         var strip = model.LibraryView;
         Require(model.OverviewTags.Any(tag => tag.Tag == "client A" && tag.Files == 2) && model.OverviewTags.Any(tag => tag.Tag == "job 7" && tag.Files == 2),
@@ -94,6 +94,6 @@ internal static partial class DesktopSmokeTest
         model.MainTab = 0;
         Render(window, Path.Combine(dataDirectory, "workspace-overview-tags.png"));
         model.ToggleOverviewTagCommand.Execute(model.OverviewTags.Single(tag => tag.Tag == "client A"));
-        Require(model.TagFilter.Length == 0 && strip.Count > 2, "Clicking the chip again should show every file again.");
+        Require(!model.HasFilterTags && strip.Count > 2, "Clicking the chip again should show every file again.");
     }
 }

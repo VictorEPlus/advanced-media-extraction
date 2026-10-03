@@ -71,6 +71,7 @@ public sealed partial class MainViewModel
             KnownTags.Clear();
             foreach (var tag in known) KnownTags.Add(tag);
         }
+        RebuildTagFilterOptions();
         foreach (var item in Assets) item.Tags = TagsFor(item.Asset);
         ShowTagsOf(SelectedAsset);
         UpdateOverviewTags();
@@ -78,17 +79,14 @@ public sealed partial class MainViewModel
         UpdateSuggestions();
     }
 
-    /// <summary>The Tags tab for a file: its own tags, and the ones it carries from its folders.</summary>
+    /// <summary>The Tags tab: the tags of what is being tagged (the picked files, or this file), and the ones the open file carries from its folders.</summary>
     private void ShowTagsOf(AssetViewModel? item)
     {
-        SelectedTags.Clear();
+        ShowTargetTags();
         InheritedTags.Clear();
         if (item is not null)
-        {
-            foreach (var tag in tagIndex.GetValueOrDefault(item.Asset.FullPath, [])) SelectedTags.Add(tag);
             foreach (var (tag, folder) in FolderTags.Inherited(Path.GetDirectoryName(item.Asset.FullPath) ?? "", folderTagIndex))
                 InheritedTags.Add(new InheritedTag(tag, folder));
-        }
         OnPropertyChanged(nameof(HasInheritedTags));
         ShowCollectionsOf(item);
     }
@@ -108,12 +106,17 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void AddTags() => Guard(() =>
     {
-        if (SelectedAsset is not { } item) return;
+        if (!CanTagTargets) return;
         var tags = SplitTags(TagText);
         if (tags.Length == 0) throw new ArgumentException("Type one or more comma-separated tags.");
-        TagFile(item, tags, "manual");
+        if (HasPicks)
+            AddTagsToTargets(tags, "manual");
+        else
+        {
+            TagFile(SelectedAsset!, tags, "manual");
+            Status = "Tags saved in the app. The file itself was not changed.";
+        }
         TagText = "";
-        Status = "Tags saved in the app. The file itself was not changed.";
     });
 
     /// <summary>Tags a file, saves its details for suggestions, and fingerprints it in the background so its tags can follow it.</summary>
@@ -130,10 +133,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void RemoveTag(string? tag) => Guard(() =>
     {
-        if (SelectedAsset is null || tag is null) return;
-        tagStore.Remove(SelectedAsset.Asset.FullPath, tag);
-        ReloadTags();
-        RefreshView();
+        if (tag is not null) RemoveTagFromTargets(tag);
     });
 
     [RelayCommand]
@@ -204,13 +204,16 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private async Task BrowseTaggedAsync()
     {
-        var query = TagFilter.Trim();
-        bool Matches(IEnumerable<string> tags) => tags.Any(tag => query.Length == 0 || tag.Contains(query, StringComparison.OrdinalIgnoreCase));
+        // The ticked tags (any or all of them), or every tag when none is ticked.
+        var wanted = FilterTags.ToList();
+        var all = MatchAllTags;
+        bool Matches(IEnumerable<string> tags) => wanted.Count == 0 ? tags.Any()
+            : all ? wanted.All(tag => tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) : wanted.Any(tag => tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
         // Files tagged directly, wherever they are, and files in the workspace that carry a matching folder tag.
         var paths = tagIndex.Where(pair => Matches(pair.Value)).Select(pair => pair.Key)
             .Concat(Assets.Where(item => item.Owner is { IsVirtual: false } && Matches(item.Tags)).Select(item => item.Asset.FullPath))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        await ShowVirtualFolderAsync(query.Length == 0 ? "Tagged" : $"Tag {query.Replace('\\', ' ')}", paths, null);
+        await ShowVirtualFolderAsync(wanted.Count == 0 ? "Tagged" : "Tag " + string.Join(all ? " + " : " or ", wanted).Replace('\\', ' '), paths, null);
     }
 
     [RelayCommand]
@@ -224,7 +227,7 @@ public sealed partial class MainViewModel
             .Where(path => !string.Equals(path, sourcePath, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         SearchText = "";
-        TagFilter = "";
+        if (HasFilterTags) ClearTagFilter();
         MediaFilter = "All media";
         FavoritesOnly = false;
         await ShowVirtualFolderAsync($"Shares tags with {selected.Name}", paths, null);

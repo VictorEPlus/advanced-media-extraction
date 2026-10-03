@@ -16,13 +16,17 @@ public sealed partial class AssetViewModel(MediaAsset asset, bool favorite) : Ob
     public string KindGlyph => Asset.Kind switch { MediaKind.Video => "▶", MediaKind.Audio => "♫", _ => "▣" };
     public string KindLabel => Asset.Kind.ToString();
     public IBrush KindBrush => Asset.Kind switch { MediaKind.Video => VideoBrush, MediaKind.Audio => AudioBrush, _ => PhotoBrush };
-    /// <summary>The small word on a thumbnail for files that are not photos.</summary>
-    public string KindBadge => Asset.Kind switch { MediaKind.Video => "VIDEO", MediaKind.Audio => "AUDIO", _ => "" };
-    public bool HasKindBadge => Asset.Kind != MediaKind.Photo;
+    /// <summary>The file type on a thumbnail, as its extension (MP4, JPG, WAV), in the colour of its kind.</summary>
+    public string KindBadge => Path.GetExtension(Asset.RelativePath).TrimStart('.').ToUpperInvariant();
+    public bool HasKindBadge => KindBadge.Length > 0;
     private static readonly SolidColorBrush PhotoBrush = Tokens.Brush("PhotoBrush", Color.FromRgb(0xA9, 0x93, 0xFF));
     private static readonly SolidColorBrush VideoBrush = Tokens.Brush("VideoBrush", Color.FromRgb(0x5F, 0xD0, 0xFF));
     private static readonly SolidColorBrush AudioBrush = Tokens.Brush("AudioBrush", Color.FromRgb(0x4F, 0xE0, 0xA0));
     public bool ThumbnailRequested { get; set; }
+    /// <summary>Picked in the filmstrip (Ctrl+click), for tagging several files at once.</summary>
+    [ObservableProperty] private bool isPicked;
+    /// <summary>While the pointer rests on a video's thumbnail: one of five pictures from its start to its end, in turn.</summary>
+    [ObservableProperty] private Bitmap? hoverFrame;
     /// <summary>Normalized folder this file lives in, relative to the library root (or the full folder for collections and tag searches).</summary>
     public string FolderKey { get; init; } = "";
     /// <summary>The workspace folder, collection or tag search this entry belongs to.</summary>

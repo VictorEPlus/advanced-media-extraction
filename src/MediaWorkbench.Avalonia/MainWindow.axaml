@@ -116,10 +116,65 @@
                                 </StackPanel>
                             </Expander>
                             <Expander Name="TaggedFilesSection" Header="Tags">
-                                <StackPanel Spacing="6" Margin="0,4,0,4">
-                                    <TextBox Text="{Binding TagFilter}" PlaceholderText="Filter by tag" ToolTip.Tip="Type a tag to narrow the filmstrip to files carrying it" />
-                                    <ComboBox ItemsSource="{Binding KnownTags}" SelectedItem="{Binding SelectedKnownTag}" HorizontalAlignment="Stretch" PlaceholderText="Tags you have used" ToolTip.Tip="Tags you have used" />
-                                    <Button Content="Show every tagged file" Command="{Binding BrowseTaggedCommand}" HorizontalAlignment="Stretch" ToolTip.Tip="Every tagged file, from any folder or drive, as one more entry in the workspace" />
+                                <!-- Tick any number of tags in the drop-down to narrow the filmstrip to them; Clear lets them all go. -->
+                                <StackPanel Spacing="8" Margin="0,4,0,4">
+                                    <DockPanel>
+                                        <Button Name="ClearTagFilterButton" DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearTagFilterCommand}" IsEnabled="{Binding HasFilterTags}" Margin="6,0,0,0" ToolTip.Tip="Untick every tag: the filmstrip shows all files again (the other filters stay)" />
+                                        <Button Name="TagFilterButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" ToolTip.Tip="Choose the tags to show: tick as many as you like">
+                                            <DockPanel>
+                                                <Path DockPanel.Dock="Right" Classes="chevron" Data="{StaticResource IconChevronDown}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                                <TextBlock Text="{Binding TagFilterLabel}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            </DockPanel>
+                                            <Button.Flyout>
+                                                <Flyout Placement="TopEdgeAlignedLeft">
+                                                    <StackPanel Name="TagFilterList" Width="260" Spacing="8" x:DataType="local:MainViewModel">
+                                                        <TextBox Name="TagFilterSearchBox" Text="{Binding TagFilterSearch}" PlaceholderText="Find a tag" />
+                                                        <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
+                                                            <ItemsControl ItemsSource="{Binding VisibleTagFilterOptions}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="local:TagFilterOption">
+                                                                        <CheckBox IsChecked="{Binding IsSelected}" HorizontalAlignment="Stretch" Margin="0,0,8,0">
+                                                                            <DockPanel>
+                                                                                <TextBlock DockPanel.Dock="Right" Text="{Binding FilesText}" Classes="mono" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                                                                <Ellipse DockPanel.Dock="Left" Width="10" Height="10" Fill="{Binding Tag, Converter={x:Static local:TagColors.Fill}}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                                                <TextBlock Text="{Binding Tag}" Foreground="{Binding Tag, Converter={x:Static local:TagColors.Text}}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                                            </DockPanel>
+                                                                        </CheckBox>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </ScrollViewer>
+                                                        <TextBlock Text="No tag matches." Classes="hint" IsVisible="{Binding HasNoTagFilterOptions}" />
+                                                    </StackPanel>
+                                                </Flyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </DockPanel>
+                                    <ItemsControl Name="FilterTagBubbles" ItemsSource="{Binding FilterTags}" IsVisible="{Binding HasFilterTags}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Border Classes="tagChip pastel" Margin="0,0,6,6" Background="{Binding Converter={x:Static local:TagColors.Fill}}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                                        <TextBlock Text="{Binding}" Foreground="{x:Static local:TagColors.Ink}" VerticalAlignment="Center" />
+                                                        <Button Classes="quiet" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).RemoveFilterTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Stop filtering by this tag"><PathIcon Data="{StaticResource IconClose}" Width="8" Height="8" /></Button>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <!-- With two or more tags: files with any of them, or only files with all of them. -->
+                                    <StackPanel Name="TagMatchChoice" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasSeveralFilterTags}">
+                                        <TextBlock Text="Files with" Classes="caption" VerticalAlignment="Center" />
+                                        <Border Classes="segmented">
+                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                <RadioButton Name="MatchAnyTagButton" Classes="viewTab" GroupName="TagMatch" Content="any" IsChecked="{Binding MatchAnyTag}" ToolTip.Tip="Show files that carry at least one of the ticked tags" />
+                                                <RadioButton Name="MatchAllTagsButton" Classes="viewTab" GroupName="TagMatch" Content="all" IsChecked="{Binding MatchAllTags}" ToolTip.Tip="Show only files that carry every ticked tag" />
+                                            </StackPanel>
+                                        </Border>
+                                        <TextBlock Text="of them" Classes="caption" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <Button Content="Show every tagged file" Command="{Binding BrowseTaggedCommand}" HorizontalAlignment="Stretch" ToolTip.Tip="Every file with the ticked tags (or with any tag, when none is ticked), from any folder or drive, as one more entry in the workspace" />
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
@@ -222,9 +277,11 @@
                                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="local:OverviewTag">
-                                                    <ToggleButton Classes="chip" Margin="0,0,6,6" IsChecked="{Binding IsActive, Mode=OneWay}" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).ToggleOverviewTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Show only the files with this tag; click again to show everything">
-                                                        <TextBlock><Run Text="{Binding Tag, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Files, Mode=OneWay, StringFormat=N0}" Foreground="{StaticResource FaintBrush}" /></TextBlock>
-                                                    </ToggleButton>
+                                                    <Button Classes="tagBubble" Margin="0,0,6,6" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).ToggleOverviewTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Show only the files with this tag; click again to show everything">
+                                                        <Button.Background><MultiBinding Converter="{x:Static local:TagColors.Background}"><Binding Path="Tag" /><Binding Path="IsActive" /></MultiBinding></Button.Background>
+                                                        <Button.Foreground><MultiBinding Converter="{x:Static local:TagColors.Foreground}"><Binding Path="Tag" /><Binding Path="IsActive" /></MultiBinding></Button.Foreground>
+                                                        <StackPanel Orientation="Horizontal" Spacing="8"><TextBlock Text="{Binding Tag}" /><TextBlock Text="{Binding Files, StringFormat=N0}" Opacity="0.7" /></StackPanel>
+                                                    </Button>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
@@ -497,18 +554,21 @@
                         <TabItem Header="Tags">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Name="TagsTabContent" Spacing="10" Margin="0,0,10,0">
-                                    <TextBlock Text="THIS FILE" Classes="eyebrow" />
                                     <DockPanel>
-                                        <Button Name="AddTagsButton" DockPanel.Dock="Right" Content="Add" Command="{Binding AddTagsCommand}" IsEnabled="{Binding HasSelection}" Margin="6,0,0,0" />
-                                        <TextBox Name="TagBox" Text="{Binding TagText}" PlaceholderText="Tags, separated by commas" ToolTip.Tip="Tags for this file, separated by commas. They are kept by the app and never written into the file; they follow the file when it is renamed or moved, and exact copies get them too." />
+                                        <Button DockPanel.Dock="Right" Classes="link" Content="Clear picks" Command="{Binding ClearPicksCommand}" IsVisible="{Binding HasPicks}" ToolTip.Tip="Stop tagging the picked files and go back to the open file (Esc)" />
+                                        <TextBlock Name="TagTargetTitle" Text="{Binding TagTargetTitle}" Classes="eyebrow" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <Button Name="AddTagsButton" DockPanel.Dock="Right" Content="Add" Command="{Binding AddTagsCommand}" IsEnabled="{Binding CanTagTargets}" Margin="6,0,0,0" />
+                                        <AutoCompleteBox Name="TagBox" Text="{Binding TagText, Mode=TwoWay}" ItemsSource="{Binding KnownTags}" MinimumPrefixLength="1" MinimumPopulateDelay="0:0:0.05" MaxDropDownHeight="220" PlaceholderText="{Binding TagBoxHint}" IsEnabled="{Binding CanTagTargets}" ToolTip.Tip="Tags separated by commas; tags you already use are suggested as you type. They are kept by the app and never written into the files; they follow a file when it is renamed or moved, and exact copies get them too." />
                                     </DockPanel>
                                     <ItemsControl ItemsSource="{Binding SelectedTags}">
                                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="x:String">
-                                                <Border Classes="tagChip" Margin="0,0,6,6">
+                                                <Border Classes="tagChip pastel" Margin="0,0,6,6" Background="{Binding Converter={x:Static local:TagColors.Fill}}">
                                                     <StackPanel Orientation="Horizontal" Spacing="2">
-                                                        <TextBlock Text="{Binding}" Classes="mono" Foreground="{StaticResource TagBrush}" VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding}" Classes="mono" Foreground="{x:Static local:TagColors.Ink}" VerticalAlignment="Center" />
                                                         <Button Classes="quiet" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).RemoveTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Remove this tag"><PathIcon Data="{StaticResource IconClose}" Width="8" Height="8" /></Button>
                                                     </StackPanel>
                                                 </Border>
@@ -516,6 +576,58 @@
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
 
+                                    <StackPanel Name="PartialTagsSection" Spacing="6" IsVisible="{Binding HasPartialTags}">
+                                        <TextBlock Text="ON SOME OF THEM" Classes="eyebrow" Margin="0,2,0,0" />
+                                        <ItemsControl ItemsSource="{Binding PartialTags}">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:TagShare">
+                                                    <!-- Dashed: only some of the picked files carry it. -->
+                                                    <Border Classes="tagChip partial" Margin="0,0,6,6" BorderBrush="{Binding Tag, Converter={x:Static local:TagColors.Outline}}" ToolTip.Tip="{Binding ToolTipText}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                                            <TextBlock Text="{Binding Tag}" Classes="mono" Foreground="{Binding Tag, Converter={x:Static local:TagColors.Text}}" VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding CountText}" Classes="mono count" FontSize="11" VerticalAlignment="Center" Margin="6,0,2,0" />
+                                                            <Button Classes="quiet" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).AddSharedTagToAllCommand}" CommandParameter="{Binding}" ToolTip.Tip="Add it to the rest of the picked files"><PathIcon Data="{StaticResource IconPlus}" Width="8" Height="8" /></Button>
+                                                            <Button Classes="quiet" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).RemoveSharedTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Take it off all the picked files"><PathIcon Data="{StaticResource IconClose}" Width="8" Height="8" /></Button>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+
+                                    <!-- Every tag in use, to pick with a click: filled when everything being tagged has it, half when some do. -->
+                                    <StackPanel Name="TagChoicesSection" Spacing="6">
+                                        <ToggleButton Name="TagChoicesButton" Classes="disclosure" HorizontalAlignment="Stretch" IsChecked="{Binding ShowTagChoices}" IsEnabled="{Binding CanTagTargets}" ToolTip.Tip="All the tags you have used. Click one to add it; click a filled one to take it off.">
+                                            <TextBlock Text="{Binding TagChoicesLabel}" />
+                                        </ToggleButton>
+                                        <StackPanel Spacing="6" IsVisible="{Binding ShowTagChoices}">
+                                            <TextBox Name="TagChoiceFilterBox" Text="{Binding TagChoiceFilter}" PlaceholderText="Find a tag" />
+                                            <ItemsControl ItemsSource="{Binding TagChoices}">
+                                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="local:TagChoice">
+                                                        <Button Classes="tagBubble" Classes.some="{Binding IsOnSome}" Margin="0,0,6,6" BorderBrush="{Binding Tag, Converter={x:Static local:TagColors.Outline}}" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).ToggleTagChoiceCommand}" CommandParameter="{Binding}" ToolTip.Tip="{Binding ToolTipText}">
+                                                            <Button.Background><MultiBinding Converter="{x:Static local:TagColors.Background}"><Binding Path="Tag" /><Binding Path="IsOnAll" /></MultiBinding></Button.Background>
+                                                            <Button.Foreground><MultiBinding Converter="{x:Static local:TagColors.Foreground}"><Binding Path="Tag" /><Binding Path="IsOnAll" /></MultiBinding></Button.Foreground>
+                                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                <Path Classes="tick" Data="M1.5,5 L4,7.5 L8.5,2.5" IsVisible="{Binding IsOnAll}" VerticalAlignment="Center" />
+                                                                <Path Classes="tick" Data="M2,5 H8" IsVisible="{Binding IsOnSome}" VerticalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Tag}" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock Text="No tags yet, or none match." Classes="hint" IsVisible="{Binding HasNoTagChoices}" />
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <StackPanel Name="PickedHint" Spacing="4" IsVisible="{Binding HasPicks}">
+                                        <TextBlock Classes="hint" Text="Collections, tags from folders, suggestions and tagging from details are about one file: they come back when you clear the picks." />
+                                    </StackPanel>
+
+                                    <StackPanel Name="FileTagSections" Spacing="10" IsVisible="{Binding ShowFileTagSections}">
                                     <StackPanel Name="FileCollectionsSection" Spacing="6">
                                         <TextBlock Text="IN COLLECTIONS" Classes="eyebrow" Margin="0,4,0,0" />
                                         <TextBlock Text="Not in any collection." Classes="hint" IsVisible="{Binding IsInNoCollection}" />
@@ -550,8 +662,8 @@
                                                 <DataTemplate x:DataType="local:InheritedTag">
                                                     <!-- Dashed: carried from a folder, so it is removed there, not here. -->
                                                     <Panel Margin="0,0,6,6" Height="26" ToolTip.Tip="{Binding ToolTipText}">
-                                                        <Rectangle Stroke="{StaticResource TagBrush}" StrokeDashArray="3,2" StrokeThickness="1" RadiusX="6" RadiusY="6" />
-                                                        <TextBlock Margin="8,0" VerticalAlignment="Center" Classes="mono"><Run Text="{Binding Tag, Mode=OneWay}" Foreground="{StaticResource TagBrush}" /><Run Text=" ← " Foreground="{StaticResource FaintBrush}" /><Run Text="{Binding FolderName, Mode=OneWay}" /></TextBlock>
+                                                        <Rectangle Stroke="{Binding Tag, Converter={x:Static local:TagColors.Outline}}" StrokeDashArray="3,2" StrokeThickness="1" RadiusX="13" RadiusY="13" />
+                                                        <TextBlock Margin="10,0" VerticalAlignment="Center" Classes="mono"><Run Text="{Binding Tag, Mode=OneWay}" Foreground="{Binding Tag, Converter={x:Static local:TagColors.Text}}" /><Run Text=" ← " Foreground="{StaticResource FaintBrush}" /><Run Text="{Binding FolderName, Mode=OneWay}" /></TextBlock>
                                                     </Panel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -581,22 +693,23 @@
                                         <Button Content="Add ticked details as tags" HorizontalAlignment="Stretch" Command="{Binding ConfirmMetadataTagsCommand}" IsEnabled="{Binding HasSelection}" IsVisible="{Binding IsMetadataTagMode}" />
                                         <Button Name="FindRelatedButton" Content="Find files with shared tags" HorizontalAlignment="Stretch" Command="{Binding FindRelatedCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Every other file, in any folder, that shares a tag with this one, as one more entry in the workspace" />
                                     </StackPanel>
+                                    </StackPanel>
 
                                     <Border Height="1" Background="{StaticResource HairlineBrush}" Margin="0,4,0,0" />
                                     <StackPanel Name="FolderTagsSection" Spacing="8">
                                         <TextBlock Classes="eyebrow" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FolderTagTarget}"><Run Text="FOLDER " /><Run Text="{Binding FolderTagTargetLabel, Mode=OneWay}" Foreground="{StaticResource InkBrush}" /></TextBlock>
                                         <DockPanel IsEnabled="{Binding CanTagFolder}">
                                             <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddFolderTagsCommand}" Margin="6,0,0,0" />
-                                            <TextBox Name="FolderTagBox" Text="{Binding FolderTagText}" PlaceholderText="Folder tags" ToolTip.Tip="Tags for the folder selected in the workspace tree. Every file in it and its subfolders carries them, including files added later." />
+                                            <AutoCompleteBox Name="FolderTagBox" Text="{Binding FolderTagText, Mode=TwoWay}" ItemsSource="{Binding KnownTags}" MinimumPrefixLength="1" MinimumPopulateDelay="0:0:0.05" MaxDropDownHeight="220" PlaceholderText="Folder tags" ToolTip.Tip="Tags for the folder selected in the workspace tree, separated by commas; tags you already use are suggested as you type. Every file in it and its subfolders carries them, including files added later." />
                                         </DockPanel>
                                         <ItemsControl ItemsSource="{Binding FolderTagsOfTarget}">
                                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="x:String">
-                                                    <Border Classes="tagChip" Margin="0,0,6,6">
+                                                    <Border Classes="tagChip pastel" Margin="0,0,6,6" Background="{Binding Converter={x:Static local:TagColors.Fill}}">
                                                         <StackPanel Orientation="Horizontal" Spacing="2">
-                                                            <TextBlock Text="#" Foreground="{StaticResource FaintBrush}" VerticalAlignment="Center" Margin="0,0,2,0" />
-                                                            <TextBlock Text="{Binding}" Classes="mono" Foreground="{StaticResource TagBrush}" VerticalAlignment="Center" />
+                                                            <TextBlock Text="#" Foreground="{x:Static local:TagColors.Ink}" Opacity="0.6" VerticalAlignment="Center" Margin="0,0,2,0" />
+                                                            <TextBlock Text="{Binding}" Classes="mono" Foreground="{x:Static local:TagColors.Ink}" VerticalAlignment="Center" />
                                                             <Button Classes="quiet" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).RemoveFolderTagCommand}" CommandParameter="{Binding}" ToolTip.Tip="Remove this tag from the folder and every file in it"><PathIcon Data="{StaticResource IconClose}" Width="8" Height="8" /></Button>
                                                         </StackPanel>
                                                     </Border>
@@ -725,17 +838,31 @@
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Height="30" Margin="0,0,0,6">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                            <TextBlock Name="VisibleCountText" Text="{Binding VisibleCount}" Classes="mono" FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextAlignment="Right" Width="280" ToolTip.Tip="{Binding VisibleCount}" />
+                            <TextBlock Name="VisibleCountText" Text="{Binding VisibleCount}" Classes="mono" FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextAlignment="Right" MaxWidth="260" ToolTip.Tip="{Binding VisibleCount}" />
                             <StackPanel Name="ThumbnailSizeControl" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" ToolTip.Tip="Thumbnail size">
                                 <PathIcon Data="{StaticResource IconImage}" Width="12" Height="12" Foreground="{StaticResource FaintBrush}" />
-                                <Slider Width="100" Minimum="56" Maximum="168" Value="{Binding ThumbnailHeight}" VerticalAlignment="Center" />
+                                <Slider Width="100" Minimum="56" Maximum="168" Value="{Binding ThumbnailHeight}" VerticalAlignment="Center">
+                                    <Slider.Resources>
+                                        <x:Double x:Key="SliderHorizontalHeight">24</x:Double>
+                                        <x:Double x:Key="SliderHorizontalThumbHeight">14</x:Double>
+                                        <x:Double x:Key="SliderHorizontalThumbWidth">14</x:Double>
+                                    </Slider.Resources>
+                                </Slider>
                             </StackPanel>
                             <CheckBox Name="FollowScrollBox" Content="Follow scroll" IsChecked="{Binding FollowFilmstrip}" VerticalAlignment="Center" FontSize="12" ToolTip.Tip="Scroll the filmstrip and the preview shows the file under the marker straight away; it is opened fully when you stop scrolling." />
                         </StackPanel>
+                        <Border Name="PickBar" DockPanel.Dock="Right" Classes="pickBar" Margin="0,0,12,0" VerticalAlignment="Center" IsVisible="{Binding HasPicks}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="{Binding PickedLabel}" VerticalAlignment="Center" Margin="6,0,6,0" FontWeight="SemiBold" />
+                                <Button Name="TagPicksButton" Classes="small primary" Content="Tag them" Command="{Binding ShowTagsForPicksCommand}" ToolTip.Tip="Open the Tags tab for the picked files" />
+                                <Button Classes="ghost small" Content="Pick all shown" Command="{Binding PickAllShownCommand}" ToolTip.Tip="Pick every file the filmstrip shows (Ctrl+A in the filmstrip)" />
+                                <Button Classes="ghost small" Content="Clear" Command="{Binding ClearPicksCommand}" ToolTip.Tip="Unpick them all (Esc)" />
+                            </StackPanel>
+                        </Border>
                         <Button Name="NewTabButton" DockPanel.Dock="Right" Classes="quiet" Command="{Binding NewTabCommand}" Margin="4,0,14,0" VerticalAlignment="Center" ToolTip.Tip="Open another folder tab. Tabs let you keep several folders a click away while you work.">
                             <PathIcon Data="{StaticResource IconPlus}" Width="10" Height="10" />
                         </Button>
-                        <ListBox Name="FolderTabsList" Classes="folderTabs" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}" ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
+                        <ListBox Name="FolderTabsList" DockPanel.Dock="Left" MaxWidth="440" Classes="folderTabs" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}" ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
                             <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4" /></ItemsPanelTemplate></ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="local:FolderTab">
@@ -747,9 +874,33 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                        <Border DockPanel.Dock="Left" Width="1" Height="18" Margin="4,0,10,0" Background="{StaticResource HairlineBrush}" IsVisible="{Binding HasSource}" />
+                        <DockPanel Name="FolderTagBar" Margin="4,0,8,0" IsVisible="{Binding HasSource}">
+                            <AutoCompleteBox Name="QuickTagBox" DockPanel.Dock="Left" Width="200" Classes="compact" Text="{Binding QuickTagText, Mode=TwoWay}" ItemsSource="{Binding KnownTags}" MinimumPrefixLength="1" MinimumPopulateDelay="0:0:0.05" MaxDropDownHeight="220" PlaceholderText="Tag it…  (T)" IsEnabled="{Binding CanTagTargets}" ToolTip.Tip="Type a tag for the open file, or for the picked files, and press Enter. Tags you already use are suggested. T puts the cursor here; after Enter the keyboard goes back to the filmstrip, so the arrow keys move on to the next file." />
+                            <TextBlock DockPanel.Dock="Left" Text="No tags on these files yet. Type one, or Ctrl+click several files first to tag them together." Classes="hint" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="12,0,0,0" IsVisible="{Binding !HasFolderBarTags}" />
+                            <ScrollViewer Name="FolderTagBarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="10,0,0,0" IsVisible="{Binding HasFolderBarTags}">
+                                <ItemsControl ItemsSource="{Binding FolderBarTags}">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="local:TagChoice">
+                                            <Button Classes="tagBubble" Classes.some="{Binding IsOnSome}" BorderBrush="{Binding Tag, Converter={x:Static local:TagColors.Outline}}" IsEnabled="{Binding $parent[Window].((local:MainViewModel)DataContext).CanTagTargets}" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).ToggleTagChoiceCommand}" CommandParameter="{Binding}" ToolTip.Tip="{Binding ToolTipText}">
+                                                <Button.Background><MultiBinding Converter="{x:Static local:TagColors.Background}"><Binding Path="Tag" /><Binding Path="IsOnAll" /></MultiBinding></Button.Background>
+                                                <Button.Foreground><MultiBinding Converter="{x:Static local:TagColors.Foreground}"><Binding Path="Tag" /><Binding Path="IsOnAll" /></MultiBinding></Button.Foreground>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Path Classes="tick" Data="M1.5,5 L4,7.5 L8.5,2.5" IsVisible="{Binding IsOnAll}" VerticalAlignment="Center" />
+                                                    <Path Classes="tick" Data="M2,5 H8" IsVisible="{Binding IsOnSome}" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Tag}" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding UsesText}" FontFamily="{StaticResource MonoFont}" FontSize="11" Opacity="0.7" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
                     </DockPanel>
                     <Panel>
-                        <ListBox Name="Filmstrip" Classes="filmstrip" Height="{Binding FilmstripHeight}" ItemsSource="{Binding LibraryView}"
+                        <ListBox Name="Filmstrip" Classes="filmstrip" Classes.picking="{Binding HasPicks}" Height="{Binding FilmstripHeight}" ItemsSource="{Binding LibraryView}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
                             <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
@@ -760,7 +911,12 @@
                                             <Panel>
                                                 <TextBlock Text="{Binding Placeholder}" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource HairlineBrush}" />
                                                 <Image Classes="thumb" Classes.ready="{Binding HasThumbnail}" Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                                <Image Source="{Binding HoverFrame}" Stretch="UniformToFill" IsHitTestVisible="False" IsVisible="{Binding HoverFrame, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                <Border Classes="pickWash" IsHitTestVisible="False" IsVisible="{Binding IsPicked}" />
                                                 <PathIcon Data="{StaticResource IconStar}" Width="12" Height="12" Foreground="{StaticResource FavoriteBrush}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" IsVisible="{Binding IsFavorite}" />
+                                                <Button Classes="pickMark" Classes.picked="{Binding IsPicked}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Command="{Binding $parent[Window].((local:MainViewModel)DataContext).TogglePickCommand}" CommandParameter="{Binding}" ToolTip.Tip="Pick this file to tag several together (Ctrl+click; Shift+click picks a run)">
+                                                    <Path Classes="tick" Data="M1.5,5 L4,7.5 L8.5,2.5" />
+                                                </Button>
                                                 <!-- Photo, video or sound, without having to read the file name. -->
                                                 <Border Classes="chip" Background="#C7071021" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6" Padding="6,1" IsVisible="{Binding HasKindBadge}" ToolTip.Tip="{Binding KindLabel}">
                                                     <TextBlock Text="{Binding KindBadge}" FontSize="9.5" FontWeight="SemiBold" LetterSpacing="1" Foreground="{Binding KindBrush}" />
